@@ -1,0 +1,23 @@
+server/src/services/terminalService.ts
+  74e42c48ef016ea4 102-138,153-156,271,274-275,279-281,286-304,374,395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "a3e9020e0bc36babcfcca83794b98ede6c6fcc31",
+  "prompts": {
+    "74e42c48ef016ea4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4cce455a-6e9b-4a4c-a61d-f68942dbd0a3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 68,
+      "total_deletions": 14,
+      "accepted_lines": 68,
+      "overriden_lines": 0
+    }
+  }
+}
