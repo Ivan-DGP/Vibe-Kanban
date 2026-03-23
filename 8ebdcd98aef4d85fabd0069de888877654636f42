@@ -1,0 +1,275 @@
+client/src/hooks/useTodos.ts
+  547a0674060250f9 1-52
+client/src/routes/ProjectDetail.tsx
+  fc1169ae7d458a14 14
+  a7690d943e2f3b22 7,110-124
+server/src/routes/notion.ts
+  f695e97c26236801 1-361
+client/src/hooks/useNotion.ts
+  29c7bd79f26ce519 1,34-40
+  8526afc07a435d35 2-33
+server/src/db/index.ts
+  8cdf6f4d0995a01d 74-83
+  547a0674060250f9 84-108
+server/src/app.ts
+  f695e97c26236801 45
+  547a0674060250f9 46
+  74e42c48ef016ea4 47-48
+client/src/hooks/useTerminal.ts
+  74e42c48ef016ea4 1-12,15-20,23-30,33-41,43,45-48
+.gitignore
+  74e42c48ef016ea4 12-20
+server/src/services/terminalService.ts
+  74e42c48ef016ea4 1-397
+client/src/hooks/index.ts
+  8526afc07a435d35 13
+  547a0674060250f9 12
+client/src/components/terminal/TerminalView.tsx
+  74e42c48ef016ea4 25-31,51-52,58,69,93
+client/src/components/kanban/KanbanBoard.tsx
+  74e42c48ef016ea4 15,144,153,159-164
+server/src/routes/todos.ts
+  547a0674060250f9 1-112
+client/src/components/ai/AITaskManagerDialog.tsx
+  74e42c48ef016ea4 5,17,23-26
+client/src/stores/appStore.ts
+  547a0674060250f9 34-37,74-77
+client/src/components/terminal/IntegratedTerminal.tsx
+  74e42c48ef016ea4 1-202
+client/src/components/notion/NotionPanel.tsx
+  8526afc07a435d35 1-161
+server/src/routes/settings.ts
+  e78131f9600a26f8 5,8
+client/src/components/terminal/TerminalTabs.tsx
+  74e42c48ef016ea4 3,5,15-18,23,27,33-34,42-43,45
+client/src/components/settings/NotionConfigSection.tsx
+  8526afc07a435d35 1-88
+server/src/routes/terminalWs.ts
+  74e42c48ef016ea4 1-64
+client/src/lib/api/index.ts
+  8526afc07a435d35 30-33,230-239
+  74e42c48ef016ea4 24-26,211-220
+  547a0674060250f9 27-29,221-229
+client/src/components/todo/TodoSidebar.tsx
+  547a0674060250f9 1-77,79-198
+  f9c1ef8b0f194383 78
+server/src/routes/terminal.ts
+  74e42c48ef016ea4 2,5-92
+server/src/db/schema.ts
+  547a0674060250f9 103-116
+client/src/components/layout/TerminalPanel.tsx
+  74e42c48ef016ea4 1,4,9,11,13-34,39-41,43-50,52-74,76,78-85,87,89-96,98-113,125-126,151-154,161,171
+client/src/components/terminal/TerminalSplitView.tsx
+  74e42c48ef016ea4 2,13,17
+client/src/components/layout/AppShell.tsx
+  f9c1ef8b0f194383 176
+  547a0674060250f9 9,22,38-39,147-175,177-179,182,199-201
+server/src/routes/projects.ts
+  e83d43b14ad58f68 220
+client/src/components/ai/AIResolveButton.tsx
+  74e42c48ef016ea4 3,14,20,22-23,28,30-36
+client/src/routes/Settings.tsx
+  8526afc07a435d35 12,28,114-117
+shared/src/types.ts
+  8cdf6f4d0995a01d 14,37,207,346-347,374-408
+  74e42c48ef016ea4 270-275,277-291,294-295,300,306-308,311-314,316,332
+  547a0674060250f9 348-373
+client/vite.config.ts
+  74e42c48ef016ea4 19
+client/src/components/dashboard/ProjectSettingsDialog.tsx
+  8526afc07a435d35 8,23,28-29
+  79f11d7c4eb0cbbb 37,49,123-145
+server/src/services/aiResolvePrompt.ts
+  ead2b0d1464a8424 154-237
+client/src/components/tasks/TaskViewerDialog.tsx
+  74e42c48ef016ea4 9,30,122,124-125,130,132-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.17",
+  "base_commit_sha": "8ebdcd98aef4d85fabd0069de888877654636f42",
+  "prompts": {
+    "29c7bd79f26ce519": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1d1b152c-f0f4-436b-833b-327f3b7a28b2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 1,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "4a81bd6a8297598d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15778e27-c4df-4c17-9576-57159cecf87d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "547a0674060250f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c684dd02-a14d-45ca-9cfb-21ccaae9691b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 504,
+      "total_deletions": 31,
+      "accepted_lines": 488,
+      "overriden_lines": 0
+    },
+    "74e42c48ef016ea4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4cce455a-6e9b-4a4c-a61d-f68942dbd0a3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 1161,
+      "total_deletions": 810,
+      "accepted_lines": 1020,
+      "overriden_lines": 0
+    },
+    "79f11d7c4eb0cbbb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b10d0b4e-0774-488a-b882-73290014fb89",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 0,
+      "accepted_lines": 25,
+      "overriden_lines": 0
+    },
+    "8526afc07a435d35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3da9e1b0-870f-46ad-a77d-23316e0e101f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 307,
+      "total_deletions": 1,
+      "accepted_lines": 306,
+      "overriden_lines": 0
+    },
+    "8cdf6f4d0995a01d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "760db9f5-251a-499b-a553-8095a8286c36",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 50,
+      "total_deletions": 0,
+      "accepted_lines": 50,
+      "overriden_lines": 0
+    },
+    "a7690d943e2f3b22": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1fd7110-5b32-4908-84ae-d4a3a144c956",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 16,
+      "total_deletions": 1,
+      "accepted_lines": 16,
+      "overriden_lines": 0
+    },
+    "e78131f9600a26f8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef0e6f16-f54c-4c98-aa5c-06a72b45b53b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 1,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "e83d43b14ad58f68": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf86ea71-f7b5-4596-927a-3caaf004bcbc",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "ead2b0d1464a8424": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b4019e8b-3e28-4126-b6e4-f88b4cdd4d26",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 84,
+      "total_deletions": 0,
+      "accepted_lines": 84,
+      "overriden_lines": 0
+    },
+    "f695e97c26236801": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a31ad070-8a23-4cc0-b49b-67f8e56254f1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 362,
+      "total_deletions": 0,
+      "accepted_lines": 362,
+      "overriden_lines": 0
+    },
+    "f9c1ef8b0f194383": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a1e8996-26f3-48d8-b711-5e15984afc58",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "fc1169ae7d458a14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "24effd40-2b10-43b8-a4a7-e72b84bc16b2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Ivan-DGP <ivan@dryground.ai>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
