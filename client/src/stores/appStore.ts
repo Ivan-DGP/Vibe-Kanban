@@ -32,9 +32,6 @@ interface AppStore {
   activeMilestones: Record<string, string | null>;
   setActiveMilestone: (projectId: string, milestoneId: string | null) => void;
 
-  // Todo sidebar
-  todoSidebarOpen: boolean;
-  toggleTodoSidebar: () => void;
 }
 
 export const useAppStore = create<AppStore>()(
@@ -72,9 +69,6 @@ export const useAppStore = create<AppStore>()(
           activeMilestones: { ...s.activeMilestones, [projectId]: milestoneId },
         })),
 
-      todoSidebarOpen: false,
-      toggleTodoSidebar: () =>
-        set((s) => ({ todoSidebarOpen: !s.todoSidebarOpen })),
     }),
     {
       name: "vibe-kanban-app",

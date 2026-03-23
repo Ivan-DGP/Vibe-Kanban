@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import os from "node:os";
-import nodePath from "node:path";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import type { TerminalSessionType } from "@vibe-kanban/shared";
@@ -9,7 +6,7 @@ import type { TerminalSessionType } from "@vibe-kanban/shared";
 
 interface PtySession {
   id: string;
-  process: any; // node-pty IPty or AiResolveHandle
+  proc: any; // Bun subprocess with terminal or piped I/O
   cwd: string;
   type: TerminalSessionType;
   projectId?: string;
@@ -18,27 +15,6 @@ interface PtySession {
   ws: any | null; // active WebSocket connection
   outputBuffer: string[]; // buffers output until WS attaches
   exitBuffer: number | null; // buffers exit code until WS attaches
-}
-
-interface AiResolveHandle {
-  kill: () => void;
-  write?: undefined;
-  resize?: undefined;
-}
-
-// ── PTY module (optional dep) ──────────────────────────────────
-
-let ptyModule: any = null;
-
-async function getPty() {
-  if (ptyModule) return ptyModule;
-  try {
-    ptyModule = await import("node-pty");
-    return ptyModule;
-  } catch (err) {
-    log("warn", "terminal", "node-pty not available, terminal will be limited", { error: String(err) });
-    return null;
-  }
 }
 
 // ── Safe environment ───────────────────────────────────────────
@@ -99,126 +75,101 @@ function emitExit(session: PtySession, exitCode: number) {
   }
 }
 
-// ── Interactive shell via node-pty (Linux/WSL — real PTY) ─────
+// ── Interactive shell via Bun's built-in terminal API ──────────
 
-async function spawnShellWithPty(
+function spawnShellWithBunTerminal(
   session: PtySession,
-  ptyMod: any,
   shell: string,
   shellArgs: string[],
   safeEnv: Record<string, string>,
   opts: CreateSessionOptions,
-): Promise<void> {
+): void {
   const { id } = session;
-  const ptyProcess = ptyMod.spawn(shell, shellArgs, {
-    name: "xterm-256color",
-    cols: opts.cols ?? 80,
-    rows: opts.rows ?? 24,
+
+  const proc = Bun.spawn([shell, ...shellArgs], {
     cwd: session.cwd,
     env: safeEnv,
+    terminal: {
+      cols: opts.cols ?? 80,
+      rows: opts.rows ?? 24,
+      data(_terminal: any, data: Buffer) {
+        emitData(session, data.toString());
+      },
+    },
   });
 
-  ptyProcess.onData((data: string) => {
-    emitData(session, data);
-  });
-
-  ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
-    log("info", "terminal", `Shell (pty) [${id}]: exited with code ${exitCode}`);
+  proc.exited.then((exitCode: number) => {
+    log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
     session.alive = false;
     emitExit(session, exitCode ?? 0);
     sessions.delete(id);
-  });
+  }).catch(() => {});
 
-  session.process = {
-    kill: () => { try { ptyProcess.kill(); } catch {} },
-    write: (data: string) => { try { ptyProcess.write(data); } catch {} },
-    resize: (cols: number, rows: number) => { try { ptyProcess.resize(cols, rows); } catch {} },
-  };
+  session.proc = proc;
 }
 
-// ── AI Resolve subprocess (bypasses ConPTY) ────────────────────
+// ── AI Resolve via Bun terminal PTY ─────────────────────────────
 
-async function spawnAiResolve(
-  session: PtySession,
-  prompt: string,
-  safeEnv: Record<string, string>,
-): Promise<void> {
-  const ts = Date.now();
-  const tmpFile = nodePath.join(os.tmpdir(), `vk-resolve-${ts}.txt`);
-  fs.writeFileSync(tmpFile, prompt, "utf-8");
-  log("info", "terminal", `AI resolve: wrote prompt (${prompt.length} bytes) to ${tmpFile}`);
-
-  let claudeCmd = "claude";
+function resolveClaudeCmd(safeEnv: Record<string, string>): string {
   try {
     const whichCmd = process.platform === "win32" ? "where" : "which";
     const result = Bun.spawnSync([whichCmd, "claude"], { env: safeEnv });
     if (result.exitCode === 0) {
-      claudeCmd = result.stdout.toString().trim().split(/\r?\n/)[0];
+      return result.stdout.toString().trim().split(/\r?\n/)[0];
     }
   } catch {}
+  return "claude";
+}
 
-  log("info", "terminal", `AI resolve [${session.id}]: spawning ${claudeCmd}`);
+function spawnAiResolve(
+  session: PtySession,
+  prompt: string,
+  safeEnv: Record<string, string>,
+  opts: CreateSessionOptions,
+): void {
+  const { id } = session;
+  const claudeCmd = resolveClaudeCmd(safeEnv);
 
-  const promptBytes = fs.readFileSync(tmpFile);
-  const proc = Bun.spawn(
-    [claudeCmd, "--dangerously-skip-permissions", "-p"],
-    {
-      cwd: session.cwd,
-      env: { ...safeEnv, CI: "true", NO_COLOR: "1", TERM: "dumb" },
-      stdin: new Blob([promptBytes]),
-      stdout: "pipe",
-      stderr: "pipe",
+  log("info", "terminal", `AI resolve [${id}]: spawning ${claudeCmd} with PTY`);
+
+  const proc = Bun.spawn([claudeCmd, "--dangerously-skip-permissions"], {
+    cwd: session.cwd,
+    env: safeEnv,
+    terminal: {
+      cols: opts.cols ?? 80,
+      rows: opts.rows ?? 24,
+      data(_terminal: any, data: Buffer) {
+        emitData(session, data.toString());
+      },
     },
-  );
+  });
 
-  // Stream stdout
-  (async () => {
-    try {
-      const reader = proc.stdout.getReader();
-      const dec = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        emitData(session, dec.decode(value));
-      }
-    } catch (e) {
-      log("warn", "terminal", `AI resolve stdout error [${session.id}]: ${String(e)}`);
-    }
-  })();
-
-  // Stream stderr
-  (async () => {
-    try {
-      const reader = proc.stderr.getReader();
-      const dec = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        emitData(session, dec.decode(value));
-      }
-    } catch (e) {
-      log("warn", "terminal", `AI resolve stderr error [${session.id}]: ${String(e)}`);
-    }
-  })();
-
-  proc.exited.then((exitCode) => {
-    log("info", "terminal", `AI resolve [${session.id}]: exited with code ${exitCode}`);
+  proc.exited.then((exitCode: number) => {
+    log("info", "terminal", `AI resolve [${id}]: exited with code ${exitCode}`);
     session.alive = false;
     emitExit(session, exitCode ?? 1);
-    // Clean up temp file
-    try { fs.unlinkSync(tmpFile); } catch {}
+    sessions.delete(id);
   }).catch(() => {});
 
-  session.process = {
-    kill: () => { try { proc.kill(); } catch {} },
-  } as AiResolveHandle;
+  session.proc = proc;
+
+  // Send the prompt as input after a short delay to let claude initialize
+  setTimeout(() => {
+    try {
+      if (session.alive && proc.terminal) {
+        proc.terminal.write(prompt + "\n");
+      }
+    } catch (e) {
+      log("warn", "terminal", `AI resolve [${id}]: failed to write prompt: ${String(e)}`);
+    }
+  }, 1000);
 }
 
 // ── Public API ─────────────────────────────────────────────────
 
 export async function isAvailable(): Promise<boolean> {
-  const pty = await getPty();
-  return pty !== null;
+  // Bun's built-in terminal API is always available
+  return true;
 }
 
 export function listSessions(projectId?: string): PtySession[] {
@@ -248,7 +199,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   const session: PtySession = {
     id,
-    process: null,
+    proc: null,
     cwd,
     type: opts.type,
     projectId: opts.projectId,
@@ -261,10 +212,10 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   sessions.set(id, session);
 
-  // AI Resolve: bypass ConPTY, use Bun.spawn directly
+  // AI Resolve: interactive PTY running claude CLI
   if (opts.type === "ai-resolve" && opts.prompt) {
-    await spawnAiResolve(session, opts.prompt, safeEnv);
-    log("info", "terminal", `Session created: ${id}`, { type: "ai-resolve" });
+    spawnAiResolve(session, opts.prompt, safeEnv, opts);
+    log("info", "terminal", `Session created: ${id}`, { type: "ai-resolve", backend: "bun-terminal" });
     return session;
   }
 
@@ -283,106 +234,33 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
     } catch {}
   }
 
-  // ── On Linux/WSL: use node-pty for a real PTY ─────────────────
-  // On Windows: node-pty's ConPTY socket closes prematurely (ERR_SOCKET_CLOSED)
-  // so we fall back to Bun.spawn with piped stdin/stdout.
-  if (!isWindows) {
-    const ptyMod = await getPty();
-    if (ptyMod) {
-      await spawnShellWithPty(session, ptyMod, shell, [], safeEnv, opts);
-      if (opts.type === "dev" && opts.devCommand) {
-        const safeDevCommands = /^(bun|npm|yarn|pnpm|npx|node)\s+(run\s+)?(dev|start|serve)\s*$/;
-        if (safeDevCommands.test(opts.devCommand.trim())) {
-          session.process.write(opts.devCommand + "\r\n");
-        }
-      }
-      log("info", "terminal", `Session created: ${id}`, { type: opts.type, backend: "node-pty" });
-      return session;
-    }
-  }
-
-  // ── Windows fallback: Bun.spawn with piped I/O ────────────────
   const shellArgs = shell === "cmd.exe" ? ["/D"] : [];
 
-  const proc = Bun.spawn([shell, ...shellArgs], {
-    cwd,
-    env: safeEnv,
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  // Stream stdout
-  (async () => {
-    try {
-      const reader = proc.stdout.getReader();
-      const dec = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        emitData(session, dec.decode(value));
-      }
-    } catch (e) {
-      log("warn", "terminal", `Shell stdout error [${id}]: ${String(e)}`);
-    }
-  })();
-
-  // Stream stderr
-  (async () => {
-    try {
-      const reader = proc.stderr.getReader();
-      const dec = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        emitData(session, dec.decode(value));
-      }
-    } catch (e) {
-      log("warn", "terminal", `Shell stderr error [${id}]: ${String(e)}`);
-    }
-  })();
-
-  // Handle exit
-  proc.exited.then((exitCode) => {
-    log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
-    session.alive = false;
-    emitExit(session, exitCode ?? 0);
-    sessions.delete(id);
-  }).catch(() => {});
-
-  // Process handle with write support
-  session.process = {
-    kill: () => { try { proc.kill(); } catch {} },
-    write: (data: string) => {
-      try {
-        proc.stdin.write(new TextEncoder().encode(data));
-        proc.stdin.flush();
-      } catch (e) {
-        log("warn", "terminal", `Shell stdin write error [${id}]: ${String(e)}`);
-      }
-    },
-  };
+  // Use Bun's built-in terminal API (real PTY, no node-pty needed)
+  spawnShellWithBunTerminal(session, shell, shellArgs, safeEnv, opts);
 
   // Auto-run dev command
   if (opts.type === "dev" && opts.devCommand) {
     const safeDevCommands = /^(bun|npm|yarn|pnpm|npx|node)\s+(run\s+)?(dev|start|serve)\s*$/;
     if (safeDevCommands.test(opts.devCommand.trim())) {
-      session.process.write(opts.devCommand + "\r\n");
+      session.proc.terminal.write(opts.devCommand + "\r\n");
     }
   }
 
-  log("info", "terminal", `Session created: ${id}`, { type: opts.type, backend: "bun-spawn" });
+  log("info", "terminal", `Session created: ${id}`, { type: opts.type, backend: "bun-terminal" });
   return session;
 }
 
 export function writeToSession(id: string, data: string): boolean {
   const session = sessions.get(id);
-  if (!session?.alive || !session.process?.write) {
-    return false;
-  }
+  if (!session?.alive) return false;
   try {
-    session.process.write(data);
-    return true;
+    if (session.proc?.terminal) {
+      // Bun built-in terminal
+      session.proc.terminal.write(data);
+      return true;
+    }
+    return false;
   } catch (err) {
     log("warn", "terminal", `Write failed for ${id}: ${String(err)}`);
     return false;
@@ -392,11 +270,12 @@ export function writeToSession(id: string, data: string): boolean {
 export function resizeSession(id: string, cols: number, rows: number): boolean {
   const session = sessions.get(id);
   if (!session?.alive) return false;
-  // Bun.spawn fallback has no resize; node-pty sessions do
-  if (!session.process?.resize) return true;
   try {
-    session.process.resize(cols, rows);
-    return true;
+    if (session.proc?.terminal) {
+      session.proc.terminal.resize(cols, rows);
+      return true;
+    }
+    return false;
   } catch (err) {
     log("warn", "terminal", `Resize failed for ${id}: ${String(err)}`);
     return false;
@@ -407,7 +286,7 @@ export function killSession(id: string): boolean {
   const session = sessions.get(id);
   if (!session) return false;
   try {
-    session.process?.kill?.();
+    session.proc?.kill?.();
   } catch {}
   session.alive = false;
   sessions.delete(id);
@@ -447,5 +326,4 @@ export function detachWs(id: string): void {
   const session = sessions.get(id);
   if (!session) return;
   session.ws = null;
-  // Output will now buffer again until a new WS attaches
 }

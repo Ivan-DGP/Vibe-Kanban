@@ -6,7 +6,6 @@ import TerminalPanel from "@/components/layout/TerminalPanel";
 import CommandPalette from "@/components/overlays/CommandPalette";
 import GlobalSearch from "@/components/overlays/GlobalSearch";
 import FileContentSearch from "@/components/overlays/FileContentSearch";
-import TodoSidebar from "@/components/todo/TodoSidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   LayoutDashboard,
@@ -25,6 +24,7 @@ import {
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/tasks", icon: ListTodo, label: "Tasks" },
+  { to: "/todos", icon: CheckSquare, label: "Todo" },
   { to: "/reports", icon: BarChart3, label: "Reports" },
   { to: "/logs", icon: ScrollText, label: "Logs" },
   { to: "/settings", icon: Settings, label: "Settings" },
@@ -35,8 +35,6 @@ export default function AppShell() {
   const {
     sidebarCollapsed,
     toggleSidebar,
-    todoSidebarOpen,
-    toggleTodoSidebar,
     setCommandPaletteOpen,
     setGlobalSearchOpen,
     setFileSearchOpen,
@@ -144,39 +142,22 @@ export default function AppShell() {
 
           {/* Main nav */}
           <nav className="flex-1 py-3 space-y-0.5 px-2">
-            {navItems.map((item, index) => (
-              <>
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === "/"}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-all duration-150 ${
-                      isActive
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-sm"
-                        : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    } ${sidebarCollapsed ? "justify-center px-0" : ""}`
-                  }
-                >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  {!sidebarCollapsed && <span>{item.label}</span>}
-                </NavLink>
-                {/* My Todo toggle — after Tasks, before Reports */}
-                {index === 1 && (
-                  <button
-                    key="my-todo"
-                    onClick={toggleTodoSidebar}
-                    className={`flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-all duration-150 w-full ${
-                      todoSidebarOpen
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-sm"
-                        : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    } ${sidebarCollapsed ? "justify-center px-0" : ""}`}
-                  >
-                    <CheckSquare className="h-4 w-4 shrink-0" />
-                    {!sidebarCollapsed && <span>Todo</span>}
-                  </button>
-                )}
-              </>
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-all duration-150 ${
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-sm"
+                      : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  } ${sidebarCollapsed ? "justify-center px-0" : ""}`
+                }
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                {!sidebarCollapsed && <span>{item.label}</span>}
+              </NavLink>
             ))}
           </nav>
 
@@ -195,9 +176,6 @@ export default function AppShell() {
         </main>
         <TerminalPanel />
       </div>
-
-      {/* Todo Sidebar */}
-      {todoSidebarOpen && <TodoSidebar onClose={toggleTodoSidebar} />}
 
       {/* Overlays */}
       <CommandPalette />

@@ -63,14 +63,33 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
 
   const handleImproveWriting = async () => {
     const text = description || prompt;
-    if (!text.trim()) return;
+    if (!text.trim() && !title.trim()) return;
     setAiLoading("improve");
     try {
+      const parts: string[] = [];
+      if (title.trim()) parts.push(`Title: ${title}`);
+      if (description.trim()) parts.push(`Description: ${description}`);
+      else if (prompt.trim()) parts.push(`Prompt: ${prompt}`);
+
       const result = await streamAI(
-        `Improve the writing of this task ${description ? "description" : "prompt"}. Make it clearer, more structured, and actionable. Keep the same intent. Output ONLY the improved text, no explanation:\n\n${text}`
+        `Improve the writing of this task. Make it clearer, more structured, and actionable. Keep the same intent.${title.trim() && (description.trim() || prompt.trim()) ? `\nOutput format (use exactly these labels on separate lines):\nTitle: <improved title>\n${description.trim() ? "Description" : "Prompt"}: <improved text>` : title.trim() ? "\nOutput ONLY the improved title, no explanation." : `\nOutput ONLY the improved ${description ? "description" : "prompt"}, no explanation.`}\n\n${parts.join("\n")}`
       );
-      if (description) setDescription(result);
-      else setPrompt(result);
+
+      if (title.trim() && (description.trim() || prompt.trim())) {
+        const titleMatch = result.match(/^Title:\s*(.+)/m);
+        const bodyLabel = description.trim() ? "Description" : "Prompt";
+        const bodyMatch = result.match(new RegExp(`^${bodyLabel}:\\s*([\\s\\S]*)`, "m"));
+        if (titleMatch) setTitle(titleMatch[1].trim());
+        if (bodyMatch) {
+          if (description.trim()) setDescription(bodyMatch[1].trim());
+          else setPrompt(bodyMatch[1].trim());
+        }
+      } else if (title.trim()) {
+        setTitle(result.trim());
+      } else {
+        if (description) setDescription(result);
+        else setPrompt(result);
+      }
     } catch {} finally { setAiLoading(null); }
   };
 
@@ -168,7 +187,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
               size="sm"
               className="h-7 text-xs gap-1"
               onClick={handleImproveWriting}
-              disabled={aiLoading !== null || (!description.trim() && !prompt.trim())}
+              disabled={aiLoading !== null || (!title.trim() && !description.trim() && !prompt.trim())}
             >
               {aiLoading === "improve" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
               AI Improve Writing

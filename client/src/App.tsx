@@ -6,6 +6,7 @@ import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 const Dashboard = lazy(() => import("@/routes/Dashboard"));
 const ProjectDetail = lazy(() => import("@/routes/ProjectDetail"));
 const Tasks = lazy(() => import("@/routes/Tasks"));
+const Todos = lazy(() => import("@/routes/Todos"));
 const Settings = lazy(() => import("@/routes/Settings"));
 const Reports = lazy(() => import("@/routes/Reports"));
 const Logs = lazy(() => import("@/routes/Logs"));
@@ -46,6 +47,14 @@ export default function App() {
           element={
             <Suspense fallback={<Loading />}>
               <Tasks />
+            </Suspense>
+          }
+        />
+        <Route
+          path="todos"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Todos />
             </Suspense>
           }
         />

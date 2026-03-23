@@ -11,7 +11,7 @@ const ALWAYS_SKIP = new Set([
   ".DS_Store", "Thumbs.db",
 ]);
 
-function parseGitignore(projectPath: string): string[] {
+export function parseGitignore(projectPath: string): string[] {
   try {
     const content = fs.readFileSync(path.join(projectPath, ".gitignore"), "utf-8");
     return content
@@ -23,7 +23,7 @@ function parseGitignore(projectPath: string): string[] {
   }
 }
 
-function shouldSkip(name: string, gitignorePatterns: string[]): boolean {
+export function shouldSkip(name: string, gitignorePatterns: string[]): boolean {
   if (ALWAYS_SKIP.has(name)) return true;
   if (name.startsWith(".")) return true;
   for (const pattern of gitignorePatterns) {
@@ -37,7 +37,7 @@ function shouldSkip(name: string, gitignorePatterns: string[]): boolean {
   return false;
 }
 
-function buildTree(dir: string, gitignorePatterns: string[], prefix = "", depth = 0, maxDepth = 3): string {
+export function buildTree(dir: string, gitignorePatterns: string[], prefix = "", depth = 0, maxDepth = 3): string {
   if (depth > maxDepth) return "";
   let result = "";
   try {
@@ -142,7 +142,7 @@ async function getGitInfo(projectPath: string): Promise<{ branch: string; recent
   }
 }
 
-function rowToProject(row: any): Project {
+export function rowToProject(row: any): Project {
   return {
     ...row,
     favorite: !!row.favorite,

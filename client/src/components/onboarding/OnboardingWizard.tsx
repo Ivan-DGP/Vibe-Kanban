@@ -39,7 +39,7 @@ export default function OnboardingWizard() {
   const handleFinish = () => setOnboardingComplete(true);
 
   return (
-    <Dialog open={!onboardingComplete} onOpenChange={() => {}}>
+    <Dialog open={!onboardingComplete} onOpenChange={handleFinish}>
       <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogTitle className="sr-only">Welcome to Vibe Kanban</DialogTitle>
         {step === 0 && (
