@@ -99,6 +99,43 @@ function emitExit(session: PtySession, exitCode: number) {
   }
 }
 
+// ── Interactive shell via node-pty (Linux/WSL — real PTY) ─────
+
+async function spawnShellWithPty(
+  session: PtySession,
+  ptyMod: any,
+  shell: string,
+  shellArgs: string[],
+  safeEnv: Record<string, string>,
+  opts: CreateSessionOptions,
+): Promise<void> {
+  const { id } = session;
+  const ptyProcess = ptyMod.spawn(shell, shellArgs, {
+    name: "xterm-256color",
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+    cwd: session.cwd,
+    env: safeEnv,
+  });
+
+  ptyProcess.onData((data: string) => {
+    emitData(session, data);
+  });
+
+  ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
+    log("info", "terminal", `Shell (pty) [${id}]: exited with code ${exitCode}`);
+    session.alive = false;
+    emitExit(session, exitCode ?? 0);
+    sessions.delete(id);
+  });
+
+  session.process = {
+    kill: () => { try { ptyProcess.kill(); } catch {} },
+    write: (data: string) => { try { ptyProcess.write(data); } catch {} },
+    resize: (cols: number, rows: number) => { try { ptyProcess.resize(cols, rows); } catch {} },
+  };
+}
+
 // ── AI Resolve subprocess (bypasses ConPTY) ────────────────────
 
 async function spawnAiResolve(
@@ -113,9 +150,10 @@ async function spawnAiResolve(
 
   let claudeCmd = "claude";
   try {
-    const which = Bun.spawnSync(["where", "claude"], { env: safeEnv });
-    if (which.exitCode === 0) {
-      claudeCmd = which.stdout.toString().trim().split(/\r?\n/)[0];
+    const whichCmd = process.platform === "win32" ? "where" : "which";
+    const result = Bun.spawnSync([whichCmd, "claude"], { env: safeEnv });
+    if (result.exitCode === 0) {
+      claudeCmd = result.stdout.toString().trim().split(/\r?\n/)[0];
     }
   } catch {}
 
@@ -230,24 +268,40 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
     return session;
   }
 
-  // ── Interactive shell via Bun.spawn ──────────────────────────
-  // node-pty's ConPTY socket closes prematurely on Bun (ERR_SOCKET_CLOSED),
-  // so we use Bun.spawn with piped stdin/stdout for all interactive sessions.
+  // ── Resolve shell from settings ───────────────────────────────
   const db = getDb();
   const shellSetting = db.prepare("SELECT value FROM settings WHERE key = 'terminalShell'").get() as any;
-  let shell = process.platform === "win32" ? "cmd.exe" : (process.env.SHELL || "/bin/bash");
+  const isWindows = process.platform === "win32";
+  let shell = isWindows ? "cmd.exe" : (process.env.SHELL || "/bin/bash");
   if (shellSetting) {
     try {
       const parsed = JSON.parse(shellSetting.value);
-      const shellMap: Record<string, string> = {
-        powershell: "powershell.exe",
-        cmd: "cmd.exe",
-        bash: "bash",
-      };
+      const shellMap: Record<string, string> = isWindows
+        ? { powershell: "powershell.exe", cmd: "cmd.exe", bash: "bash" }
+        : { bash: "bash", zsh: "zsh", sh: "sh" };
       if (shellMap[parsed]) shell = shellMap[parsed];
     } catch {}
   }
 
+  // ── On Linux/WSL: use node-pty for a real PTY ─────────────────
+  // On Windows: node-pty's ConPTY socket closes prematurely (ERR_SOCKET_CLOSED)
+  // so we fall back to Bun.spawn with piped stdin/stdout.
+  if (!isWindows) {
+    const ptyMod = await getPty();
+    if (ptyMod) {
+      await spawnShellWithPty(session, ptyMod, shell, [], safeEnv, opts);
+      if (opts.type === "dev" && opts.devCommand) {
+        const safeDevCommands = /^(bun|npm|yarn|pnpm|npx|node)\s+(run\s+)?(dev|start|serve)\s*$/;
+        if (safeDevCommands.test(opts.devCommand.trim())) {
+          session.process.write(opts.devCommand + "\r\n");
+        }
+      }
+      log("info", "terminal", `Session created: ${id}`, { type: opts.type, backend: "node-pty" });
+      return session;
+    }
+  }
+
+  // ── Windows fallback: Bun.spawn with piped I/O ────────────────
   const shellArgs = shell === "cmd.exe" ? ["/D"] : [];
 
   const proc = Bun.spawn([shell, ...shellArgs], {
@@ -317,7 +371,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
     }
   }
 
-  log("info", "terminal", `Session created: ${id}`, { type: opts.type });
+  log("info", "terminal", `Session created: ${id}`, { type: opts.type, backend: "bun-spawn" });
   return session;
 }
 
@@ -338,7 +392,7 @@ export function writeToSession(id: string, data: string): boolean {
 export function resizeSession(id: string, cols: number, rows: number): boolean {
   const session = sessions.get(id);
   if (!session?.alive) return false;
-  // Bun.spawn doesn't support resize (no PTY), silently ignore
+  // Bun.spawn fallback has no resize; node-pty sessions do
   if (!session.process?.resize) return true;
   try {
     session.process.resize(cols, rows);
