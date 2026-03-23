@@ -1,0 +1,20 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+bun.lock
+.DS_Store
+Thumbs.db
+
+# Debug / test artifacts
+debug-browse-dialog.mjs
+debug-browse-dialog2.mjs
+debug-screenshots/
+test-results/
+test-screenshots/
+pty-test.ts
+server/pty-test.ts
