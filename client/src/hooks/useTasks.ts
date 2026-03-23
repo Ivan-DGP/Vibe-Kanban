@@ -7,6 +7,7 @@ export function useTasks(projectId: string | undefined, filters: TaskFilters = {
     queryKey: ["tasks", projectId, filters],
     queryFn: () => api.tasks.list(projectId!, filters),
     enabled: !!projectId,
+    refetchInterval: 5000,
   });
 }
 
@@ -15,6 +16,7 @@ export function useTask(id: string | undefined) {
     queryKey: ["task", id],
     queryFn: () => api.tasks.get(id!),
     enabled: !!id,
+    refetchInterval: 5000,
   });
 }
 
@@ -84,6 +86,7 @@ export function useWorkingOn() {
   return useQuery({
     queryKey: ["working-on"],
     queryFn: () => api.tasks.workingOn(),
+    refetchInterval: 5000,
   });
 }
 
