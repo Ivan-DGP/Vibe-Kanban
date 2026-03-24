@@ -273,6 +273,7 @@ export interface TerminalSessionInfo {
   type: TerminalSessionType;
   projectId?: string;
   taskId?: string;
+  name?: string;
   cwd: string;
   alive: boolean;
 }
@@ -283,6 +284,7 @@ export interface CreateTerminalSessionInput {
   cols?: number;
   rows?: number;
   taskId?: string;
+  name?: string;
   prompt?: string;
   devCommand?: string;
 }
@@ -333,6 +335,23 @@ export type TerminalWsServerMessage =
   | TerminalOutputMessage
   | TerminalExitMessage
   | TerminalErrorMessage;
+
+// Batch AI Resolve
+export interface BatchResolveInput {
+  projectId: string;
+  taskIds: string[];
+}
+
+export interface BatchResolveStatus {
+  state: "idle" | "running" | "completed" | "cancelled";
+  projectId?: string;
+  totalTasks: number;
+  completedTasks: number;
+  currentTaskId?: string;
+  currentTaskTitle?: string;
+  currentSessionId?: string;
+  taskResults: { taskId: string; taskTitle: string; sessionId: string; exitCode?: number }[];
+}
 
 // ============================================================
 // MCP

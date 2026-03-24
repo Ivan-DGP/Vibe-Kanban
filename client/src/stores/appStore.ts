@@ -74,6 +74,7 @@ export const useAppStore = create<AppStore>()(
       name: "vibe-kanban-app",
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
+        terminalVisible: state.terminalVisible,
         terminalHeight: state.terminalHeight,
         onboardingComplete: state.onboardingComplete,
         workspaceModes: state.workspaceModes,

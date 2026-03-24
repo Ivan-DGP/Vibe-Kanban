@@ -24,6 +24,8 @@ import type {
   TerminalSessionInfo,
   TerminalStatusResponse,
   CreateTerminalSessionInput,
+  BatchResolveInput,
+  BatchResolveStatus,
   Todo,
   CreateTodoInput,
   UpdateTodoInput,
@@ -217,6 +219,12 @@ export const api = {
       post<TerminalSessionInfo>("/terminal/sessions", input),
     kill: (sessionId: string) => del(`/terminal/sessions/${sessionId}`),
     aiSessions: () => get<TerminalSessionInfo[]>("/terminal/ai-sessions"),
+    batchResolve: (input: BatchResolveInput) =>
+      post<BatchResolveStatus>("/terminal/batch-resolve", input),
+    batchResolveStatus: () =>
+      get<BatchResolveStatus>("/terminal/batch-resolve/status"),
+    batchResolveCancel: () =>
+      post<BatchResolveStatus>("/terminal/batch-resolve/cancel"),
   },
 
   todos: {

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Sparkles, FileSearch, Wand2 } from "lucide-react";
+import { toast } from "sonner";
 import { useCreateTask, useUpdateTask, useMilestones } from "@/hooks";
 import { api } from "@/lib/api";
 import type { Task, TaskStatus, TaskPriority, CreateTaskInput } from "@vibe-kanban/shared";
@@ -25,6 +26,8 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const [status, setStatus] = useState<TaskStatus>("todo");
   const [milestoneId, setMilestoneId] = useState<string>("none");
 
+  const [activeTab, setActiveTab] = useState("description");
+
   const createTask = useCreateTask(projectId);
   const updateTask = useUpdateTask();
   const { data: milestones } = useMilestones(projectId);
@@ -33,20 +36,32 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
 
   const streamAI = async (systemPrompt: string): Promise<string> => {
     const res = await api.claude.chat(systemPrompt, projectId);
+    if (!res.ok) throw new Error(`AI request failed (${res.status})`);
     const reader = res.body?.getReader();
-    if (!reader) return "";
+    if (!reader) throw new Error("No response stream");
     let text = "";
+    let buffer = "";
     const decoder = new TextDecoder();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split("\n")) {
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
         if (line.startsWith("data: ")) {
-          try { const d = JSON.parse(line.slice(6)); if (d.type === "delta" && d.text) text += d.text; } catch {}
+          try {
+            const d = JSON.parse(line.slice(6));
+            if (d.type === "delta" && d.text) text += d.text;
+            if (d.type === "error") throw new Error(d.message || "AI error");
+          } catch (e) {
+            if (e instanceof SyntaxError) continue;
+            throw e;
+          }
         }
       }
     }
+    if (!text) throw new Error("No response from AI");
     return text;
   };
 
@@ -58,7 +73,10 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
         `For the task "${title}", generate a technical implementation prompt. Include: what files to modify, approach, edge cases. Be concise. Output ONLY the prompt text, no markdown headers.${description ? `\n\nContext: ${description}` : ""}`
       );
       setPrompt(result);
-    } catch {} finally { setAiLoading(null); }
+      setActiveTab("prompt");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to gather context");
+    } finally { setAiLoading(null); }
   };
 
   const handleImproveWriting = async () => {
@@ -90,7 +108,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
         if (description) setDescription(result);
         else setPrompt(result);
       }
-    } catch {} finally { setAiLoading(null); }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to improve writing");
+    } finally { setAiLoading(null); }
   };
 
   useEffect(() => {
@@ -109,6 +129,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setStatus("todo");
       setMilestoneId("none");
     }
+    setActiveTab("description");
   }, [task, open]);
 
   const handleSubmit = () => {
@@ -144,7 +165,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" autoFocus />
           </div>
 
-          <Tabs defaultValue="description">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="w-full">
               <TabsTrigger value="description" className="flex-1">Description</TabsTrigger>
               <TabsTrigger value="prompt" className="flex-1">Prompt</TabsTrigger>

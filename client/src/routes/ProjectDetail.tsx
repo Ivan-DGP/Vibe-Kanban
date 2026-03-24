@@ -9,6 +9,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { TECH_STACK_COLORS } from "@/lib/constants";
 import { useGitStatus } from "@/hooks";
 import KanbanBoard from "@/components/kanban/KanbanBoard";
+import WorkingOnBanner from "@/components/dashboard/WorkingOnBanner";
 import CodeEditorPanel from "@/components/editor/CodeEditorPanel";
 import GitPanel from "@/components/git/GitPanel";
 import NotionPanel from "@/components/notion/NotionPanel";
@@ -147,7 +148,10 @@ export default function ProjectDetail() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
         {mode === "tasks" ? (
-          <KanbanBoard projectId={project.id} projectName={project.name} />
+          <>
+            <WorkingOnBanner projectId={project.id} compact />
+            <KanbanBoard projectId={project.id} projectName={project.name} />
+          </>
         ) : (
           <CodeEditorPanel projectId={project.id} />
         )}

@@ -33,6 +33,7 @@ export default function AIResolveButton({ task, project }: AIResolveButtonProps)
       projectId: task.projectId,
       prompt,
       taskId: task.id,
+      name: task.title,
     });
   };
 

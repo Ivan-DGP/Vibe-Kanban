@@ -40,10 +40,16 @@ export default function TerminalTabs({ sessions, activeSessionId, onSetActive, o
             )}
           >
             {!session.alive ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <Icon className="h-3 w-3" />}
-            <span>{session.type} {session.id.slice(-6)}</span>
+            <span className="max-w-[150px] truncate">{session.name || `${session.type} ${session.id.slice(-6)}`}</span>
             <button
-              onClick={(e) => { e.stopPropagation(); onKill(session.id); }}
-              className="ml-1 hover:text-destructive"
+              type="button"
+              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onKill(session.id);
+              }}
+              className="ml-1 p-1 rounded-sm hover:text-destructive hover:bg-destructive/10 transition-colors z-10 relative"
             >
               <X className="h-3 w-3" />
             </button>

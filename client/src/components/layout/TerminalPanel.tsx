@@ -36,7 +36,7 @@ export default function TerminalPanel() {
   const { terminalVisible, toggleTerminal, terminalHeight, setTerminalHeight } = useAppStore();
   const { projectId } = useParams<{ projectId: string }>();
   const { data: project } = useProject(projectId);
-  const { data: serverSessions = [] } = useTerminalSessions();
+  const { data: serverSessions = [], isLoading: sessionsLoading } = useTerminalSessions();
   const createSession = useCreateTerminalSession();
   const killSession = useKillTerminalSession();
 
@@ -47,8 +47,25 @@ export default function TerminalPanel() {
     saveTabState(tabState);
   }, [tabState]);
 
+  // Listen for external focus requests (e.g. from WorkingOnBanner)
+  useEffect(() => {
+    const handleFocus = () => {
+      const loaded = loadTabState();
+      if (loaded.activeSessionId && loaded.activeSessionId !== tabState.activeSessionId) {
+        setTabState((prev) => ({ ...prev, activeSessionId: loaded.activeSessionId }));
+      }
+    };
+    window.addEventListener("terminal-focus-session", handleFocus);
+    return () => window.removeEventListener("terminal-focus-session", handleFocus);
+  }, [tabState.activeSessionId]);
+
   // Reconcile tabs with server sessions on mount / poll
   useEffect(() => {
+    // Don't clear tab state while sessions are still loading —
+    // the initial empty array would wipe the stored activeSessionId
+    // before the server responds, breaking reconnection after refresh.
+    if (sessionsLoading) return;
+
     if (serverSessions.length === 0) {
       if (tabState.activeSessionId) {
         setTabState({ activeSessionId: null, splitSessionId: null });
@@ -73,7 +90,7 @@ export default function TerminalPanel() {
     if (newActive !== tabState.activeSessionId || newSplit !== tabState.splitSessionId) {
       setTabState({ activeSessionId: newActive, splitSessionId: newSplit });
     }
-  }, [serverSessions]);
+  }, [serverSessions, sessionsLoading]);
 
   const handleNewSession = useCallback(async () => {
     if (!terminalVisible) toggleTerminal();
@@ -95,7 +112,7 @@ export default function TerminalPanel() {
     setTabState((prev) => ({ ...prev, activeSessionId: result.id }));
   }, [project, projectId, terminalVisible, toggleTerminal, createSession]);
 
-  const handleKillSession = useCallback((id: string) => {
+  const handleKillSession = (id: string) => {
     killSession.mutate(id);
     setTabState((prev) => {
       const remaining = serverSessions.filter((s) => s.id !== id);
@@ -105,7 +122,7 @@ export default function TerminalPanel() {
       const newSplit = prev.splitSessionId === id ? null : prev.splitSessionId;
       return { activeSessionId: newActive, splitSessionId: newSplit };
     });
-  }, [killSession, serverSessions]);
+  };
 
   const handleSetActive = useCallback((id: string) => {
     setTabState((prev) => ({ ...prev, activeSessionId: id }));
@@ -168,7 +185,7 @@ export default function TerminalPanel() {
         ) : activeSessionId && splitSessionId ? (
           <TerminalSplitView primarySessionId={activeSessionId} splitSessionId={splitSessionId} />
         ) : activeSessionId ? (
-          <IntegratedTerminal sessionId={activeSessionId} />
+          <IntegratedTerminal key={activeSessionId} sessionId={activeSessionId} />
         ) : null}
       </div>
     </div>

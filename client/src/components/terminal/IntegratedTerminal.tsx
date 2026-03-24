@@ -21,6 +21,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const disposedRef = useRef(false);
+  const connectionGenRef = useRef(0);
 
   const safeFit = useCallback(() => {
     if (disposedRef.current || !fitRef.current || !termRef.current) return;
@@ -30,10 +31,14 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
   const connectWs = useCallback(() => {
     if (disposedRef.current) return;
 
+    // Track connection generation to prevent stale reconnects
+    const gen = ++connectionGenRef.current;
+
     const ws = new WebSocket(getWebSocketUrl(sessionId));
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (gen !== connectionGenRef.current) { ws.close(); return; }
       reconnectAttemptRef.current = 0;
       // Send initial resize so server knows our dimensions
       if (termRef.current) {
@@ -44,6 +49,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
 
     ws.onmessage = (event) => {
       try {
+        if (gen !== connectionGenRef.current) return;
         const msg = JSON.parse(event.data);
         if (!termRef.current || disposedRef.current) return;
 
@@ -63,7 +69,8 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
     };
 
     ws.onclose = () => {
-      if (disposedRef.current) return;
+      // Only reconnect if this is still the current connection generation
+      if (disposedRef.current || gen !== connectionGenRef.current) return;
       // Exponential backoff reconnection
       if (reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttemptRef.current);
@@ -187,6 +194,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
 
     return () => {
       disposedRef.current = true;
+      connectionGenRef.current++; // invalidate any in-flight WS callbacks
       clearTimeout(reconnectTimerRef.current);
       waitObserver?.disconnect();
       resizeObserver?.disconnect();

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "sonner";
 import App from "./App";
 import "./styles/globals.css";
 
@@ -22,6 +23,7 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <TooltipProvider>
           <App />
+          <Toaster position="bottom-right" theme="dark" />
         </TooltipProvider>
       </BrowserRouter>
     </QueryClientProvider>

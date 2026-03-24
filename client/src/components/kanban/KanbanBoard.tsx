@@ -12,9 +12,11 @@ import {
 } from "@dnd-kit/core";
 import { useTasks, useReorderTasks, useCreateTask, useDeleteTask } from "@/hooks";
 import { useAppStore } from "@/stores/appStore";
-import { useCreateTerminalSession } from "@/hooks/useTerminal";
+import { useCreateTerminalSession, useBatchResolve, useBatchResolveStatus, useCancelBatchResolve } from "@/hooks/useTerminal";
 import { api } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import KanbanColumn from "./KanbanColumn";
 import KanbanToolbar from "./KanbanToolbar";
 import ListView from "./ListView";
@@ -142,7 +144,25 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   };
 
   const createTermSession = useCreateTerminalSession();
+  const batchResolve = useBatchResolve();
+  const { data: batchStatus } = useBatchResolveStatus();
+  const cancelBatch = useCancelBatchResolve();
   const { toggleTerminal, terminalVisible } = useAppStore();
+
+  const batchRunning = batchStatus?.state === "running";
+
+  const handleBatchResolve = () => {
+    // Collect all backlog + in_progress task IDs
+    const taskIds = [...inboxTasks, ...ipTasks].map((t) => t.id);
+    if (taskIds.length === 0) return;
+    if (!confirm(`Start AI Resolve for ${taskIds.length} tasks? They will be processed one at a time.`)) return;
+    if (!terminalVisible) toggleTerminal();
+    batchResolve.mutate({ projectId, taskIds });
+  };
+
+  const handleCancelBatch = () => {
+    cancelBatch.mutate();
+  };
 
   const handleAIResolve = async (task: Task) => {
     if (!terminalVisible) toggleTerminal();
@@ -161,6 +181,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       projectId: task.projectId,
       prompt,
       taskId: task.id,
+      name: task.title,
     });
   };
 
@@ -204,8 +225,42 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         listView={listView}
         onListViewChange={setListView}
         onNewTask={handleNewTask}
+        onBatchResolve={handleBatchResolve}
+        batchResolveRunning={batchRunning}
         projectName={projectName}
       />
+
+      {batchStatus && batchStatus.state === "running" && (
+        <div className="flex items-center gap-3 rounded-lg border border-purple-500/20 bg-purple-500/5 px-4 py-2.5">
+          <div className="h-6 w-6 rounded-full bg-purple-500/15 flex items-center justify-center">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium">
+              Resolving {batchStatus.completedTasks + 1}/{batchStatus.totalTasks}
+            </div>
+            {batchStatus.currentTaskTitle && (
+              <div className="text-xs text-muted-foreground truncate">{batchStatus.currentTaskTitle}</div>
+            )}
+          </div>
+          <div className="w-32 h-1.5 rounded-full bg-secondary overflow-hidden">
+            <div
+              className="h-full bg-purple-500 rounded-full transition-all"
+              style={{ width: `${(batchStatus.completedTasks / batchStatus.totalTasks) * 100}%` }}
+            />
+          </div>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCancelBatch}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {batchStatus && batchStatus.state === "completed" && batchStatus.totalTasks > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-2 text-sm">
+          <span className="text-green-400">Batch resolve complete:</span>
+          <span>{batchStatus.completedTasks}/{batchStatus.totalTasks} tasks processed</span>
+        </div>
+      )}
 
       {listView ? (
         <ListView tasks={allTasks} onTaskClick={handleTaskClick} />

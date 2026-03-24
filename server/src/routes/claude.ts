@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import os from "node:os";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { log } from "../lib/logger";

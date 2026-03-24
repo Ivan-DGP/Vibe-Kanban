@@ -15,6 +15,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
       type: s.type,
       projectId: s.projectId,
       taskId: s.taskId,
+      name: s.name,
       cwd: s.cwd,
       alive: s.alive,
     }));
@@ -28,6 +29,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
       cols?: number;
       rows?: number;
       taskId?: string;
+      name?: string;
       prompt?: string;
       devCommand?: string;
     };
@@ -44,6 +46,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         cols: body.cols,
         rows: body.rows,
         taskId: body.taskId,
+        name: body.name,
         prompt: body.prompt,
         devCommand: body.devCommand,
       });
@@ -53,6 +56,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         type: session.type,
         projectId: session.projectId,
         taskId: session.taskId,
+        name: session.name,
         cwd: session.cwd,
         alive: session.alive,
       };
@@ -87,9 +91,32 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         type: s.type,
         projectId: s.projectId,
         taskId: s.taskId,
+        name: s.name,
         cwd: s.cwd,
         alive: s.alive,
       }));
+  });
+
+  // ── REST: Batch AI Resolve ─────────────────────────────────
+  fastify.post("/terminal/batch-resolve", async (request, reply) => {
+    const { projectId, taskIds } = request.body as { projectId: string; taskIds: string[] };
+    if (!projectId || !taskIds?.length) {
+      return reply.code(400).send({ error: "projectId and taskIds are required" });
+    }
+    try {
+      const status = await termService.startBatchResolve(projectId, taskIds);
+      return status;
+    } catch (err: any) {
+      return reply.code(409).send({ error: err.message });
+    }
+  });
+
+  fastify.get("/terminal/batch-resolve/status", async () => {
+    return termService.getBatchResolveStatus();
+  });
+
+  fastify.post("/terminal/batch-resolve/cancel", async () => {
+    return termService.cancelBatchResolve();
   });
 };
 

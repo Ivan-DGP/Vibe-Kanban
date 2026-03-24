@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Search, Settings2, Plus, Download, Loader2, BarChart3 } from "lucide-react";
+import { Search, Settings2, Plus, Download, Loader2, BarChart3, Zap } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { tasksToCSV, tasksToJSON, tasksToMarkdown, downloadFile } from "@/lib/task-export";
 import { api } from "@/lib/api";
@@ -23,6 +23,8 @@ interface KanbanToolbarProps {
   listView: boolean;
   onListViewChange: (listView: boolean) => void;
   onNewTask: () => void;
+  onBatchResolve?: () => void;
+  batchResolveRunning?: boolean;
   projectName?: string;
 }
 
@@ -35,6 +37,8 @@ export default function KanbanToolbar({
   listView,
   onListViewChange,
   onNewTask,
+  onBatchResolve,
+  batchResolveRunning,
   projectName,
 }: KanbanToolbarProps) {
   const [milestoneManagerOpen, setMilestoneManagerOpen] = useState(false);
@@ -164,6 +168,19 @@ Be direct and practical. Output plain text, no markdown headers.`;
           <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => setMilestoneManagerOpen(true)}>
             <Settings2 className="h-3.5 w-3.5" />
           </Button>
+
+          {onBatchResolve && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={onBatchResolve}
+              disabled={batchResolveRunning}
+            >
+              {batchResolveRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              Resolve All
+            </Button>
+          )}
 
           <Button size="sm" className="h-8 gap-1.5" onClick={onNewTask}>
             <Plus className="h-3.5 w-3.5" />
