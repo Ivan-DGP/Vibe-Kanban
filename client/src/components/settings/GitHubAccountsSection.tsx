@@ -5,11 +5,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { useGitHubAccounts, useCreateGitHubAccount, useDeleteGitHubAccount } from "@/hooks";
+import { useConfirm } from "@/hooks/useConfirm";
 
 export default function GitHubAccountsSection() {
   const { data: accounts } = useGitHubAccounts();
   const create = useCreateGitHubAccount();
   const deleteAccount = useDeleteGitHubAccount();
+  const confirm = useConfirm();
   const [name, setName] = useState("");
   const [token, setToken] = useState("");
 
@@ -32,7 +34,7 @@ export default function GitHubAccountsSection() {
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-destructive"
-            onClick={() => { if (confirm("Delete this account?")) deleteAccount.mutate(acct.id); }}
+            onClick={async () => { if (await confirm({ title: "Delete Account", description: "Delete this account?" })) deleteAccount.mutate(acct.id); }}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>

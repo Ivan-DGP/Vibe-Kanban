@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Download, Upload, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 
 export default function DataExportSection() {
@@ -23,7 +24,7 @@ export default function DataExportSection() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert("Export failed");
+      toast.error("Export failed");
     }
   };
 
@@ -35,9 +36,9 @@ export default function DataExportSection() {
       const text = await file.text();
       const data = JSON.parse(text);
       if (data.settings) await api.settings.update(data.settings);
-      alert("Import successful");
+      toast.success("Import successful");
     } catch {
-      alert("Import failed - invalid file");
+      toast.error("Import failed - invalid file");
     } finally {
       setImporting(false);
     }

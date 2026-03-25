@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useFileList, useCreateFile, useRenameFile, useDeleteFile } from "@/hooks";
+import { useConfirm } from "@/hooks/useConfirm";
 import { Folder, FolderOpen, File, FileCode, FileJson, FileText, Image, ChevronRight, ChevronDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -32,6 +33,7 @@ function FileContextMenu({ projectId, path: filePath, isDir, children }: {
   const createFile = useCreateFile();
   const renameFile = useRenameFile();
   const deleteFile = useDeleteFile();
+  const confirmDialog = useConfirm();
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState<"file" | "directory" | null>(null);
@@ -57,8 +59,8 @@ function FileContextMenu({ projectId, path: filePath, isDir, children }: {
     });
   };
 
-  const handleDelete = () => {
-    if (!confirm(`Delete "${currentName}"?`)) return;
+  const handleDelete = async () => {
+    if (!await confirmDialog({ title: "Delete File", description: `Delete "${currentName}"?` })) return;
     deleteFile.mutate({ projectId, filePath });
   };
 

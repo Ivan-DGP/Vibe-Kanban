@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ArrowUp, ArrowDown, Undo2, Trash2, Loader2 } from "lucide-react";
 import { usePush, usePull, useDiscard, useUndoCommit } from "@/hooks";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface GitActionsProps {
   projectId: string;
@@ -15,18 +16,19 @@ export default function GitActions({ projectId, subPath, selectedUnstaged, ahead
   const pull = usePull();
   const discard = useDiscard();
   const undoCommit = useUndoCommit();
+  const confirm = useConfirm();
 
   const handlePush = () => push.mutate({ projectId, subPath });
   const handlePull = () => pull.mutate({ projectId, subPath });
 
-  const handleDiscard = () => {
+  const handleDiscard = async () => {
     if (selectedUnstaged.length === 0) return;
-    if (!confirm(`Discard changes to ${selectedUnstaged.length} file(s)?`)) return;
+    if (!await confirm({ title: "Discard Changes", description: `Discard changes to ${selectedUnstaged.length} file(s)?` })) return;
     discard.mutate({ projectId, files: selectedUnstaged, subPath });
   };
 
-  const handleUndo = () => {
-    if (!confirm("Undo the last commit? (soft reset)")) return;
+  const handleUndo = async () => {
+    if (!await confirm({ title: "Undo Commit", description: "Undo the last commit? (soft reset)" })) return;
     undoCommit.mutate({ projectId, subPath });
   };
 

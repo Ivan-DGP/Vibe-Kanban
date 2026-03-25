@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Trash2 } from "lucide-react";
 import { useLogs, useClearLogs } from "@/hooks";
+import { useConfirm } from "@/hooks/useConfirm";
 import LogEntry from "@/components/logs/LogEntry";
 import LogFilters from "@/components/logs/LogFilters";
 import { format, isToday, isYesterday } from "date-fns";
@@ -21,6 +22,7 @@ export default function Logs() {
 
   const { data, isLoading } = useLogs(params);
   const clearLogs = useClearLogs();
+  const confirm = useConfirm();
 
   const logs = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -43,8 +45,8 @@ export default function Logs() {
     return groups;
   }, [logs]);
 
-  const handleClear = () => {
-    if (!confirm("Clear all logs?")) return;
+  const handleClear = async () => {
+    if (!await confirm({ title: "Clear Logs", description: "Clear all logs?" })) return;
     clearLogs.mutate();
   };
 

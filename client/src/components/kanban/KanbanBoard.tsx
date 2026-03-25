@@ -13,6 +13,7 @@ import {
 import { useTasks, useReorderTasks, useCreateTask, useDeleteTask } from "@/hooks";
 import { useAppStore } from "@/stores/appStore";
 import { useCreateTerminalSession, useBatchResolve, useBatchResolveStatus, useCancelBatchResolve } from "@/hooks/useTerminal";
+import { useConfirm } from "@/hooks/useConfirm";
 import { api } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
 import { Loader2 } from "lucide-react";
@@ -149,13 +150,14 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const cancelBatch = useCancelBatchResolve();
   const { toggleTerminal, terminalVisible } = useAppStore();
 
+  const confirm = useConfirm();
   const batchRunning = batchStatus?.state === "running";
 
-  const handleBatchResolve = () => {
+  const handleBatchResolve = async () => {
     // Collect all backlog + in_progress task IDs
     const taskIds = [...inboxTasks, ...ipTasks].map((t) => t.id);
     if (taskIds.length === 0) return;
-    if (!confirm(`Start AI Resolve for ${taskIds.length} tasks? They will be processed one at a time.`)) return;
+    if (!await confirm({ title: "Batch AI Resolve", description: `Start AI Resolve for ${taskIds.length} tasks? They will be processed one at a time.` })) return;
     if (!terminalVisible) toggleTerminal();
     batchResolve.mutate({ projectId, taskIds });
   };
@@ -209,8 +211,8 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
     });
   };
 
-  const handleDelete = (task: Task) => {
-    if (!confirm(`Delete "${task.title}"?`)) return;
+  const handleDelete = async (task: Task) => {
+    if (!await confirm({ title: "Delete Task", description: `Delete "${task.title}"?` })) return;
     deleteTaskMut.mutate(task.id);
   };
 

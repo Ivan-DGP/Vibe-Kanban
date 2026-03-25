@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Trash2, Plus, X } from "lucide-react";
 import { useUpdateProject, useDeleteProject, useNotionStatus, useNotionDatabases } from "@/hooks";
+import { useConfirm } from "@/hooks/useConfirm";
 import type { Project, ExternalLink } from "@vibe-kanban/shared";
 import { useNavigate } from "react-router-dom";
 
@@ -25,6 +26,7 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
+  const confirm = useConfirm();
   const { data: notionStatus } = useNotionStatus();
   const { data: notionDbs } = useNotionDatabases(notionStatus?.connected ?? false);
   const navigate = useNavigate();
@@ -53,8 +55,8 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
     );
   };
 
-  const handleDelete = () => {
-    if (!confirm(`Delete project "${project.name}"? Tasks will also be deleted.`)) return;
+  const handleDelete = async () => {
+    if (!await confirm({ title: "Delete Project", description: `Delete project "${project.name}"? Tasks will also be deleted.` })) return;
     deleteProject.mutate(project.id, {
       onSuccess: () => { onOpenChange(false); navigate("/"); },
     });

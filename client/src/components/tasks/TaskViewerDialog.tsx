@@ -8,6 +8,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirm } from "@/hooks/useConfirm";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PriorityBadge from "./PriorityBadge";
@@ -25,6 +26,7 @@ interface TaskViewerDialogProps {
 
 export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: TaskViewerDialogProps) {
   const deleteTask = useDeleteTask();
+  const confirm = useConfirm();
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const createTermSession = useCreateTerminalSession();
@@ -56,8 +58,8 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
     finally { setAnalyzing(false); }
   };
 
-  const handleDelete = () => {
-    if (!confirm("Delete this task?")) return;
+  const handleDelete = async () => {
+    if (!await confirm({ title: "Delete Task", description: "Delete this task?" })) return;
     deleteTask.mutate(task.id, { onSuccess: () => onOpenChange(false) });
   };
 

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Pencil, Trash2, Check, X, Archive, ArchiveRestore } from "lucide-react";
 import { useMilestones, useCreateMilestone, useUpdateMilestone, useDeleteMilestone } from "@/hooks";
+import { useConfirm } from "@/hooks/useConfirm";
 
 interface MilestoneManagerDialogProps {
   open: boolean;
@@ -17,6 +18,7 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
   const createMilestone = useCreateMilestone(projectId);
   const updateMilestone = useUpdateMilestone();
   const deleteMilestone = useDeleteMilestone();
+  const confirm = useConfirm();
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -42,8 +44,8 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
     updateMilestone.mutate({ id, input: { status: currentStatus === "active" ? "closed" : "active" } });
   };
 
-  const handleDelete = (id: string) => {
-    if (!confirm("Delete this milestone? Tasks will be moved to General.")) return;
+  const handleDelete = async (id: string) => {
+    if (!await confirm({ title: "Delete Milestone", description: "Delete this milestone? Tasks will be moved to General." })) return;
     deleteMilestone.mutate(id);
   };
 
