@@ -165,11 +165,12 @@ export const api = {
 
   claude: {
     status: () => get<ClaudeStatus>("/claude/status"),
-    chat: (message: string, projectId?: string) =>
+    chat: (message: string, projectId?: string, signal?: AbortSignal) =>
       fetch("/api/claude/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, projectId }),
+        signal,
       }),
     bulkImport: (projectId: string, text: string) =>
       post<CreateTaskInput[]>(`/claude/bulk-import`, { projectId, text }),

@@ -35,34 +35,42 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const [aiLoading, setAiLoading] = useState<"context" | "improve" | null>(null);
 
   const streamAI = async (systemPrompt: string): Promise<string> => {
-    const res = await api.claude.chat(systemPrompt, projectId);
-    if (!res.ok) throw new Error(`AI request failed (${res.status})`);
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("No response stream");
-    let text = "";
-    let buffer = "";
-    const decoder = new TextDecoder();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          try {
-            const d = JSON.parse(line.slice(6));
-            if (d.type === "delta" && d.text) text += d.text;
-            if (d.type === "error") throw new Error(d.message || "AI error");
-          } catch (e) {
-            if (e instanceof SyntaxError) continue;
-            throw e;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+    try {
+      const res = await api.claude.chat(systemPrompt, projectId, controller.signal);
+      if (!res.ok) throw new Error(`AI request failed (${res.status})`);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+      let text = "";
+      let buffer = "";
+      let streamDone = false;
+      const decoder = new TextDecoder();
+      while (!streamDone) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const d = JSON.parse(line.slice(6));
+              if (d.type === "delta" && d.text) text += d.text;
+              if (d.type === "done") { streamDone = true; break; }
+              if (d.type === "error") throw new Error(d.message || "AI error");
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
           }
         }
       }
+      if (!text) throw new Error("No response from AI");
+      return text;
+    } finally {
+      clearTimeout(timeout);
     }
-    if (!text) throw new Error("No response from AI");
-    return text;
   };
 
   const handleGatherContext = async () => {

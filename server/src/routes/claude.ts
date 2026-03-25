@@ -47,6 +47,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/claude/chat", async (request, reply) => {
     const { message, projectId } = request.body as any;
 
+    reply.hijack();
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -67,20 +68,27 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       if (await isCliAvailable()) {
-        // Use Claude CLI
-        const proc = Bun.spawn(["claude", "-p", fullPrompt], {
+        // Use Claude CLI — limit to 1 turn to prevent tool-use loops
+        const proc = Bun.spawn(["claude", "-p", "--max-turns", "1", fullPrompt], {
           stdout: "pipe",
           stderr: "pipe",
         });
 
+        // Kill process after 60s to prevent hangs
+        const timeout = setTimeout(() => proc.kill(), 60_000);
+
         const reader = proc.stdout.getReader();
         const decoder = new TextDecoder();
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
+          }
+        } finally {
+          clearTimeout(timeout);
         }
       } else {
         // Fall back to API
