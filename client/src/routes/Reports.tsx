@@ -31,7 +31,7 @@ export default function Reports() {
   };
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Reports</h1>
         <Button variant="outline" size="sm" onClick={handleCopy} disabled={!report || report.totalTasks === 0}>
