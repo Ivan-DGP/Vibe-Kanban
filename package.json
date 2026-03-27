@@ -7,12 +7,17 @@
     "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
     "dev:client": "bun run --cwd client dev",
     "dev:server": "bun run --cwd server dev",
+    "dev:node": "concurrently \"npm run dev:server:node\" \"npm run dev:client:node\"",
+    "dev:client:node": "npx --prefix client vite",
+    "dev:server:node": "npx tsx --watch server/src/index.ts",
     "build": "bun run --cwd client build",
     "start": "bun run --cwd server start",
+    "start:node": "npx tsx server/src/index.ts",
     "check": "bun run --cwd client typecheck && bun run --cwd server typecheck"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/node": "^25.5.0",
     "concurrently": "^9.1.0",
     "playwright": "^1.58.2"
   }

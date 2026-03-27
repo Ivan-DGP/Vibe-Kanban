@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import os from "node:os";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
+import { spawnStreaming } from "../lib/runtime";
 import { log } from "../lib/logger";
 import { buildAnalyzePrompt } from "../services/aiResolvePrompt";
 
@@ -68,28 +69,21 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       if (await isCliAvailable()) {
-        // Use Claude CLI — limit to 1 turn to prevent tool-use loops
-        const proc = Bun.spawn(["claude", "-p", "--max-turns", "1", fullPrompt], {
-          stdout: "pipe",
-          stderr: "pipe",
-        });
+        // Use Claude CLI in print mode
+        const proc = spawnStreaming(["claude", "-p", fullPrompt]);
 
-        // Kill process after 60s to prevent hangs
-        const timeout = setTimeout(() => proc.kill(), 60_000);
+        // Kill process after 30s to prevent hangs
+        const timeout = setTimeout(() => proc.kill(), 30_000);
 
-        const reader = proc.stdout.getReader();
-        const decoder = new TextDecoder();
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value);
+        await new Promise<void>((resolve) => {
+          proc.onData((chunk) => {
             reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
-          }
-        } finally {
-          clearTimeout(timeout);
-        }
+          });
+          proc.exited.then(() => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
       } else {
         // Fall back to API
         const apiKey = getApiKey();

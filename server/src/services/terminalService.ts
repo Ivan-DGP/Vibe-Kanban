@@ -1,6 +1,8 @@
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { buildAiResolvePrompt } from "./aiResolvePrompt";
+import { spawnPty as runtimeSpawnPty, spawnProcessSync, spawnProcess } from "../lib/runtime";
+import type { PtyHandle } from "../lib/runtime";
 import type { TerminalSessionType, BatchResolveStatus } from "@vibe-kanban/shared";
 import type { Task } from "@vibe-kanban/shared";
 
@@ -12,7 +14,7 @@ const MAX_SCROLLBACK_CHARS = 100_000;
 
 interface PtySession {
   id: string;
-  proc: any; // Bun subprocess with terminal or piped I/O
+  proc: PtyHandle | null;
   cwd: string;
   type: TerminalSessionType;
   projectId?: string;
@@ -89,9 +91,27 @@ function emitExit(session: PtySession, exitCode: number) {
   }
 }
 
-// ── Interactive shell via Bun's built-in terminal API ──────────
+// ── Branch checkout helper ────────────────────────────────────
 
-function spawnShellWithBunTerminal(
+async function checkoutBranch(cwd: string, branch: string): Promise<{ ok: boolean; error?: string }> {
+  const { spawn: spawnCmd } = await import("../lib/spawn");
+  // Check current branch — skip if already on target
+  const currentResult = await spawnCmd(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd });
+  if (currentResult.exitCode === 0 && currentResult.stdout.trim() === branch) {
+    return { ok: true };
+  }
+  // Try switching to existing branch
+  const result = await spawnCmd(["git", "checkout", branch], { cwd });
+  if (result.exitCode === 0) return { ok: true };
+  // Branch doesn't exist — create it
+  const createResult = await spawnCmd(["git", "checkout", "-b", branch], { cwd });
+  if (createResult.exitCode === 0) return { ok: true };
+  return { ok: false, error: createResult.stderr };
+}
+
+// ── Interactive shell via PTY (Bun or node-pty) ────────────────
+
+function spawnShellPty(
   session: PtySession,
   shell: string,
   shellArgs: string[],
@@ -100,36 +120,32 @@ function spawnShellWithBunTerminal(
 ): void {
   const { id } = session;
 
-  const proc = Bun.spawn([shell, ...shellArgs], {
+  const pty = runtimeSpawnPty(shell, shellArgs, {
     cwd: session.cwd,
     env: safeEnv,
-    terminal: {
-      cols: opts.cols ?? 80,
-      rows: opts.rows ?? 24,
-      data(_terminal: any, data: Buffer) {
-        emitData(session, data.toString());
-      },
-    },
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
   });
 
-  proc.exited.then((exitCode: number) => {
+  pty.onData((data) => emitData(session, data));
+  pty.onExit((exitCode) => {
     log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
     session.alive = false;
     emitExit(session, exitCode ?? 0);
     sessions.delete(id);
-  }).catch(() => {});
+  });
 
-  session.proc = proc;
+  session.proc = pty;
 }
 
-// ── AI Resolve via Bun terminal PTY ─────────────────────────────
+// ── AI Resolve via PTY ──────────────────────────────────────────
 
 function resolveClaudeCmd(safeEnv: Record<string, string>): string {
   try {
     const whichCmd = process.platform === "win32" ? "where" : "which";
-    const result = Bun.spawnSync([whichCmd, "claude"], { env: safeEnv });
+    const result = spawnProcessSync([whichCmd, "claude"], { env: safeEnv });
     if (result.exitCode === 0) {
-      return result.stdout.toString().trim().split(/\r?\n/)[0];
+      return result.stdout.split(/\r?\n/)[0];
     }
   } catch {}
   return "claude";
@@ -146,34 +162,27 @@ function spawnAiResolve(
 
   log("info", "terminal", `AI resolve [${id}]: spawning ${claudeCmd} with prompt as argument`);
 
-  // Pass the prompt directly as a CLI argument so Claude starts working immediately.
-  // No need to paste + Enter — Claude CLI accepts: claude --dangerously-skip-permissions "prompt"
-  const proc = Bun.spawn([claudeCmd, "--dangerously-skip-permissions", prompt], {
+  const pty = runtimeSpawnPty(claudeCmd, ["--dangerously-skip-permissions", prompt], {
     cwd: session.cwd,
     env: safeEnv,
-    terminal: {
-      cols: opts.cols ?? 80,
-      rows: opts.rows ?? 24,
-      data(_terminal: any, data: Buffer) {
-        emitData(session, data.toString());
-      },
-    },
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
   });
 
-  proc.exited.then((exitCode: number) => {
+  pty.onData((data) => emitData(session, data));
+  pty.onExit((exitCode) => {
     log("info", "terminal", `AI resolve [${id}]: exited with code ${exitCode}`);
     session.alive = false;
     emitExit(session, exitCode ?? 1);
     sessions.delete(id);
-  }).catch(() => {});
+  });
 
-  session.proc = proc;
+  session.proc = pty;
 }
 
 // ── Public API ─────────────────────────────────────────────────
 
 export async function isAvailable(): Promise<boolean> {
-  // Bun's built-in terminal API is always available
   return true;
 }
 
@@ -195,6 +204,7 @@ export interface CreateSessionOptions {
   taskId?: string;
   name?: string;
   prompt?: string;
+  branch?: string;
   devCommand?: string;
 }
 
@@ -220,6 +230,14 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   sessions.set(id, session);
 
+  // Checkout target branch before AI resolve
+  if (opts.type === "ai-resolve" && opts.branch) {
+    const checkout = await checkoutBranch(cwd, opts.branch);
+    if (!checkout.ok) {
+      log("warn", "terminal", `Branch checkout failed for "${opts.branch}": ${checkout.error}`);
+    }
+  }
+
   // AI Resolve: interactive PTY running claude CLI
   if (opts.type === "ai-resolve" && opts.prompt) {
     spawnAiResolve(session, opts.prompt, safeEnv, opts);
@@ -244,31 +262,26 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   const shellArgs = shell === "cmd.exe" ? ["/D"] : [];
 
-  // Use Bun's built-in terminal API (real PTY, no node-pty needed)
-  spawnShellWithBunTerminal(session, shell, shellArgs, safeEnv, opts);
+  spawnShellPty(session, shell, shellArgs, safeEnv, opts);
 
   // Auto-run dev command
   if (opts.type === "dev" && opts.devCommand) {
     const safeDevCommands = /^(bun|npm|yarn|pnpm|npx|node)\s+(run\s+)?(dev|start|serve)\s*$/;
     if (safeDevCommands.test(opts.devCommand.trim())) {
-      session.proc.terminal.write(opts.devCommand + "\r\n");
+      session.proc?.write(opts.devCommand + "\r\n");
     }
   }
 
-  log("info", "terminal", `Session created: ${id}`, { type: opts.type, backend: "bun-terminal" });
+  log("info", "terminal", `Session created: ${id}`, { type: opts.type });
   return session;
 }
 
 export function writeToSession(id: string, data: string): boolean {
   const session = sessions.get(id);
-  if (!session?.alive) return false;
+  if (!session?.alive || !session.proc) return false;
   try {
-    if (session.proc?.terminal) {
-      // Bun built-in terminal
-      session.proc.terminal.write(data);
-      return true;
-    }
-    return false;
+    session.proc.write(data);
+    return true;
   } catch (err) {
     log("warn", "terminal", `Write failed for ${id}: ${String(err)}`);
     return false;
@@ -277,13 +290,10 @@ export function writeToSession(id: string, data: string): boolean {
 
 export function resizeSession(id: string, cols: number, rows: number): boolean {
   const session = sessions.get(id);
-  if (!session?.alive) return false;
+  if (!session?.alive || !session.proc) return false;
   try {
-    if (session.proc?.terminal) {
-      session.proc.terminal.resize(cols, rows);
-      return true;
-    }
-    return false;
+    session.proc.resize(cols, rows);
+    return true;
   } catch (err) {
     log("warn", "terminal", `Resize failed for ${id}: ${String(err)}`);
     return false;
@@ -294,7 +304,7 @@ export function killSession(id: string): boolean {
   const session = sessions.get(id);
   if (!session) return false;
   try {
-    session.proc?.kill?.();
+    session.proc?.kill();
   } catch {}
   // Close the WebSocket so the client knows immediately
   try {
@@ -361,7 +371,7 @@ export function getBatchResolveStatus(): BatchResolveStatus {
   return { ...batchState, activeTasks: [...(batchState.activeTasks ?? [])], taskResults: [...batchState.taskResults] };
 }
 
-export async function startBatchResolve(projectId: string, taskIds: string[], concurrency: number = 1): Promise<BatchResolveStatus> {
+export async function startBatchResolve(projectId: string, taskIds: string[], concurrency: number = 1, overrideBranch?: string): Promise<BatchResolveStatus> {
   if (batchState.state === "running") {
     throw new Error("A batch resolve is already running");
   }
@@ -392,8 +402,21 @@ export async function startBatchResolve(projectId: string, taskIds: string[], co
     taskResults: [],
   };
 
-  // Process tasks with configured concurrency
-  processQueue(tasks, projectId, port, effectiveConcurrency).catch((err) => {
+  // Group tasks by branch for sequential branch processing
+  const branchGroups = new Map<string | null, Task[]>();
+  for (const task of tasks) {
+    const key = overrideBranch || task.branch || null;
+    if (!branchGroups.has(key)) branchGroups.set(key, []);
+    branchGroups.get(key)!.push(task);
+  }
+
+  // Process null-branch group first, then named branches
+  const groups: [string | null, Task[]][] = [
+    ...(branchGroups.has(null) ? [[null, branchGroups.get(null)!] as [null, Task[]]] : []),
+    ...Array.from(branchGroups.entries()).filter(([k]) => k !== null),
+  ];
+
+  processQueueWithBranches(groups, projectId, port, effectiveConcurrency).catch((err) => {
     log("error", "terminal", `Batch resolve error: ${String(err)}`);
     batchState.state = "completed";
   });
@@ -469,6 +492,44 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
   }
 }
 
+async function processQueueWithBranches(
+  branchGroups: [string | null, Task[]][],
+  projectId: string,
+  port: number,
+  concurrency: number,
+): Promise<void> {
+  const projectPath = resolveCwd(projectId);
+
+  for (const [branch, tasks] of branchGroups) {
+    if (batchState.state === "cancelled") break;
+
+    // Checkout branch for this group
+    if (branch) {
+      const result = await checkoutBranch(projectPath, branch);
+      if (!result.ok) {
+        log("error", "terminal", `Batch resolve: failed to checkout branch "${branch}": ${result.error}`);
+        // Mark all tasks in this group as failed
+        for (const task of tasks) {
+          batchState.taskResults.push({ taskId: task.id, taskTitle: task.title, sessionId: "", exitCode: -1 });
+          batchState.completedTasks++;
+        }
+        continue;
+      }
+      log("info", "terminal", `Batch resolve: switched to branch "${branch}" for ${tasks.length} task(s)`);
+    }
+
+    // Process tasks in this branch group with concurrency
+    await processQueue(tasks, projectId, port, concurrency);
+  }
+
+  batchState.state = batchState.state === "cancelled" ? "cancelled" : "completed";
+  batchState.currentTaskId = undefined;
+  batchState.currentTaskTitle = undefined;
+  batchState.currentSessionId = undefined;
+  batchState.activeTasks = [];
+  log("info", "terminal", `Batch resolve: all ${batchState.totalTasks} tasks completed`);
+}
+
 async function processQueue(tasks: Task[], projectId: string, port: number, concurrency: number = 1): Promise<void> {
   if (concurrency <= 1) {
     // Sequential processing (original behavior)
@@ -494,13 +555,6 @@ async function processQueue(tasks: Task[], projectId: string, port: number, conc
       log("info", "terminal", "Batch resolve cancelled");
     }
   }
-
-  batchState.state = batchState.state === "cancelled" ? "cancelled" : "completed";
-  batchState.currentTaskId = undefined;
-  batchState.currentTaskTitle = undefined;
-  batchState.currentSessionId = undefined;
-  batchState.activeTasks = [];
-  log("info", "terminal", `Batch resolve: all ${batchState.totalTasks} tasks completed`);
 }
 
 function waitForTaskCompletion(sessionId: string, taskId: string): Promise<number | null> {

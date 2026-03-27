@@ -1,6 +1,8 @@
 import path from "node:path";
+import fs from "node:fs";
 import { getDb } from "../db";
 import { getTaskSnapshotDir } from "../lib/data-dir";
+import { writeFile } from "../lib/runtime";
 
 export function writeTaskSnapshot(projectId: string): void {
   const db = getDb();
@@ -32,8 +34,7 @@ export function writeTaskSnapshot(projectId: string): void {
   const filePath = path.join(dir, `${projectId}.json`);
   const tmpPath = filePath + ".tmp";
 
-  Bun.write(tmpPath, JSON.stringify(snapshot, null, 2)).then(() => {
-    const fs = require("node:fs");
+  writeFile(tmpPath, JSON.stringify(snapshot, null, 2)).then(() => {
     fs.renameSync(tmpPath, filePath);
   });
 }

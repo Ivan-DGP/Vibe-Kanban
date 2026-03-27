@@ -1,19 +1,19 @@
-import { Database } from "bun:sqlite";
+import { openDatabase, type DatabaseHandle } from "../lib/runtime";
 import { getDbPath } from "../lib/data-dir";
 import { SCHEMA_SQL } from "./schema";
 
-let _db: Database | null = null;
+let _db: DatabaseHandle | null = null;
 
-export function getDb(): Database {
+export function getDb(): DatabaseHandle {
   if (_db) return _db;
 
   const dbPath = getDbPath();
-  _db = new Database(dbPath, { create: true });
+  _db = openDatabase(dbPath);
 
   // Set pragmas
-  _db.run("PRAGMA journal_mode = WAL");
-  _db.run("PRAGMA foreign_keys = ON");
-  _db.run("PRAGMA busy_timeout = 5000");
+  _db.exec("PRAGMA journal_mode = WAL");
+  _db.exec("PRAGMA foreign_keys = ON");
+  _db.exec("PRAGMA busy_timeout = 5000");
 
   // Run initial schema
   runMigrations(_db);
@@ -21,7 +21,7 @@ export function getDb(): Database {
   return _db;
 }
 
-function runMigrations(db: Database): void {
+function runMigrations(db: DatabaseHandle): void {
   // Check if _migrations table exists
   const migrationTableExists = db
     .prepare(
@@ -103,6 +103,16 @@ function runMigrations(db: Database): void {
             CREATE INDEX idx_todos_completed ON todos (completed);
             CREATE INDEX idx_todos_sortOrder ON todos (sortOrder);
           `);
+        }
+      },
+    },
+    {
+      version: 5,
+      name: "add-task-branch",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "branch")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN branch TEXT DEFAULT NULL");
         }
       },
     },
