@@ -209,6 +209,22 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     return { mainBranch: null, ahead: 0, behind: 0 };
   });
 
+  // Create branch
+  fastify.post("/projects/:projectId/git/create-branch", async (request) => {
+    const { projectId } = request.params as any;
+    const { branch, baseBranch, subPath } = request.body as any;
+    if (!branch || typeof branch !== "string" || /[;&|`$]/.test(branch)) {
+      return { ok: false, error: "Invalid branch name" };
+    }
+    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    if (baseBranch) {
+      await spawn(["git", "checkout", baseBranch], { cwd });
+    }
+    const result = await spawn(["git", "checkout", "-b", branch], { cwd });
+    log("info", "git", `Create branch: ${branch}`, { projectId });
+    return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
+  });
+
   // Checkout branch
   fastify.post("/projects/:projectId/git/checkout", async (request) => {
     const { projectId } = request.params as any;

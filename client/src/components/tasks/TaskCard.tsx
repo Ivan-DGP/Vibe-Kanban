@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Zap, Sparkles, Pencil, Copy, Trash2 } from "lucide-react";
+import { Zap, Sparkles, Pencil, Copy, Trash2, GitBranch } from "lucide-react";
 import PriorityBadge from "./PriorityBadge";
 import type { Task } from "@vibe-kanban/shared";
 
@@ -41,6 +41,12 @@ export default function TaskCard({ task, onClick, onAIResolve, onAnalyze, onEdit
       </div>
       {task.description && (
         <p className="text-xs text-muted-foreground/80 mt-1.5 line-clamp-1 leading-relaxed">{task.description}</p>
+      )}
+      {task.branch && (
+        <div className="flex items-center gap-1 mt-1">
+          <GitBranch className="h-3 w-3 text-muted-foreground/60" />
+          <span className="text-[10px] text-muted-foreground/60 font-mono truncate">{task.branch}</span>
+        </div>
       )}
 
       {/* Hover action buttons */}

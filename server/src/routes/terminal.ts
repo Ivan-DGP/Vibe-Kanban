@@ -31,6 +31,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
       taskId?: string;
       name?: string;
       prompt?: string;
+      branch?: string;
       devCommand?: string;
     };
 
@@ -48,6 +49,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         taskId: body.taskId,
         name: body.name,
         prompt: body.prompt,
+        branch: body.branch,
         devCommand: body.devCommand,
       });
 
@@ -99,12 +101,12 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── REST: Batch AI Resolve ─────────────────────────────────
   fastify.post("/terminal/batch-resolve", async (request, reply) => {
-    const { projectId, taskIds, concurrency } = request.body as { projectId: string; taskIds: string[]; concurrency?: number };
+    const { projectId, taskIds, concurrency, overrideBranch } = request.body as { projectId: string; taskIds: string[]; concurrency?: number; overrideBranch?: string };
     if (!projectId || !taskIds?.length) {
       return reply.code(400).send({ error: "projectId and taskIds are required" });
     }
     try {
-      const status = await termService.startBatchResolve(projectId, taskIds, concurrency);
+      const status = await termService.startBatchResolve(projectId, taskIds, concurrency, overrideBranch);
       return status;
     } catch (err: any) {
       return reply.code(409).send({ error: err.message });

@@ -106,6 +106,19 @@ export function useUndoCommit() {
   });
 }
 
+export function useCreateBranch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, branch, baseBranch, subPath }: { projectId: string; branch: string; baseBranch?: string; subPath?: string }) =>
+      api.git.createBranch(projectId, branch, baseBranch, subPath),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["git-status"] });
+      qc.invalidateQueries({ queryKey: ["git-log"] });
+      qc.invalidateQueries({ queryKey: ["git-branches"] });
+    },
+  });
+}
+
 export function useCheckoutBranch() {
   const qc = useQueryClient();
   return useMutation({

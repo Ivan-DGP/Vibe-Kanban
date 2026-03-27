@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Pencil, Trash2, Sparkles, Loader2, Zap } from "lucide-react";
+import { Pencil, Trash2, Sparkles, Loader2, Zap, GitBranch } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
@@ -73,6 +73,12 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
             <Badge variant="secondary">{STATUS_LABELS[task.status]}</Badge>
+            {task.branch && (
+              <Badge variant="outline" className="gap-1 font-mono text-[10px]">
+                <GitBranch className="h-3 w-3" />
+                {task.branch}
+              </Badge>
+            )}
             <span>Created {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}</span>
           </div>
         </DialogHeader>
@@ -136,6 +142,7 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
               projectId: task.projectId,
               prompt,
               taskId: task.id,
+              branch: task.branch ?? undefined,
             });
             onOpenChange(false);
           }}>

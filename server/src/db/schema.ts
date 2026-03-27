@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   title        TEXT NOT NULL,
   description  TEXT DEFAULT NULL,
   prompt       TEXT DEFAULT NULL,
+  branch       TEXT DEFAULT NULL,
   status       TEXT NOT NULL DEFAULT 'backlog'
     CHECK (status IN ('backlog', 'todo', 'in_progress', 'done')),
   priority     TEXT NOT NULL DEFAULT 'medium'

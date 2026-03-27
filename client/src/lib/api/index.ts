@@ -128,6 +128,8 @@ export const api = {
       ),
     checkout: (projectId: string, branch: string, subPath?: string) =>
       post(`/projects/${projectId}/git/checkout`, { branch, subPath }),
+    createBranch: (projectId: string, branch: string, baseBranch?: string, subPath?: string) =>
+      post(`/projects/${projectId}/git/create-branch`, { branch, baseBranch, subPath }),
     subRepos: (projectId: string) =>
       get<string[]>(`/projects/${projectId}/git/sub-repos`),
     divergence: (projectId: string, subPath?: string) =>

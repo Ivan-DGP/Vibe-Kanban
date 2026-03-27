@@ -158,7 +158,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Create task
   fastify.post("/projects/:projectId/tasks", async (request) => {
     const { projectId } = request.params as any;
-    const { title, description, prompt, status = "backlog", priority = "medium", milestoneId } =
+    const { title, description, prompt, branch, status = "backlog", priority = "medium", milestoneId } =
       request.body as any;
 
     const id = uuid();
@@ -182,8 +182,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const cascaded = applyTimestampCascade({}, status as TaskStatus);
 
     db.prepare(
-      `INSERT INTO tasks (id, projectId, milestoneId, title, description, prompt, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, projectId, milestoneId, title, description, prompt, branch, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       projectId,
@@ -191,6 +191,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       title,
       description || null,
       prompt || null,
+      branch || null,
       status,
       priority,
       taskNumber,
@@ -229,7 +230,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     for (const [key, value] of Object.entries(updates)) {
-      if (["title", "description", "prompt", "status", "priority", "sortOrder"].includes(key)) {
+      if (["title", "description", "prompt", "branch", "status", "priority", "sortOrder"].includes(key)) {
         fields.push(`${key} = ?`);
         values.push(value ?? null);
       } else if (key === "milestoneId") {
@@ -345,14 +346,15 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
         const cascaded = applyTimestampCascade({}, status);
 
         db.prepare(
-          `INSERT INTO tasks (id, projectId, title, description, prompt, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO tasks (id, projectId, title, description, prompt, branch, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           id,
           projectId,
           taskInput.title,
           taskInput.description || null,
           taskInput.prompt || null,
+          taskInput.branch || null,
           status,
           priority,
           nextNumber++,

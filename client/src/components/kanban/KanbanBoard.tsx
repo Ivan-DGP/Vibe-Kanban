@@ -16,7 +16,7 @@ import { useCreateTerminalSession, useBatchResolve, useBatchResolveStatus, useCa
 import { useConfirm } from "@/hooks/useConfirm";
 import { api } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
-import { Loader2, Minus, Plus } from "lucide-react";
+import { Loader2, Minus, Plus, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,6 +32,7 @@ import ListView from "./ListView";
 import TaskCard from "@/components/tasks/TaskCard";
 import TaskEditorDialog from "@/components/tasks/TaskEditorDialog";
 import TaskViewerDialog from "@/components/tasks/TaskViewerDialog";
+import BranchSelector from "@/components/git/BranchSelector";
 import type { Task, TaskStatus, TaskFilters } from "@vibe-kanban/shared";
 
 interface KanbanBoardProps {
@@ -163,6 +164,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [batchConcurrency, setBatchConcurrency] = useState(1);
   const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
+  const [batchOverrideBranch, setBatchOverrideBranch] = useState<string | null>(null);
 
   const handleBatchResolve = () => {
     const taskIds = [...inboxTasks, ...ipTasks].map((t) => t.id);
@@ -174,8 +176,24 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const handleBatchConfirm = () => {
     setBatchDialogOpen(false);
     if (!terminalVisible) toggleTerminal();
-    batchResolve.mutate({ projectId, taskIds: batchTaskIds, concurrency: batchConcurrency });
+    batchResolve.mutate({
+      projectId,
+      taskIds: batchTaskIds,
+      concurrency: batchConcurrency,
+      overrideBranch: batchOverrideBranch ?? undefined,
+    });
   };
+
+  // Compute branch groups for batch dialog display
+  const batchBranchGroups = useMemo(() => {
+    const groups = new Map<string, number>();
+    for (const id of batchTaskIds) {
+      const task = allTasks.find((t) => t.id === id);
+      const key = task?.branch || "(current branch)";
+      groups.set(key, (groups.get(key) || 0) + 1);
+    }
+    return groups;
+  }, [batchTaskIds, allTasks]);
 
   const handleCancelBatch = () => {
     cancelBatch.mutate();
@@ -199,6 +217,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       prompt,
       taskId: task.id,
       name: task.title,
+      branch: task.branch ?? undefined,
     });
   };
 
@@ -404,6 +423,35 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
               ? "Tasks will be processed one at a time."
               : `Up to ${batchConcurrency} tasks will be processed in parallel.`}
           </p>
+
+          {/* Branch groups summary */}
+          {batchBranchGroups.size > 1 && !batchOverrideBranch && (
+            <div className="space-y-1.5 py-1">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <GitBranch className="h-3.5 w-3.5" />
+                Branch Groups
+              </label>
+              {Array.from(batchBranchGroups).map(([branch, count]) => (
+                <div key={branch} className="flex items-center justify-between text-xs px-1">
+                  <span className="font-mono truncate">{branch}</span>
+                  <span className="text-muted-foreground">{count} task{count !== 1 ? "s" : ""}</span>
+                </div>
+              ))}
+              <p className="text-[11px] text-muted-foreground">
+                Tasks processed branch-by-branch. Only same-branch tasks run concurrently.
+              </p>
+            </div>
+          )}
+
+          {/* Override branch for all */}
+          <div className="space-y-1.5 py-1">
+            <label className="text-sm font-medium">Override branch (optional)</label>
+            <BranchSelector projectId={projectId} value={batchOverrideBranch} onSelect={setBatchOverrideBranch} />
+            <p className="text-[11px] text-muted-foreground">
+              Run all tasks on a specific branch instead of their assigned branches.
+            </p>
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setBatchDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleBatchConfirm}>Start</Button>

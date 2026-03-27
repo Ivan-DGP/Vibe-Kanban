@@ -280,7 +280,7 @@ Path: ${project.path}
 Tech Stack: ${project.techStack.join(", ") || "unknown"}${gitInfo ? `\nBranch: ${gitInfo.branch}` : ""}
 Task ID: ${task.id}
 Project ID: ${projectId}
-Priority: ${task.priority.toUpperCase()}`);
+Priority: ${task.priority.toUpperCase()}${task.branch ? `\nTarget Branch: ${task.branch}` : ""}`);
 
   if (task.description) {
     parts.push(`## What to do

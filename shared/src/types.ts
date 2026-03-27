@@ -57,6 +57,7 @@ export interface Task {
   title: string;
   description: string | null;
   prompt: string | null;
+  branch: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   taskNumber: number;
@@ -72,6 +73,7 @@ export interface CreateTaskInput {
   title: string;
   description?: string;
   prompt?: string;
+  branch?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
   milestoneId?: string | null;
@@ -81,6 +83,7 @@ export interface UpdateTaskInput {
   title?: string;
   description?: string | null;
   prompt?: string | null;
+  branch?: string | null;
   status?: TaskStatus;
   priority?: TaskPriority;
   milestoneId?: string | null;
@@ -286,6 +289,7 @@ export interface CreateTerminalSessionInput {
   taskId?: string;
   name?: string;
   prompt?: string;
+  branch?: string;
   devCommand?: string;
 }
 
@@ -341,6 +345,7 @@ export interface BatchResolveInput {
   projectId: string;
   taskIds: string[];
   concurrency?: number;
+  overrideBranch?: string;
 }
 
 export interface BatchResolveStatus {

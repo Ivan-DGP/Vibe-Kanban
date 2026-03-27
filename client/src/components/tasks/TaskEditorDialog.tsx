@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Sparkles, FileSearch, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { useCreateTask, useUpdateTask, useMilestones } from "@/hooks";
+import BranchSelector from "@/components/git/BranchSelector";
 import { api } from "@/lib/api";
 import type { Task, TaskStatus, TaskPriority, CreateTaskInput } from "@vibe-kanban/shared";
 
@@ -25,6 +26,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [status, setStatus] = useState<TaskStatus>("todo");
   const [milestoneId, setMilestoneId] = useState<string>("none");
+  const [branch, setBranch] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState("description");
 
@@ -129,6 +131,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setPriority(task.priority);
       setStatus(task.status);
       setMilestoneId(task.milestoneId ?? "none");
+      setBranch(task.branch ?? null);
     } else {
       setTitle("");
       setDescription("");
@@ -136,6 +139,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setPriority("medium");
       setStatus("todo");
       setMilestoneId("none");
+      setBranch(null);
     }
     setActiveTab("description");
   }, [task, open]);
@@ -146,13 +150,14 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       title: title.trim(),
       description: description.trim() || undefined,
       prompt: prompt.trim() || undefined,
+      branch: branch || undefined,
       priority,
       status,
       milestoneId: milestoneId === "none" ? null : milestoneId,
     };
 
     if (isEditing) {
-      updateTask.mutate({ id: task.id, input }, { onSuccess: () => onOpenChange(false) });
+      updateTask.mutate({ id: task.id, input: { ...input, branch } }, { onSuccess: () => onOpenChange(false) });
     } else {
       createTask.mutate(input, { onSuccess: () => onOpenChange(false) });
     }
@@ -259,6 +264,11 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Branch</Label>
+            <BranchSelector projectId={projectId} value={branch} onSelect={setBranch} />
           </div>
         </div>
 
