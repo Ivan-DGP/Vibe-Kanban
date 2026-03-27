@@ -99,12 +99,12 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── REST: Batch AI Resolve ─────────────────────────────────
   fastify.post("/terminal/batch-resolve", async (request, reply) => {
-    const { projectId, taskIds } = request.body as { projectId: string; taskIds: string[] };
+    const { projectId, taskIds, concurrency } = request.body as { projectId: string; taskIds: string[]; concurrency?: number };
     if (!projectId || !taskIds?.length) {
       return reply.code(400).send({ error: "projectId and taskIds are required" });
     }
     try {
-      const status = await termService.startBatchResolve(projectId, taskIds);
+      const status = await termService.startBatchResolve(projectId, taskIds, concurrency);
       return status;
     } catch (err: any) {
       return reply.code(409).send({ error: err.message });

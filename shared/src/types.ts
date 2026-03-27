@@ -340,6 +340,7 @@ export type TerminalWsServerMessage =
 export interface BatchResolveInput {
   projectId: string;
   taskIds: string[];
+  concurrency?: number;
 }
 
 export interface BatchResolveStatus {
@@ -347,9 +348,11 @@ export interface BatchResolveStatus {
   projectId?: string;
   totalTasks: number;
   completedTasks: number;
+  concurrency?: number;
   currentTaskId?: string;
   currentTaskTitle?: string;
   currentSessionId?: string;
+  activeTasks?: { taskId: string; taskTitle: string; sessionId: string }[];
   taskResults: { taskId: string; taskTitle: string; sessionId: string; exitCode?: number }[];
 }
 

@@ -358,10 +358,10 @@ let batchState: BatchResolveStatus = {
 };
 
 export function getBatchResolveStatus(): BatchResolveStatus {
-  return { ...batchState, taskResults: [...batchState.taskResults] };
+  return { ...batchState, activeTasks: [...(batchState.activeTasks ?? [])], taskResults: [...batchState.taskResults] };
 }
 
-export async function startBatchResolve(projectId: string, taskIds: string[]): Promise<BatchResolveStatus> {
+export async function startBatchResolve(projectId: string, taskIds: string[], concurrency: number = 1): Promise<BatchResolveStatus> {
   if (batchState.state === "running") {
     throw new Error("A batch resolve is already running");
   }
@@ -380,16 +380,20 @@ export async function startBatchResolve(projectId: string, taskIds: string[]): P
     throw new Error("No valid tasks found");
   }
 
+  const effectiveConcurrency = Math.max(1, Math.min(concurrency, 10));
+
   batchState = {
     state: "running",
     projectId,
     totalTasks: tasks.length,
     completedTasks: 0,
+    concurrency: effectiveConcurrency,
+    activeTasks: [],
     taskResults: [],
   };
 
-  // Process tasks sequentially in the background
-  processQueue(tasks, projectId, port).catch((err) => {
+  // Process tasks with configured concurrency
+  processQueue(tasks, projectId, port, effectiveConcurrency).catch((err) => {
     log("error", "terminal", `Batch resolve error: ${String(err)}`);
     batchState.state = "completed";
   });
@@ -397,75 +401,105 @@ export async function startBatchResolve(projectId: string, taskIds: string[]): P
   return getBatchResolveStatus();
 }
 
-async function processQueue(tasks: Task[], projectId: string, port: number): Promise<void> {
-  for (const task of tasks) {
-    if (batchState.state === "cancelled") {
-      log("info", "terminal", "Batch resolve cancelled");
-      return;
+async function processSingleTask(task: Task, projectId: string, port: number): Promise<void> {
+  if (batchState.state === "cancelled") return;
+
+  try {
+    // Build prompt for this task
+    let prompt: string;
+    try {
+      prompt = await buildAiResolvePrompt(task, projectId, port);
+    } catch {
+      const parts = [task.title];
+      if (task.description) parts.push(task.description);
+      if (task.prompt) parts.push(task.prompt);
+      prompt = parts.join("\n\n");
     }
 
-    try {
-      // Build prompt for this task
-      let prompt: string;
-      try {
-        prompt = await buildAiResolvePrompt(task, projectId, port);
-      } catch {
-        const parts = [task.title];
-        if (task.description) parts.push(task.description);
-        if (task.prompt) parts.push(task.prompt);
-        prompt = parts.join("\n\n");
+    // Update task status to in_progress
+    const db = getDb();
+    const ts = new Date().toISOString();
+    db.prepare("UPDATE tasks SET status = 'in_progress', inProgressAt = ?, updatedAt = ? WHERE id = ?").run(ts, ts, task.id);
+
+    // Create the AI resolve session
+    const session = await createSession({
+      type: "ai-resolve",
+      projectId,
+      taskId: task.id,
+      name: task.title,
+      prompt,
+    });
+
+    // Track active task
+    batchState.activeTasks = batchState.activeTasks ?? [];
+    batchState.activeTasks.push({ taskId: task.id, taskTitle: task.title, sessionId: session.id });
+
+    // Keep legacy single-task fields updated (points to most recently started)
+    batchState.currentTaskId = task.id;
+    batchState.currentTaskTitle = task.title;
+    batchState.currentSessionId = session.id;
+
+    log("info", "terminal", `Batch resolve: started task "${task.title}" (${batchState.completedTasks + 1}/${batchState.totalTasks})`);
+
+    // Wait for task completion (either session exits or task marked done in DB)
+    const exitCode = await waitForTaskCompletion(session.id, task.id);
+
+    // Remove from active tasks
+    batchState.activeTasks = (batchState.activeTasks ?? []).filter((t) => t.taskId !== task.id);
+
+    batchState.taskResults.push({
+      taskId: task.id,
+      taskTitle: task.title,
+      sessionId: session.id,
+      exitCode: exitCode ?? undefined,
+    });
+    batchState.completedTasks++;
+
+    log("info", "terminal", `Batch resolve: completed task "${task.title}" with exit code ${exitCode}`);
+  } catch (err) {
+    log("error", "terminal", `Batch resolve: error processing task "${task.title}": ${String(err)}`);
+    batchState.activeTasks = (batchState.activeTasks ?? []).filter((t) => t.taskId !== task.id);
+    batchState.taskResults.push({
+      taskId: task.id,
+      taskTitle: task.title,
+      sessionId: batchState.currentSessionId ?? "",
+      exitCode: -1,
+    });
+    batchState.completedTasks++;
+  }
+}
+
+async function processQueue(tasks: Task[], projectId: string, port: number, concurrency: number = 1): Promise<void> {
+  if (concurrency <= 1) {
+    // Sequential processing (original behavior)
+    for (const task of tasks) {
+      if (batchState.state === "cancelled") {
+        log("info", "terminal", "Batch resolve cancelled");
+        break;
       }
-
-      // Update batch state for this task before creating session
-      batchState.currentTaskId = task.id;
-      batchState.currentTaskTitle = task.title;
-
-      // Update task status to in_progress
-      const db = getDb();
-      const ts = new Date().toISOString();
-      db.prepare("UPDATE tasks SET status = 'in_progress', inProgressAt = ?, updatedAt = ? WHERE id = ?").run(ts, ts, task.id);
-
-      // Create the AI resolve session
-      const session = await createSession({
-        type: "ai-resolve",
-        projectId,
-        taskId: task.id,
-        name: task.title,
-        prompt,
-      });
-
-      batchState.currentSessionId = session.id;
-
-      log("info", "terminal", `Batch resolve: started task "${task.title}" (${batchState.completedTasks + 1}/${batchState.totalTasks})`);
-
-      // Wait for task completion (either session exits or task marked done in DB)
-      const exitCode = await waitForTaskCompletion(session.id, task.id);
-
-      batchState.taskResults.push({
-        taskId: task.id,
-        taskTitle: task.title,
-        sessionId: session.id,
-        exitCode: exitCode ?? undefined,
-      });
-      batchState.completedTasks++;
-
-      log("info", "terminal", `Batch resolve: completed task "${task.title}" with exit code ${exitCode}`);
-    } catch (err) {
-      log("error", "terminal", `Batch resolve: error processing task "${task.title}": ${String(err)}`);
-      batchState.taskResults.push({
-        taskId: task.id,
-        taskTitle: task.title,
-        sessionId: batchState.currentSessionId ?? "",
-        exitCode: -1,
-      });
-      batchState.completedTasks++;
+      await processSingleTask(task, projectId, port);
+    }
+  } else {
+    // Concurrent processing with a pool
+    let index = 0;
+    const next = async (): Promise<void> => {
+      while (index < tasks.length && batchState.state !== "cancelled") {
+        const task = tasks[index++];
+        await processSingleTask(task, projectId, port);
+      }
+    };
+    const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => next());
+    await Promise.all(workers);
+    if (batchState.state === "cancelled") {
+      log("info", "terminal", "Batch resolve cancelled");
     }
   }
 
-  batchState.state = "completed";
+  batchState.state = batchState.state === "cancelled" ? "cancelled" : "completed";
   batchState.currentTaskId = undefined;
   batchState.currentTaskTitle = undefined;
   batchState.currentSessionId = undefined;
+  batchState.activeTasks = [];
   log("info", "terminal", `Batch resolve: all ${batchState.totalTasks} tasks completed`);
 }
 
@@ -515,7 +549,11 @@ export function cancelBatchResolve(): BatchResolveStatus {
 
   batchState.state = "cancelled";
 
-  // Kill the current session if running
+  // Kill all active sessions
+  for (const active of batchState.activeTasks ?? []) {
+    killSession(active.sessionId);
+  }
+  // Also kill legacy current session if not in activeTasks
   if (batchState.currentSessionId) {
     killSession(batchState.currentSessionId);
   }

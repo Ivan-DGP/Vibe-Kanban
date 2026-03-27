@@ -16,8 +16,16 @@ import { useCreateTerminalSession, useBatchResolve, useBatchResolveStatus, useCa
 import { useConfirm } from "@/hooks/useConfirm";
 import { api } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
-import { Loader2 } from "lucide-react";
+import { Loader2, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import KanbanColumn from "./KanbanColumn";
 import KanbanToolbar from "./KanbanToolbar";
 import ListView from "./ListView";
@@ -152,14 +160,21 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
 
   const confirm = useConfirm();
   const batchRunning = batchStatus?.state === "running";
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchConcurrency, setBatchConcurrency] = useState(1);
+  const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
 
-  const handleBatchResolve = async () => {
-    // Collect all backlog + in_progress task IDs
+  const handleBatchResolve = () => {
     const taskIds = [...inboxTasks, ...ipTasks].map((t) => t.id);
     if (taskIds.length === 0) return;
-    if (!await confirm({ title: "Batch AI Resolve", description: `Start AI Resolve for ${taskIds.length} tasks? They will be processed one at a time.` })) return;
+    setBatchTaskIds(taskIds);
+    setBatchDialogOpen(true);
+  };
+
+  const handleBatchConfirm = () => {
+    setBatchDialogOpen(false);
     if (!terminalVisible) toggleTerminal();
-    batchResolve.mutate({ projectId, taskIds });
+    batchResolve.mutate({ projectId, taskIds: batchTaskIds, concurrency: batchConcurrency });
   };
 
   const handleCancelBatch = () => {
@@ -239,10 +254,18 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium">
-              Resolving {batchStatus.completedTasks + 1}/{batchStatus.totalTasks}
+              Resolving {batchStatus.completedTasks}/{batchStatus.totalTasks}
+              {(batchStatus.concurrency ?? 1) > 1 && (
+                <span className="text-muted-foreground font-normal ml-1.5">({batchStatus.activeTasks?.length ?? 0} active)</span>
+              )}
             </div>
-            {batchStatus.currentTaskTitle && (
+            {(batchStatus.concurrency ?? 1) <= 1 && batchStatus.currentTaskTitle && (
               <div className="text-xs text-muted-foreground truncate">{batchStatus.currentTaskTitle}</div>
+            )}
+            {(batchStatus.concurrency ?? 1) > 1 && batchStatus.activeTasks && batchStatus.activeTasks.length > 0 && (
+              <div className="text-xs text-muted-foreground truncate">
+                {batchStatus.activeTasks.map((t) => t.taskTitle).join(", ")}
+              </div>
             )}
           </div>
           <div className="w-32 h-1.5 rounded-full bg-secondary overflow-hidden">
@@ -343,6 +366,50 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         task={selectedTask}
         onEdit={handleEditFromViewer}
       />
+
+      <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Batch AI Resolve</DialogTitle>
+            <DialogDescription>
+              Start AI Resolve for {batchTaskIds.length} task{batchTaskIds.length !== 1 ? "s" : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between py-2">
+            <label className="text-sm font-medium">Concurrency</label>
+            <div className="flex items-center gap-2">
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-7 w-7"
+                onClick={() => setBatchConcurrency((c) => Math.max(1, c - 1))}
+                disabled={batchConcurrency <= 1}
+              >
+                <Minus className="h-3 w-3" />
+              </Button>
+              <span className="w-8 text-center text-sm font-mono">{batchConcurrency}</span>
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-7 w-7"
+                onClick={() => setBatchConcurrency((c) => Math.min(10, c + 1))}
+                disabled={batchConcurrency >= 10}
+              >
+                <Plus className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {batchConcurrency === 1
+              ? "Tasks will be processed one at a time."
+              : `Up to ${batchConcurrency} tasks will be processed in parallel.`}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleBatchConfirm}>Start</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
