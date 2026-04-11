@@ -79,10 +79,14 @@ export interface StreamingProc {
 
 export function spawnStreaming(
   cmd: string[],
-  opts?: { env?: Record<string, string> },
+  opts?: { env?: Record<string, string>; stdinData?: string },
 ): StreamingProc {
   if (isBun) {
-    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", stdin: null });
+    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", stdin: opts?.stdinData ? "pipe" : null });
+    if (opts?.stdinData && proc.stdin) {
+      proc.stdin.write(opts.stdinData);
+      proc.stdin.end();
+    }
     return {
       onData: (cb) => {
         const reader = proc.stdout.getReader();
@@ -102,7 +106,11 @@ export function spawnStreaming(
 
   // Node.js path
   const { spawn } = require("node:child_process") as typeof import("node:child_process");
-  const proc = spawn(cmd[0], cmd.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+  const proc = spawn(cmd[0], cmd.slice(1), { stdio: [opts?.stdinData ? "pipe" : "ignore", "pipe", "pipe"] });
+  if (opts?.stdinData && proc.stdin) {
+    proc.stdin.write(opts.stdinData);
+    proc.stdin.end();
+  }
   let exitPromiseResolve: (code: number) => void;
   const exited = new Promise<number>((r) => { exitPromiseResolve = r; });
   proc.on("close", (code: number | null) => exitPromiseResolve(code ?? 1));
@@ -110,7 +118,7 @@ export function spawnStreaming(
 
   return {
     onData: (cb) => {
-      proc.stdout.on("data", (chunk: Buffer) => cb(chunk.toString()));
+      proc.stdout!.on("data", (chunk: Buffer) => cb(chunk.toString()));
     },
     kill: () => proc.kill(),
     exited,
