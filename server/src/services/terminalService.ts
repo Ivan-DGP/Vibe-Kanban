@@ -1,6 +1,6 @@
 import { getDb } from "../db";
 import { log } from "../lib/logger";
-import { buildAiResolvePrompt } from "./aiResolvePrompt";
+import { buildAiResolvePrompt, buildAiTestPrompt } from "./aiResolvePrompt";
 import { spawnPty as runtimeSpawnPty, spawnProcessSync, spawnProcess } from "../lib/runtime";
 import type { PtyHandle } from "../lib/runtime";
 import type { TerminalSessionType, BatchResolveStatus } from "@vibe-kanban/shared";
@@ -186,8 +186,98 @@ function spawnAiResolve(
           `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success)
            VALUES (?, ?, ?, ?, 'auto', 'medium', ?, ?)`,
         ).run(crypto.randomUUID(), session.taskId, session.projectId, session.id, code, success ? 1 : 0);
+
+        // Chain AI Test session if resolve succeeded and autoTest is enabled
+        if (success && session.taskId && session.projectId && opts.autoTest !== false) {
+          chainAiTest(session.taskId, session.projectId, session.cwd, safeEnv, opts).catch((e) => {
+            log("warn", "terminal", `Failed to chain AI test: ${e}`);
+          });
+        }
       } catch (e) {
         log("warn", "terminal", `Failed to record AI run: ${e}`);
+      }
+    }
+
+    sessions.delete(id);
+  });
+
+  session.proc = pty;
+}
+
+// ── AI Test via PTY (chained after AI Resolve) ──────────────────
+
+async function chainAiTest(
+  taskId: string,
+  projectId: string,
+  cwd: string,
+  safeEnv: Record<string, string>,
+  parentOpts: CreateSessionOptions,
+): Promise<void> {
+  const db = getDb();
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as Task | undefined;
+  if (!task) return;
+
+  // Don't test if task was already marked done by the resolve session
+  // (the test agent will re-evaluate and set done only if tests pass)
+  const port = parseInt(process.env.PORT || "3001", 10);
+
+  log("info", "terminal", `Chaining AI test for task "${task.title}"`);
+
+  // Set task back to in_progress so test agent controls the done transition
+  const ts = new Date().toISOString();
+  db.prepare("UPDATE tasks SET status = 'in_progress', doneAt = NULL, updatedAt = ? WHERE id = ?").run(ts, taskId);
+
+  const prompt = await buildAiTestPrompt(task, projectId, port);
+
+  await createSession({
+    type: "ai-test",
+    projectId,
+    taskId,
+    name: `Test: ${task.title}`,
+    prompt,
+    cols: parentOpts.cols,
+    rows: parentOpts.rows,
+    autoTest: false, // prevent infinite chain
+  });
+}
+
+function spawnAiTest(
+  session: PtySession,
+  prompt: string,
+  safeEnv: Record<string, string>,
+  opts: CreateSessionOptions,
+): void {
+  const { id } = session;
+  const claudeCmd = resolveClaudeCmd(safeEnv);
+
+  log("info", "terminal", `AI test [${id}]: spawning ${claudeCmd}`);
+
+  const pty = runtimeSpawnPty(claudeCmd, ["--dangerously-skip-permissions", prompt], {
+    cwd: session.cwd,
+    env: safeEnv,
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+  });
+
+  pty.onData((data) => emitData(session, data));
+  pty.onExit((exitCode) => {
+    log("info", "terminal", `AI test [${id}]: exited with code ${exitCode}`);
+    session.alive = false;
+    emitExit(session, exitCode ?? 1);
+
+    // Record test run
+    if (session.taskId && session.projectId) {
+      try {
+        const db = getDb();
+        const code = exitCode ?? 1;
+        const task = db.prepare("SELECT status FROM tasks WHERE id = ?").get(session.taskId) as any;
+        const success = task?.status === "done" || code === 0;
+        db.prepare(
+          `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success)
+           VALUES (?, ?, ?, ?, 'test', 'medium', ?, ?)`,
+        ).run(crypto.randomUUID(), session.taskId, session.projectId, session.id, code, success ? 1 : 0);
+      } catch (e) {
+        log("warn", "terminal", `Failed to record AI test run: ${e}`);
       }
     }
 
@@ -223,6 +313,7 @@ export interface CreateSessionOptions {
   prompt?: string;
   branch?: string;
   devCommand?: string;
+  autoTest?: boolean;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<PtySession> {
@@ -259,6 +350,13 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
   if (opts.type === "ai-resolve" && opts.prompt) {
     spawnAiResolve(session, opts.prompt, safeEnv, opts);
     log("info", "terminal", `Session created: ${id}`, { type: "ai-resolve", backend: "bun-terminal" });
+    return session;
+  }
+
+  // AI Test: interactive PTY running claude CLI for testing
+  if (opts.type === "ai-test" && opts.prompt) {
+    spawnAiTest(session, opts.prompt, safeEnv, opts);
+    log("info", "terminal", `Session created: ${id}`, { type: "ai-test", backend: "bun-terminal" });
     return session;
   }
 

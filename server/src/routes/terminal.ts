@@ -36,7 +36,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
     };
 
     const type = body.type || "shell";
-    if (!["shell", "dev", "claude-ai", "ai-resolve"].includes(type)) {
+    if (!["shell", "dev", "claude-ai", "ai-resolve", "ai-test"].includes(type)) {
       return reply.code(400).send({ error: "Invalid session type" });
     }
 

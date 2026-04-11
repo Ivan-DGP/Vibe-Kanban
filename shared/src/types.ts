@@ -318,7 +318,7 @@ export interface FileEntry {
 // Terminal
 // ============================================================
 
-export type TerminalSessionType = "shell" | "dev" | "claude-ai" | "ai-resolve";
+export type TerminalSessionType = "shell" | "dev" | "claude-ai" | "ai-resolve" | "ai-test";
 
 // REST API types
 export interface TerminalSessionInfo {

@@ -909,3 +909,100 @@ Example format:
 
   return parts.join("\n\n");
 }
+
+export async function buildAiTestPrompt(
+  task: Task,
+  projectId: string,
+  port: number,
+): Promise<string> {
+  const db = getDb();
+
+  const projectRow = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as any;
+  if (!projectRow) throw new Error("Project not found");
+  const project = rowToProject(projectRow);
+
+  const gitignorePatterns = cached(`gitignore:${project.path}`, () => parseGitignore(project.path));
+  const depth = project.treeDepth ?? 3;
+  const tree = cached(`tree:${project.path}:${depth}`, () => buildTree(project.path, gitignorePatterns, "", 0, depth));
+  const rules = cached(`rules:${project.path}`, () => readRulesFile(project.path));
+  const deps = cached(`deps:${project.path}`, () => readDependencies(project.path));
+  const gitInfo = await cachedAsync(`gitinfo:${project.path}`, () => getGitInfo(project.path));
+  const gitDiff = await cachedAsync(`gitdiff:${project.path}`, () => getGitDiff(project.path, 500));
+
+  // Get the AI resolve run that just completed
+  const lastRun = db.prepare(
+    "SELECT * FROM task_ai_runs WHERE taskId = ? ORDER BY createdAt DESC LIMIT 1",
+  ).get(task.id) as any;
+
+  const parts: string[] = [];
+
+  parts.push(`You are a specialized testing agent. An AI coding agent just finished implementing a task. Your job is to verify the implementation works correctly.
+
+# Task: ${task.title}
+
+Project: ${project.name}
+Path: ${project.path}
+Tech Stack: ${project.techStack.join(", ") || "unknown"}${gitInfo ? `\nBranch: ${gitInfo.branch}` : ""}
+Task ID: ${task.id}
+Project ID: ${projectId}`);
+
+  if (task.description) {
+    parts.push(`## What was requested\n${task.description}`);
+  }
+
+  if (task.prompt) {
+    parts.push(`## Technical details\n${task.prompt}`);
+  }
+
+  if (lastRun?.summary) {
+    parts.push(`## What the AI agent reported\n${lastRun.summary}`);
+  }
+
+  if (gitDiff) {
+    parts.push(`## Changes made (git diff)\n${gitDiff}`);
+  }
+
+  const contextParts: string[] = [];
+
+  if (rules) {
+    contextParts.push(`  <architecture_rules>\n${rules}\n  </architecture_rules>`);
+  }
+
+  if (tree) {
+    contextParts.push(`  <project_tree>\n${tree}\n  </project_tree>`);
+  }
+
+  if (deps) {
+    contextParts.push(`  <dependencies>\n${deps}\n  </dependencies>`);
+  }
+
+  if (gitInfo?.recentCommits) {
+    contextParts.push(`  <recent_commits>\n${gitInfo.recentCommits}\n  </recent_commits>`);
+  }
+
+  if (contextParts.length > 0) {
+    parts.push(`<project_context>\n${contextParts.join("\n\n")}\n</project_context>`);
+  }
+
+  parts.push(`## Instructions
+
+You are testing the implementation of the task above. Follow these steps:
+
+1. **Read the changes**: Review the git diff to understand what was modified
+2. **Run existing tests**: If the project has a test runner (check package.json scripts for "test"), run it. Report results.
+3. **Verify the implementation**: Check that the changes actually accomplish what the task description asks for. Read the modified files.
+4. **Test edge cases**: Think about what could go wrong. Test boundary conditions.
+5. **Report findings**: Summarize what works and what doesn't.
+
+### If tests PASS:
+Update the task status to "done" and add a test summary:
+curl -s -X PATCH http://localhost:${port}/api/tasks/${task.id} -H "Content-Type: application/json" -d "{\\"status\\": \\"done\\", \\"description\\": \\"${task.description ? task.description.replace(/"/g, '\\\\"').replace(/\n/g, "\\\\n").slice(0, 200) + "\\\\n\\\\n## AI Test Results\\\\n" : "## AI Test Results\\\\n"}<test summary>\\"}"
+
+### If tests FAIL:
+Do NOT mark the task as done. Instead update the description with what failed:
+curl -s -X PATCH http://localhost:${port}/api/tasks/${task.id} -H "Content-Type: application/json" -d "{\\"description\\": \\"${task.description ? task.description.replace(/"/g, '\\\\"').replace(/\n/g, "\\\\n").slice(0, 200) + "\\\\n\\\\n## AI Test Results (FAILED)\\\\n" : "## AI Test Results (FAILED)\\\\n"}<what failed and why>\\"}"
+
+IMPORTANT: Be thorough but fair. Only fail the task if there are real issues, not style preferences.`);
+
+  return parts.join("\n\n");
+}
