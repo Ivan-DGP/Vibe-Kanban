@@ -8,7 +8,7 @@ import { Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import TerminalTabs from "@/components/terminal/TerminalTabs";
 import IntegratedTerminal from "@/components/terminal/IntegratedTerminal";
 import TerminalSplitView from "@/components/terminal/TerminalSplitView";
-import type { TerminalSessionType, TerminalSessionInfo } from "@vibe-kanban/shared";
+// Types used by child components via shared package
 
 // localStorage key for tab state
 const TABS_STORAGE_KEY = "vk-terminal-tabs";

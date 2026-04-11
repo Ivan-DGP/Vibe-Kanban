@@ -97,7 +97,7 @@ function deleteTask(params: Record<string, unknown>): unknown {
   return { deleted: true };
 }
 
-function getAllTasks(params: Record<string, unknown>): unknown {
+function getAllTasks(_params: Record<string, unknown>): unknown {
   const db = getDb();
   return db.query(
     "SELECT t.id, t.title, t.status, t.priority, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id ORDER BY t.updatedAt DESC LIMIT 100"

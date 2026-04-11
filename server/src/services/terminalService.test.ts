@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 
 // We test the pure/exported functions by importing them.
 // For internal functions we test through behavior of the module.

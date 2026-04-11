@@ -10,7 +10,7 @@ interface AIResolveButtonProps {
   project?: Project;
 }
 
-export default function AIResolveButton({ task, project }: AIResolveButtonProps) {
+export default function AIResolveButton({ task, project: _project }: AIResolveButtonProps) {
   const createSession = useCreateTerminalSession();
   const { toggleTerminal, terminalVisible } = useAppStore();
 

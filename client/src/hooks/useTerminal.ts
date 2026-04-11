@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { CreateTerminalSessionInput, TerminalSessionInfo, BatchResolveInput, BatchResolveStatus } from "@vibe-kanban/shared";
+import type { CreateTerminalSessionInput, TerminalSessionInfo, BatchResolveInput } from "@vibe-kanban/shared";
 
 // ── React Query hooks ──────────────────────────────────────────
 

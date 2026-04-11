@@ -4,7 +4,7 @@ import { useAppStore } from "@/stores/appStore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, GitBranch, Code, ListTodo, GitPullRequest, Settings2, FolderOpen, BookOpen, NotebookPen } from "lucide-react";
+import { ArrowLeft, GitBranch, Code, ListTodo, GitPullRequest, Settings2, FolderOpen, NotebookPen } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TECH_STACK_COLORS } from "@/lib/constants";
 import { useGitStatus } from "@/hooks";

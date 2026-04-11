@@ -175,21 +175,23 @@ function blocksToMarkdown(blocks: NotionBlock[]): string {
       case "numbered_list_item":
         lines.push(`1. ${richTextToMarkdown(block.numbered_list_item?.rich_text || [])}`);
         break;
-      case "to_do":
+      case "to_do": {
         const checked = block.to_do?.checked ? "x" : " ";
         lines.push(`- [${checked}] ${richTextToMarkdown(block.to_do?.rich_text || [])}`);
         break;
+      }
       case "toggle":
         lines.push(`<details><summary>${richTextToMarkdown(block.toggle?.rich_text || [])}</summary></details>`);
         lines.push("");
         break;
-      case "code":
+      case "code": {
         const lang = block.code?.language || "";
         lines.push(`\`\`\`${lang}`);
         lines.push(richTextToMarkdown(block.code?.rich_text || []));
         lines.push("```");
         lines.push("");
         break;
+      }
       case "quote":
         lines.push(`> ${richTextToMarkdown(block.quote?.rich_text || [])}`);
         lines.push("");
@@ -198,12 +200,13 @@ function blocksToMarkdown(blocks: NotionBlock[]): string {
         lines.push("---");
         lines.push("");
         break;
-      case "callout":
+      case "callout": {
         const icon = block.callout?.icon?.emoji || "";
         lines.push(`> ${icon} ${richTextToMarkdown(block.callout?.rich_text || [])}`);
         lines.push("");
         break;
-      case "image":
+      }
+      case "image": {
         const url =
           block.image?.file?.url ||
           block.image?.external?.url ||
@@ -212,6 +215,7 @@ function blocksToMarkdown(blocks: NotionBlock[]): string {
         lines.push(`![${caption}](${url})`);
         lines.push("");
         break;
+      }
       default:
         // Skip unsupported block types
         break;
@@ -224,7 +228,7 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
 
   // Check connection / validate token
-  fastify.get("/notion/status", async (_request, reply) => {
+  fastify.get("/notion/status", async (_request, _reply) => {
     const token = getNotionToken(db);
     if (!token) {
       return { connected: false, user: null };

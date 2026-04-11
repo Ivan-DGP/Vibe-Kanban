@@ -52,7 +52,7 @@ export default function ProjectScanSection() {
             <label key={i} className="flex items-start gap-2 p-1.5 rounded hover:bg-accent cursor-pointer">
               <Checkbox checked={selected.has(i)} onCheckedChange={() => {
                 const s = new Set(selected);
-                s.has(i) ? s.delete(i) : s.add(i);
+                if (s.has(i)) { s.delete(i); } else { s.add(i); }
                 setSelected(s);
               }} />
               <div>

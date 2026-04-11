@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { LayoutDashboard, ListTodo, BarChart3, ScrollText, Settings, HelpCircle } from "lucide-react";

@@ -41,7 +41,7 @@ const settingsRoutes: FastifyPluginAsync = async (fastify) => {
     return readSettings(db);
   });
 
-  fastify.put("/settings", async (request, reply) => {
+  fastify.put("/settings", async (request, _reply) => {
     const updates = request.body as Record<string, unknown>;
     const ts = new Date().toISOString();
 

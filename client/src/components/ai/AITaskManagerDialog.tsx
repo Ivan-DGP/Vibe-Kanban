@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Bot } from "lucide-react";
+import { Bot } from "lucide-react";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
 import { useAppStore } from "@/stores/appStore";
 
@@ -12,7 +12,7 @@ interface AITaskManagerDialogProps {
   projectPath: string;
 }
 
-export default function AITaskManagerDialog({ open, onOpenChange, projectId, projectPath }: AITaskManagerDialogProps) {
+export default function AITaskManagerDialog({ open, onOpenChange, projectId }: AITaskManagerDialogProps) {
   const [instructions, setInstructions] = useState("");
   const createSession = useCreateTerminalSession();
   const { toggleTerminal, terminalVisible } = useAppStore();

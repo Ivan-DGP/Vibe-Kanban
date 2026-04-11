@@ -76,7 +76,7 @@ export default function OnboardingWizard() {
                 {scanned.map((p, i) => (
                   <label key={i} className="flex items-start gap-2 p-1 rounded hover:bg-accent cursor-pointer">
                     <Checkbox checked={selected.has(i)} onCheckedChange={() => {
-                      const s = new Set(selected); s.has(i) ? s.delete(i) : s.add(i); setSelected(s);
+                      const s = new Set(selected); if (s.has(i)) { s.delete(i); } else { s.add(i); } setSelected(s);
                     }} />
                     <div>
                       <div className="text-sm font-medium">{p.name}</div>

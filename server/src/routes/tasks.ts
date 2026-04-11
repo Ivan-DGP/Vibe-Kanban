@@ -49,13 +49,6 @@ function applyTimestampCascade(
   return updates;
 }
 
-const PRIORITY_ORDER: Record<string, number> = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
 const taskRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
 

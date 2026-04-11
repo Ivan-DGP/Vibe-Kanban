@@ -8,7 +8,7 @@ import { useClaudeStatus, useSettings, useUpdateSettings } from "@/hooks";
 
 export default function ClaudeConfigSection() {
   const { data: status } = useClaudeStatus();
-  const { data: settings } = useSettings();
+  useSettings();
   const updateSettings = useUpdateSettings();
   const [apiKey, setApiKey] = useState("");
 

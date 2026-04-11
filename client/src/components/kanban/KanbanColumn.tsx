@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Inbox, Loader2, CheckCircle2, ShieldCheck, Archive } from "lucide-react";
 import SortableTaskCard from "./SortableTaskCard";
 import InlineTaskCreate from "@/components/tasks/InlineTaskCreate";
-import { PAGE_SIZE } from "@/lib/constants";
 import type { Task, TaskStatus, CICheckResult } from "@vibe-kanban/shared";
 
 const COLUMN_ICONS: Record<string, typeof Inbox> = {

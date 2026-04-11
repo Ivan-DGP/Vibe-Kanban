@@ -1,7 +1,7 @@
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { buildAiResolvePrompt, buildAiTestPrompt } from "./aiResolvePrompt";
-import { spawnPty as runtimeSpawnPty, spawnProcessSync, spawnProcess } from "../lib/runtime";
+import { spawnPty as runtimeSpawnPty, spawnProcessSync } from "../lib/runtime";
 import type { PtyHandle } from "../lib/runtime";
 import type { TerminalSessionType, BatchResolveStatus } from "@vibe-kanban/shared";
 import type { Task } from "@vibe-kanban/shared";

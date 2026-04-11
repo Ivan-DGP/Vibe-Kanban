@@ -23,7 +23,7 @@ export default function DataExportSection() {
       a.download = `vibe-kanban-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       toast.error("Export failed");
     }
   };

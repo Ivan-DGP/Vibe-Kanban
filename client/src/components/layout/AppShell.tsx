@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useParams } from "react-router-dom";
+import { Outlet, NavLink } from "react-router-dom";
 import { useAppStore } from "@/stores/appStore";
 import { useProjects } from "@/hooks";
 import { useEffect } from "react";

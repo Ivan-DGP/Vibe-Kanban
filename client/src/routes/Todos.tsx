@@ -6,7 +6,6 @@ import {
   useDeleteTodo,
   useClearCompletedTodos,
 } from "@/hooks/useTodos";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,7 +15,6 @@ import {
   Trash2,
   CheckCircle2,
   Circle,
-  ListTodo,
   Link2,
   Sparkles,
 } from "lucide-react";

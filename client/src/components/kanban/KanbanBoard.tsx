@@ -8,7 +8,6 @@ import {
   useSensors,
   type DragStartEvent,
   type DragEndEvent,
-  type DragOverEvent,
 } from "@dnd-kit/core";
 import { useTasks, useReorderTasks, useCreateTask, useDeleteTask, useBatchCIStatus, useArchiveApproved } from "@/hooks";
 import { useAppStore } from "@/stores/appStore";

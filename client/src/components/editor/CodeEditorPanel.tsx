@@ -1,5 +1,4 @@
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
-import { useFileContent } from "@/hooks";
 import { useEditorStore } from "@/hooks/useEditorStore";
 import FileExplorer from "./FileExplorer";
 import EditorTabs from "./EditorTabs";
@@ -35,7 +34,7 @@ export default function CodeEditorPanel({ projectId }: CodeEditorPanelProps) {
     }
 
     try {
-      const { content, encoding } = await import("@/lib/api").then((m) => m.api.files.read(projectId, filePath));
+      const { content } = await import("@/lib/api").then((m) => m.api.files.read(projectId, filePath));
       const fileExt = fileName.split(".").pop()?.toLowerCase() ?? "";
       openFile(filePath, fileName, content, fileExt);
     } catch {

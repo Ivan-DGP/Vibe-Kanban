@@ -1,10 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
-import os from "node:os";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { spawnStreaming } from "../lib/runtime";
 import { log } from "../lib/logger";
-import { buildAnalyzePrompt, buildGatherContextPrompt, rowToProject } from "../services/aiResolvePrompt";
+import { buildAnalyzePrompt, buildGatherContextPrompt } from "../services/aiResolvePrompt";
 import type { Task } from "@vibe-kanban/shared";
 
 let cliAvailableCache: boolean | null = null;
@@ -257,7 +256,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Bulk import - parse text into tasks
   fastify.post("/claude/bulk-import", async (request) => {
-    const { projectId, text } = request.body as any;
+    const { text } = request.body as any;
 
     const prompt = `Parse the following unstructured text into a JSON array of tasks. Each task should have: title (string), description (string or null), priority ("urgent"|"high"|"medium"|"low"), status ("backlog"). Return ONLY valid JSON, no other text.
 
