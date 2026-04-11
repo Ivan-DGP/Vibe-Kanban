@@ -131,8 +131,8 @@ function spawnShellPty(
   pty.onExit((exitCode) => {
     log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
     session.alive = false;
+    session.proc = null;
     emitExit(session, exitCode ?? 0);
-    sessions.delete(id);
   });
 
   session.proc = pty;
@@ -174,6 +174,23 @@ function spawnAiResolve(
     log("info", "terminal", `AI resolve [${id}]: exited with code ${exitCode}`);
     session.alive = false;
     emitExit(session, exitCode ?? 1);
+
+    // Record AI run result
+    if (session.taskId && session.projectId) {
+      try {
+        const db = getDb();
+        const code = exitCode ?? 1;
+        const task = db.prepare("SELECT status FROM tasks WHERE id = ?").get(session.taskId) as any;
+        const success = task?.status === "done" || code === 0;
+        db.prepare(
+          `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success)
+           VALUES (?, ?, ?, ?, 'auto', 'medium', ?, ?)`,
+        ).run(crypto.randomUUID(), session.taskId, session.projectId, session.id, code, success ? 1 : 0);
+      } catch (e) {
+        log("warn", "terminal", `Failed to record AI run: ${e}`);
+      }
+    }
+
     sessions.delete(id);
   });
 

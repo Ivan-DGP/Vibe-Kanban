@@ -1,9 +1,10 @@
 import { getDb } from "../db";
+import { spawn } from "../lib/spawn";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
 
 interface ToolHandler {
   definition: McpToolDefinition;
-  handler: (params: Record<string, unknown>) => unknown;
+  handler: (params: Record<string, unknown>) => unknown | Promise<unknown>;
 }
 
 function listProjects(): unknown {
@@ -111,8 +112,22 @@ function gitStatus(params: Record<string, unknown>): unknown {
   return { projectPath: project.path, note: "Use git CLI for detailed status" };
 }
 
-function gitDiff(params: Record<string, unknown>): unknown {
-  return { note: "Use git CLI for diffs", projectId: params.projectId };
+async function gitDiff(params: Record<string, unknown>): Promise<unknown> {
+  const db = getDb();
+  const project = db.query("SELECT path FROM projects WHERE id = ?").get(params.projectId as string) as any;
+  if (!project) return { error: "Project not found" };
+  try {
+    const result = await spawn(["git", "diff", "HEAD", "--stat", "--patch", "--no-color"], { cwd: project.path, timeout: 10000 });
+    if (result.exitCode !== 0) return { error: "git diff failed", stderr: result.stderr };
+    const lines = result.stdout.split("\n");
+    if (lines.length > 300) {
+      const statResult = await spawn(["git", "diff", "HEAD", "--stat", "--no-color"], { cwd: project.path });
+      return { stat: statResult.stdout.trim(), note: `Full diff too large (${lines.length} lines), showing stat only` };
+    }
+    return { diff: result.stdout.trim() || "(no changes)" };
+  } catch (e: any) {
+    return { error: e.message };
+  }
 }
 
 export const tools: ToolHandler[] = [
@@ -144,7 +159,7 @@ export const tools: ToolHandler[] = [
         type: "object",
         properties: {
           projectId: { type: "string", description: "Project ID" },
-          status: { type: "string", description: "Filter by status (backlog, todo, in_progress, done)" },
+          status: { type: "string", description: "Filter by status (backlog, todo, in_progress, done, approved, archived)" },
         },
         required: ["projectId"],
       },
@@ -175,6 +190,7 @@ export const tools: ToolHandler[] = [
           description: { type: "string" },
           status: { type: "string" },
           priority: { type: "string" },
+          promptProfile: { type: "string", enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"] },
         },
         required: ["projectId", "title"],
       },
@@ -194,6 +210,7 @@ export const tools: ToolHandler[] = [
           status: { type: "string" },
           priority: { type: "string" },
           milestoneId: { type: "string" },
+          promptProfile: { type: "string", enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"] },
         },
         required: ["taskId"],
       },

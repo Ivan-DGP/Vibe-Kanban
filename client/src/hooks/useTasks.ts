@@ -90,6 +90,17 @@ export function useWorkingOn() {
   });
 }
 
+export function useArchiveApproved(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.tasks.archiveApproved(projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["project-stats"] });
+    },
+  });
+}
+
 export function useBulkImportTasks(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

@@ -143,7 +143,12 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
-    const result = await spawn(["git", "push"], { cwd, timeout: 30000 });
+    // Check if current branch has an upstream; if not, push with --set-upstream
+    const upstream = await spawn(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd });
+    const args = upstream.exitCode !== 0
+      ? ["git", "push", "--set-upstream", "origin", "HEAD"]
+      : ["git", "push"];
+    const result = await spawn(args, { cwd, timeout: 30000 });
     log("info", "git", "Push", { projectId });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });

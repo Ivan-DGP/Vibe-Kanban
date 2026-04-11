@@ -27,7 +27,7 @@ const milestoneRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch("/milestones/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const { name, status } = request.body as any;
+    const { name, status, aiInstructions } = request.body as any;
 
     const existing = db.prepare("SELECT * FROM milestones WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Milestone not found" });
@@ -37,6 +37,7 @@ const milestoneRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (name !== undefined) { fields.push("name = ?"); values.push(name); }
     if (status !== undefined) { fields.push("status = ?"); values.push(status); }
+    if (aiInstructions !== undefined) { fields.push("aiInstructions = ?"); values.push(aiInstructions); }
 
     if (fields.length) {
       values.push(id);

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { writeTaskSnapshot } from "../services/snapshot";
-import { buildAiResolvePrompt } from "../services/aiResolvePrompt";
+import { buildAiResolvePrompt, classifyTaskProfile, estimateComplexity } from "../services/aiResolvePrompt";
 import type { Task, TaskStatus } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -31,6 +31,19 @@ function applyTimestampCascade(
     if (!task.inboxAt) updates.inboxAt = ts;
     if (!task.inProgressAt) updates.inProgressAt = ts;
     if (!task.doneAt) updates.doneAt = ts;
+  }
+  if (newStatus === "approved") {
+    if (!task.inboxAt) updates.inboxAt = ts;
+    if (!task.inProgressAt) updates.inProgressAt = ts;
+    if (!task.doneAt) updates.doneAt = ts;
+    if (!(task as any).approvedAt) updates.approvedAt = ts;
+  }
+  if (newStatus === "archived") {
+    if (!task.inboxAt) updates.inboxAt = ts;
+    if (!task.inProgressAt) updates.inProgressAt = ts;
+    if (!task.doneAt) updates.doneAt = ts;
+    if (!(task as any).approvedAt) updates.approvedAt = ts;
+    if (!(task as any).archivedAt) updates.archivedAt = ts;
   }
 
   return updates;
@@ -158,7 +171,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Create task
   fastify.post("/projects/:projectId/tasks", async (request) => {
     const { projectId } = request.params as any;
-    const { title, description, prompt, branch, status = "backlog", priority = "medium", milestoneId } =
+    const { title, description, prompt, branch, promptProfile = "auto", status = "backlog", priority = "medium", milestoneId } =
       request.body as any;
 
     const id = uuid();
@@ -182,8 +195,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const cascaded = applyTimestampCascade({}, status as TaskStatus);
 
     db.prepare(
-      `INSERT INTO tasks (id, projectId, milestoneId, title, description, prompt, branch, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, projectId, milestoneId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       projectId,
@@ -192,6 +205,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       description || null,
       prompt || null,
       branch || null,
+      promptProfile,
       status,
       priority,
       taskNumber,
@@ -199,6 +213,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       cascaded.inboxAt || null,
       cascaded.inProgressAt || null,
       cascaded.doneAt || null,
+      cascaded.approvedAt || null,
+      cascaded.archivedAt || null,
       ts,
       ts,
     );
@@ -230,7 +246,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     for (const [key, value] of Object.entries(updates)) {
-      if (["title", "description", "prompt", "branch", "status", "priority", "sortOrder"].includes(key)) {
+      if (["title", "description", "prompt", "branch", "promptProfile", "status", "priority", "sortOrder"].includes(key)) {
         fields.push(`${key} = ?`);
         values.push(value ?? null);
       } else if (key === "milestoneId") {
@@ -316,6 +332,28 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     return { ok: true };
   });
 
+  // Archive all approved tasks for a project
+  fastify.post("/projects/:projectId/tasks/archive-approved", async (request) => {
+    const { projectId } = request.params as any;
+    const ts = now();
+
+    const approved = db.prepare("SELECT * FROM tasks WHERE projectId = ? AND status = 'approved'").all(projectId) as Task[];
+    if (approved.length === 0) return { archived: 0 };
+
+    db.transaction(() => {
+      for (const task of approved) {
+        const cascaded = applyTimestampCascade(task, "archived" as TaskStatus);
+        db.prepare(
+          `UPDATE tasks SET status = 'archived', archivedAt = ?, ${Object.keys(cascaded).map((k) => `${k} = ?`).join(", ")} WHERE id = ?`,
+        ).run(ts, ...Object.values(cascaded), task.id);
+      }
+    })();
+
+    log("info", "tasks", `Archived ${approved.length} approved tasks`, { projectId });
+    writeTaskSnapshot(projectId);
+    return { archived: approved.length };
+  });
+
   // Bulk import
   fastify.post("/projects/:projectId/tasks/bulk-import", async (request) => {
     const { projectId } = request.params as any;
@@ -346,8 +384,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
         const cascaded = applyTimestampCascade({}, status);
 
         db.prepare(
-          `INSERT INTO tasks (id, projectId, title, description, prompt, branch, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO tasks (id, projectId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           id,
           projectId,
@@ -355,6 +393,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
           taskInput.description || null,
           taskInput.prompt || null,
           taskInput.branch || null,
+          taskInput.promptProfile || "auto",
           status,
           priority,
           nextNumber++,
@@ -362,6 +401,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
           cascaded.inboxAt || null,
           cascaded.inProgressAt || null,
           cascaded.doneAt || null,
+          cascaded.approvedAt || null,
+          cascaded.archivedAt || null,
           ts,
           ts,
         );
@@ -377,6 +418,43 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     return created;
   });
 
+  // AI Pre-flight - lightweight analysis before spawning AI resolve
+  fastify.get("/projects/:projectId/tasks/:taskId/ai-preflight", async (request, reply) => {
+    const { projectId, taskId } = request.params as any;
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND projectId = ?").get(taskId, projectId) as Task | undefined;
+    if (!task) return reply.code(404).send({ error: "Task not found" });
+
+    // Resolve effective profile
+    const detectedProfile = classifyTaskProfile(task);
+    const effectiveProfile = task.promptProfile === "auto" ? detectedProfile : task.promptProfile;
+
+    // Estimate scope from content
+    const scope = estimateComplexity(task);
+
+    // Check if task description is actionable
+    const hasDescription = !!task.description?.trim();
+    const hasPrompt = !!task.prompt?.trim();
+    const warnings: string[] = [];
+    if (!hasDescription && !hasPrompt) {
+      warnings.push("Task has no description or technical details — AI may produce generic results");
+    }
+    if (task.title.length < 10) {
+      warnings.push("Task title is very short — consider adding more detail");
+    }
+
+    return {
+      taskId: task.id,
+      title: task.title,
+      detectedProfile,
+      effectiveProfile,
+      scope,
+      hasDescription,
+      hasPrompt,
+      warnings,
+      branch: task.branch,
+    };
+  });
+
   // AI Resolve - generate structured prompt for Claude CLI
   fastify.post("/projects/:projectId/tasks/:taskId/ai-resolve", async (request, reply) => {
     const { projectId, taskId } = request.params as any;
@@ -386,6 +464,51 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const port = parseInt(process.env.PORT || "3001", 10);
     const prompt = await buildAiResolvePrompt(task, projectId, port);
     return { prompt };
+  });
+
+  // Record an AI run result
+  fastify.post("/tasks/:taskId/ai-runs", async (request, reply) => {
+    const { taskId } = request.params as any;
+    const { sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary } = request.body as any;
+
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+    if (!task) return reply.code(404).send({ error: "Task not found" });
+
+    const id = uuid();
+    db.prepare(
+      `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, taskId, task.projectId, sessionId || null, profile || "feature", complexity || "medium", exitCode ?? null, success ? 1 : 0, filesChanged ?? null, durationMs ?? null, summary || null);
+
+    return db.prepare("SELECT * FROM task_ai_runs WHERE id = ?").get(id);
+  });
+
+  // Get AI runs for a task
+  fastify.get("/tasks/:taskId/ai-runs", async (request) => {
+    const { taskId } = request.params as any;
+    return db.prepare("SELECT * FROM task_ai_runs WHERE taskId = ? ORDER BY createdAt DESC LIMIT 20").all(taskId);
+  });
+
+  // Get project AI stats
+  fastify.get("/projects/:projectId/ai-stats", async (request) => {
+    const { projectId } = request.params as any;
+
+    const total = db.prepare("SELECT COUNT(*) as count FROM task_ai_runs WHERE projectId = ?").get(projectId) as { count: number };
+    const successes = db.prepare("SELECT COUNT(*) as count FROM task_ai_runs WHERE projectId = ? AND success = 1").get(projectId) as { count: number };
+    const avgDuration = db.prepare("SELECT AVG(durationMs) as avg FROM task_ai_runs WHERE projectId = ? AND durationMs IS NOT NULL").get(projectId) as { avg: number | null };
+
+    const profileRows = db.prepare("SELECT profile, COUNT(*) as count FROM task_ai_runs WHERE projectId = ? GROUP BY profile").all(projectId) as { profile: string; count: number }[];
+    const profileBreakdown: Record<string, number> = {};
+    for (const row of profileRows) profileBreakdown[row.profile] = row.count;
+
+    return {
+      totalRuns: total.count,
+      successCount: successes.count,
+      successRate: total.count > 0 ? Math.round((successes.count / total.count) * 100) : 0,
+      avgDurationMs: avgDuration.avg ? Math.round(avgDuration.avg) : null,
+      commonFailures: [],
+      profileBreakdown,
+    };
   });
 };
 

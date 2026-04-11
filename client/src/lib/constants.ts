@@ -26,12 +26,16 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "Inbox",
   in_progress: "In Progress",
   done: "Done",
+  approved: "Approved",
+  archived: "Archived",
 };
 
 export const STATUS_COLUMN_MAP: Record<string, TaskStatus[]> = {
   inbox: ["backlog", "todo"],
   in_progress: ["in_progress"],
   done: ["done"],
+  approved: ["approved"],
+  archived: ["archived"],
 };
 
 export const SORT_OPTIONS = [

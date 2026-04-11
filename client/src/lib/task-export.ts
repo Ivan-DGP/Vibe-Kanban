@@ -27,6 +27,8 @@ export function tasksToMarkdown(tasks: Task[], projectName?: string): string {
     backlog: tasks.filter((t) => t.status === "backlog"),
     todo: tasks.filter((t) => t.status === "todo"),
     done: tasks.filter((t) => t.status === "done"),
+    approved: tasks.filter((t) => t.status === "approved"),
+    archived: tasks.filter((t) => t.status === "archived"),
   };
 
   for (const [status, items] of Object.entries(byStatus)) {
@@ -34,7 +36,7 @@ export function tasksToMarkdown(tasks: Task[], projectName?: string): string {
     const label = status === "in_progress" ? "In Progress" : status === "backlog" ? "Backlog" : status.charAt(0).toUpperCase() + status.slice(1);
     lines.push(`## ${label} (${items.length})\n`);
     for (const task of items) {
-      const checkbox = status === "done" ? "[x]" : "[ ]";
+      const checkbox = status === "done" || status === "approved" || status === "archived" ? "[x]" : "[ ]";
       lines.push(`- ${checkbox} **${task.title}** (${task.priority})`);
       if (task.description) lines.push(`  > ${task.description.split("\n")[0]}`);
     }

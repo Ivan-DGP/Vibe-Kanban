@@ -11,3 +11,5 @@ export * from "./useGitHub";
 export * from "./useProjectStats";
 export * from "./useTodos";
 export * from "./useNotion";
+export * from "./useCI";
+export * from "./useApiClient";

@@ -76,7 +76,7 @@ const mcpRoutes: FastifyPluginAsync = async (app) => {
             });
           }
 
-          const toolResult = tool.handler(toolArgs);
+          const toolResult = await tool.handler(toolArgs);
           result = {
             content: [{ type: "text", text: JSON.stringify(toolResult) }],
           };

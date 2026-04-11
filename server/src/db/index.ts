@@ -46,7 +46,7 @@ function runMigrations(db: DatabaseHandle): void {
   const currentVersion = current?.v ?? 0;
 
   // Run any pending migrations
-  const migrations: { version: number; name: string; up: () => void }[] = [
+  const migrations: { version: number; name: string; up: () => void; noTransaction?: boolean }[] = [
     {
       version: 1,
       name: "initial-schema",
@@ -116,16 +116,278 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 6,
+      name: "add-api-client-tables",
+      up: () => {
+        const collectionExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='api_collections'")
+          .get();
+        if (!collectionExists) {
+          db.exec(`
+            CREATE TABLE api_collections (
+              id           TEXT PRIMARY KEY,
+              projectId    TEXT NOT NULL
+                REFERENCES projects(id) ON DELETE CASCADE,
+              name         TEXT NOT NULL,
+              sortOrder    REAL NOT NULL DEFAULT 0,
+              createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_api_collections_projectId ON api_collections (projectId);
+            CREATE INDEX idx_api_collections_sortOrder ON api_collections (projectId, sortOrder);
+
+            CREATE TABLE api_requests (
+              id                  TEXT PRIMARY KEY,
+              collectionId        TEXT NOT NULL
+                REFERENCES api_collections(id) ON DELETE CASCADE,
+              name                TEXT NOT NULL,
+              method              TEXT NOT NULL DEFAULT 'GET'
+                CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS')),
+              url                 TEXT NOT NULL DEFAULT '',
+              headers             TEXT NOT NULL DEFAULT '{}',
+              body                TEXT NOT NULL DEFAULT '',
+              sortOrder           REAL NOT NULL DEFAULT 0,
+              lastResponseStatus  INTEGER DEFAULT NULL,
+              lastResponseTime    INTEGER DEFAULT NULL,
+              createdAt           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updatedAt           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_api_requests_collectionId ON api_requests (collectionId);
+            CREATE INDEX idx_api_requests_sortOrder ON api_requests (collectionId, sortOrder);
+          `);
+        }
+      },
+    },
+    {
+      version: 7,
+      name: "add-approved-status",
+      noTransaction: true, // PRAGMA foreign_keys cannot be changed inside a transaction
+      up: () => {
+        // Add approvedAt column if missing
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "approvedAt")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN approvedAt TEXT DEFAULT NULL");
+        }
+        // Disable FK checks for table rebuild (todos references tasks)
+        db.exec("PRAGMA foreign_keys = OFF");
+        // Rebuild table to update CHECK constraint to include 'approved'
+        db.exec(`
+          CREATE TABLE tasks_new (
+            id           TEXT PRIMARY KEY,
+            projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            milestoneId  TEXT DEFAULT NULL REFERENCES milestones(id) ON DELETE SET NULL,
+            title        TEXT NOT NULL,
+            description  TEXT DEFAULT NULL,
+            prompt       TEXT DEFAULT NULL,
+            branch       TEXT DEFAULT NULL,
+            status       TEXT NOT NULL DEFAULT 'backlog'
+              CHECK (status IN ('backlog', 'todo', 'in_progress', 'done', 'approved')),
+            priority     TEXT NOT NULL DEFAULT 'medium'
+              CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+            taskNumber   INTEGER NOT NULL DEFAULT 0,
+            sortOrder    REAL NOT NULL DEFAULT 0,
+            inboxAt      TEXT DEFAULT NULL,
+            inProgressAt TEXT DEFAULT NULL,
+            doneAt       TEXT DEFAULT NULL,
+            approvedAt   TEXT DEFAULT NULL,
+            createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          INSERT INTO tasks_new SELECT id, projectId, milestoneId, title, description, prompt, branch, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, createdAt, updatedAt FROM tasks;
+          DROP TABLE tasks;
+          ALTER TABLE tasks_new RENAME TO tasks;
+          CREATE INDEX idx_tasks_projectId_status ON tasks (projectId, status);
+          CREATE INDEX idx_tasks_projectId_status_sortOrder ON tasks (projectId, status, sortOrder);
+          CREATE INDEX idx_tasks_projectId_milestoneId ON tasks (projectId, milestoneId);
+          CREATE INDEX idx_tasks_doneAt ON tasks (doneAt);
+          CREATE INDEX idx_tasks_projectId_priority ON tasks (projectId, priority);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      },
+    },
+    {
+      version: 8,
+      name: "rebuild-tasks-check-constraint",
+      noTransaction: true,
+      up: () => {
+        // Check if rebuild is needed (constraint might already include 'approved')
+        const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+        if (tableSql.includes("'approved'")) return; // already rebuilt
+
+        db.exec("PRAGMA foreign_keys = OFF");
+        // Ensure approvedAt column exists before rebuild
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        const hasApprovedAt = cols.some((c) => c.name === "approvedAt");
+        db.exec(`
+          CREATE TABLE tasks_rebuild (
+            id           TEXT PRIMARY KEY,
+            projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            milestoneId  TEXT DEFAULT NULL REFERENCES milestones(id) ON DELETE SET NULL,
+            title        TEXT NOT NULL,
+            description  TEXT DEFAULT NULL,
+            prompt       TEXT DEFAULT NULL,
+            branch       TEXT DEFAULT NULL,
+            status       TEXT NOT NULL DEFAULT 'backlog'
+              CHECK (status IN ('backlog', 'todo', 'in_progress', 'done', 'approved')),
+            priority     TEXT NOT NULL DEFAULT 'medium'
+              CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+            taskNumber   INTEGER NOT NULL DEFAULT 0,
+            sortOrder    REAL NOT NULL DEFAULT 0,
+            inboxAt      TEXT DEFAULT NULL,
+            inProgressAt TEXT DEFAULT NULL,
+            doneAt       TEXT DEFAULT NULL,
+            approvedAt   TEXT DEFAULT NULL,
+            createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          INSERT INTO tasks_rebuild SELECT id, projectId, milestoneId, title, description, prompt, branch, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, ${hasApprovedAt ? "approvedAt" : "NULL"}, createdAt, updatedAt FROM tasks;
+          DROP TABLE tasks;
+          ALTER TABLE tasks_rebuild RENAME TO tasks;
+          CREATE INDEX idx_tasks_projectId_status ON tasks (projectId, status);
+          CREATE INDEX idx_tasks_projectId_status_sortOrder ON tasks (projectId, status, sortOrder);
+          CREATE INDEX idx_tasks_projectId_milestoneId ON tasks (projectId, milestoneId);
+          CREATE INDEX idx_tasks_doneAt ON tasks (doneAt);
+          CREATE INDEX idx_tasks_projectId_priority ON tasks (projectId, priority);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      },
+    },
+    {
+      version: 9,
+      name: "add-prompt-profile",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "promptProfile")) {
+          db.exec(
+            "ALTER TABLE tasks ADD COLUMN promptProfile TEXT NOT NULL DEFAULT 'auto' CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs'))"
+          );
+        }
+      },
+    },
+    {
+      version: 10,
+      name: "add-project-tree-depth",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "treeDepth")) {
+          db.exec("ALTER TABLE projects ADD COLUMN treeDepth INTEGER NOT NULL DEFAULT 3");
+        }
+      },
+    },
+    {
+      version: 11,
+      name: "add-ai-instructions",
+      up: () => {
+        const projCols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+        if (!projCols.some((c) => c.name === "aiInstructions")) {
+          db.exec("ALTER TABLE projects ADD COLUMN aiInstructions TEXT DEFAULT NULL");
+        }
+        const msCols = db.prepare("PRAGMA table_info(milestones)").all() as { name: string }[];
+        if (!msCols.some((c) => c.name === "aiInstructions")) {
+          db.exec("ALTER TABLE milestones ADD COLUMN aiInstructions TEXT DEFAULT NULL");
+        }
+      },
+    },
+    {
+      version: 12,
+      name: "add-task-ai-runs",
+      up: () => {
+        const tableExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'")
+          .get();
+        if (!tableExists) {
+          db.exec(`
+            CREATE TABLE task_ai_runs (
+              id           TEXT PRIMARY KEY,
+              taskId       TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+              projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              sessionId    TEXT DEFAULT NULL,
+              profile      TEXT NOT NULL DEFAULT 'feature',
+              complexity   TEXT NOT NULL DEFAULT 'medium',
+              exitCode     INTEGER DEFAULT NULL,
+              success      INTEGER NOT NULL DEFAULT 0,
+              filesChanged INTEGER DEFAULT NULL,
+              durationMs   INTEGER DEFAULT NULL,
+              summary      TEXT DEFAULT NULL,
+              createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_task_ai_runs_projectId ON task_ai_runs (projectId);
+            CREATE INDEX idx_task_ai_runs_taskId ON task_ai_runs (taskId);
+            CREATE INDEX idx_task_ai_runs_createdAt ON task_ai_runs (createdAt DESC);
+          `);
+        }
+      },
+    },
+    {
+      version: 13,
+      name: "add-archived-status",
+      noTransaction: true,
+      up: () => {
+        // Add archivedAt column if missing
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "archivedAt")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN archivedAt TEXT DEFAULT NULL");
+        }
+        // Rebuild table to update CHECK constraint to include 'archived'
+        const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+        if (tableSql.includes("'archived'")) return;
+
+        db.exec("PRAGMA foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE tasks_v13 (
+            id           TEXT PRIMARY KEY,
+            projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            milestoneId  TEXT DEFAULT NULL REFERENCES milestones(id) ON DELETE SET NULL,
+            title        TEXT NOT NULL,
+            description  TEXT DEFAULT NULL,
+            prompt       TEXT DEFAULT NULL,
+            branch       TEXT DEFAULT NULL,
+            promptProfile TEXT NOT NULL DEFAULT 'auto'
+              CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs')),
+            status       TEXT NOT NULL DEFAULT 'backlog'
+              CHECK (status IN ('backlog', 'todo', 'in_progress', 'done', 'approved', 'archived')),
+            priority     TEXT NOT NULL DEFAULT 'medium'
+              CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+            taskNumber   INTEGER NOT NULL DEFAULT 0,
+            sortOrder    REAL NOT NULL DEFAULT 0,
+            inboxAt      TEXT DEFAULT NULL,
+            inProgressAt TEXT DEFAULT NULL,
+            doneAt       TEXT DEFAULT NULL,
+            approvedAt   TEXT DEFAULT NULL,
+            archivedAt   TEXT DEFAULT NULL,
+            createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          INSERT INTO tasks_v13 SELECT id, projectId, milestoneId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, createdAt, updatedAt FROM tasks;
+          DROP TABLE tasks;
+          ALTER TABLE tasks_v13 RENAME TO tasks;
+          CREATE INDEX idx_tasks_projectId_status ON tasks (projectId, status);
+          CREATE INDEX idx_tasks_projectId_status_sortOrder ON tasks (projectId, status, sortOrder);
+          CREATE INDEX idx_tasks_projectId_milestoneId ON tasks (projectId, milestoneId);
+          CREATE INDEX idx_tasks_doneAt ON tasks (doneAt);
+          CREATE INDEX idx_tasks_projectId_priority ON tasks (projectId, priority);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      },
+    },
   ];
 
   for (const migration of migrations) {
     if (migration.version > currentVersion) {
-      db.transaction(() => {
+      if (migration.noTransaction) {
         migration.up();
         db.prepare(
           "INSERT INTO _migrations (version, name) VALUES (?, ?)",
         ).run(migration.version, migration.name);
-      })();
+      } else {
+        db.transaction(() => {
+          migration.up();
+          db.prepare(
+            "INSERT INTO _migrations (version, name) VALUES (?, ?)",
+          ).run(migration.version, migration.name);
+        })();
+      }
     }
   }
 }

@@ -217,7 +217,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       } else if (key === "favorite") {
         fields.push("favorite = ?");
         values.push(value ? 1 : 0);
-      } else if (["name", "category", "aiCommitMode", "notionDatabaseId"].includes(key)) {
+      } else if (["name", "category", "aiCommitMode", "notionDatabaseId", "treeDepth", "aiInstructions"].includes(key)) {
         fields.push(`${key} = ?`);
         values.push(value);
       }

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS projects (
   externalLinks TEXT NOT NULL DEFAULT '[]',
   aiCommitMode TEXT NOT NULL DEFAULT 'stage'
     CHECK (aiCommitMode IN ('commit', 'stage', 'none')),
+  treeDepth    INTEGER NOT NULL DEFAULT 3,
+  aiInstructions TEXT DEFAULT NULL,
   createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS milestones (
   name         TEXT NOT NULL,
   status       TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'closed')),
+  aiInstructions TEXT DEFAULT NULL,
   createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
@@ -45,8 +48,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   description  TEXT DEFAULT NULL,
   prompt       TEXT DEFAULT NULL,
   branch       TEXT DEFAULT NULL,
+  promptProfile TEXT NOT NULL DEFAULT 'auto'
+    CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs')),
   status       TEXT NOT NULL DEFAULT 'backlog'
-    CHECK (status IN ('backlog', 'todo', 'in_progress', 'done')),
+    CHECK (status IN ('backlog', 'todo', 'in_progress', 'done', 'approved', 'archived')),
   priority     TEXT NOT NULL DEFAULT 'medium'
     CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
   taskNumber   INTEGER NOT NULL DEFAULT 0,
@@ -54,6 +59,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   inboxAt      TEXT DEFAULT NULL,
   inProgressAt TEXT DEFAULT NULL,
   doneAt       TEXT DEFAULT NULL,
+  approvedAt   TEXT DEFAULT NULL,
+  archivedAt   TEXT DEFAULT NULL,
   createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -115,4 +122,25 @@ CREATE TABLE IF NOT EXISTS todos (
 
 CREATE INDEX IF NOT EXISTS idx_todos_completed ON todos (completed);
 CREATE INDEX IF NOT EXISTS idx_todos_sortOrder ON todos (sortOrder);
+
+CREATE TABLE IF NOT EXISTS task_ai_runs (
+  id           TEXT PRIMARY KEY,
+  taskId       TEXT NOT NULL
+    REFERENCES tasks(id) ON DELETE CASCADE,
+  projectId    TEXT NOT NULL
+    REFERENCES projects(id) ON DELETE CASCADE,
+  sessionId    TEXT DEFAULT NULL,
+  profile      TEXT NOT NULL DEFAULT 'feature',
+  complexity   TEXT NOT NULL DEFAULT 'medium',
+  exitCode     INTEGER DEFAULT NULL,
+  success      INTEGER NOT NULL DEFAULT 0,
+  filesChanged INTEGER DEFAULT NULL,
+  durationMs   INTEGER DEFAULT NULL,
+  summary      TEXT DEFAULT NULL,
+  createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_ai_runs_projectId ON task_ai_runs (projectId);
+CREATE INDEX IF NOT EXISTS idx_task_ai_runs_taskId ON task_ai_runs (taskId);
+CREATE INDEX IF NOT EXISTS idx_task_ai_runs_createdAt ON task_ai_runs (createdAt DESC);
 `;

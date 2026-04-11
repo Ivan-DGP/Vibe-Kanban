@@ -11,6 +11,8 @@ export interface Project {
   techStack: string[];
   externalLinks: ExternalLink[];
   aiCommitMode: "commit" | "stage" | "none";
+  treeDepth: number;
+  aiInstructions: string | null;
   notionDatabaseId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -34,6 +36,8 @@ export interface UpdateProjectInput {
   techStack?: string[];
   externalLinks?: ExternalLink[];
   aiCommitMode?: "commit" | "stage" | "none";
+  treeDepth?: number;
+  aiInstructions?: string | null;
   notionDatabaseId?: string | null;
 }
 
@@ -47,8 +51,9 @@ export interface ScannedProject {
 // Task
 // ============================================================
 
-export type TaskStatus = "backlog" | "todo" | "in_progress" | "done";
+export type TaskStatus = "backlog" | "todo" | "in_progress" | "done" | "approved" | "archived";
 export type TaskPriority = "urgent" | "high" | "medium" | "low";
+export type PromptProfile = "auto" | "quick-fix" | "feature" | "refactor" | "bug-fix" | "docs";
 
 export interface Task {
   id: string;
@@ -58,6 +63,7 @@ export interface Task {
   description: string | null;
   prompt: string | null;
   branch: string | null;
+  promptProfile: PromptProfile;
   status: TaskStatus;
   priority: TaskPriority;
   taskNumber: number;
@@ -65,6 +71,8 @@ export interface Task {
   inboxAt: string | null;
   inProgressAt: string | null;
   doneAt: string | null;
+  approvedAt: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -74,6 +82,7 @@ export interface CreateTaskInput {
   description?: string;
   prompt?: string;
   branch?: string;
+  promptProfile?: PromptProfile;
   status?: TaskStatus;
   priority?: TaskPriority;
   milestoneId?: string | null;
@@ -84,10 +93,47 @@ export interface UpdateTaskInput {
   description?: string | null;
   prompt?: string | null;
   branch?: string | null;
+  promptProfile?: PromptProfile;
   status?: TaskStatus;
   priority?: TaskPriority;
   milestoneId?: string | null;
   sortOrder?: number;
+}
+
+export interface AiPreflightResult {
+  taskId: string;
+  title: string;
+  detectedProfile: Exclude<PromptProfile, "auto">;
+  effectiveProfile: PromptProfile;
+  scope: "small" | "medium" | "large";
+  hasDescription: boolean;
+  hasPrompt: boolean;
+  warnings: string[];
+  branch: string | null;
+}
+
+export interface TaskAiRun {
+  id: string;
+  taskId: string;
+  projectId: string;
+  sessionId: string | null;
+  profile: string;
+  complexity: "small" | "medium" | "large";
+  exitCode: number | null;
+  success: boolean;
+  filesChanged: number | null;
+  durationMs: number | null;
+  summary: string | null;
+  createdAt: string;
+}
+
+export interface ProjectAiStats {
+  totalRuns: number;
+  successCount: number;
+  successRate: number;
+  avgDurationMs: number | null;
+  commonFailures: string[];
+  profileBreakdown: Record<string, number>;
 }
 
 export interface TaskFilters {
@@ -114,6 +160,7 @@ export interface Milestone {
   projectId: string;
   name: string;
   status: "active" | "closed";
+  aiInstructions: string | null;
   createdAt: string;
 }
 
@@ -124,6 +171,7 @@ export interface CreateMilestoneInput {
 export interface UpdateMilestoneInput {
   name?: string;
   status?: "active" | "closed";
+  aiInstructions?: string | null;
 }
 
 // ============================================================
@@ -432,4 +480,93 @@ export interface NotionSearchResult {
   url: string;
   icon: string | null;
   lastEditedTime: string;
+}
+
+// ============================================================
+// CI/CD (GitHub Actions)
+// ============================================================
+
+export type CIStatus = "success" | "failure" | "pending" | "running" | "unknown";
+
+export interface CICheckResult {
+  branch: string;
+  status: CIStatus;
+  conclusion: string | null;
+  workflowName: string | null;
+  runUrl: string | null;
+  updatedAt: string | null;
+}
+
+// ============================================================
+// API Client (Postman/Bruno style)
+// ============================================================
+
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+
+export interface ApiCollection {
+  id: string;
+  projectId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateApiCollectionInput {
+  name: string;
+}
+
+export interface UpdateApiCollectionInput {
+  name?: string;
+  sortOrder?: number;
+}
+
+export interface ApiRequest {
+  id: string;
+  collectionId: string;
+  name: string;
+  method: HttpMethod;
+  url: string;
+  headers: string; // JSON string of key-value pairs
+  body: string;
+  sortOrder: number;
+  lastResponseStatus: number | null;
+  lastResponseTime: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateApiRequestInput {
+  collectionId: string;
+  name: string;
+  method?: HttpMethod;
+  url?: string;
+  headers?: string;
+  body?: string;
+}
+
+export interface UpdateApiRequestInput {
+  name?: string;
+  method?: HttpMethod;
+  url?: string;
+  headers?: string;
+  body?: string;
+  sortOrder?: number;
+  lastResponseStatus?: number | null;
+  lastResponseTime?: number | null;
+}
+
+export interface ApiRequestExecuteInput {
+  method: HttpMethod;
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
+export interface ApiRequestExecuteResult {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: string;
+  timeMs: number;
 }
