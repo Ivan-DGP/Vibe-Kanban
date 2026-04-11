@@ -9,6 +9,7 @@ import { Loader2, FileSearch, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { useCreateTask, useUpdateTask, useMilestones } from "@/hooks";
 import BranchSelector from "@/components/git/BranchSelector";
+import GatherContextModal from "./GatherContextModal";
 import { api } from "@/lib/api";
 import type { Task, TaskStatus, TaskPriority, PromptProfile, CreateTaskInput } from "@vibe-kanban/shared";
 
@@ -36,6 +37,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const { data: milestones } = useMilestones(projectId);
   const isEditing = !!task;
   const [aiLoading, setAiLoading] = useState<"context" | "improve" | null>(null);
+  const [gatherModalOpen, setGatherModalOpen] = useState(false);
 
   const streamAI = async (systemPrompt: string): Promise<string> => {
     const controller = new AbortController();
@@ -76,49 +78,14 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
     }
   };
 
-  const handleGatherContext = async () => {
+  const handleGatherContext = () => {
     if (!title.trim()) return;
-    setAiLoading("context");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
-    try {
-      const res = await api.claude.gatherContext(title, projectId, description || undefined, controller.signal);
-      if (!res.ok) throw new Error(`AI request failed (${res.status})`);
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response stream");
-      let text = "";
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let streamDone = false;
-      while (!streamDone) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const d = JSON.parse(line.slice(6));
-              if (d.type === "delta" && d.text) text += d.text;
-              if (d.type === "done") { streamDone = true; break; }
-              if (d.type === "error") throw new Error(d.message || "AI error");
-            } catch (e) {
-              if (e instanceof SyntaxError) continue;
-              throw e;
-            }
-          }
-        }
-      }
-      if (!text) throw new Error("No response from AI");
-      setPrompt(text);
-      setActiveTab("prompt");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to gather context");
-    } finally {
-      clearTimeout(timeout);
-      setAiLoading(null);
-    }
+    setGatherModalOpen(true);
+  };
+
+  const handleGatherContextAccept = (text: string) => {
+    setPrompt(text);
+    setActiveTab("prompt");
   };
 
   const handleImproveWriting = async () => {
@@ -245,9 +212,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
               size="sm"
               className="h-7 text-xs gap-1"
               onClick={handleGatherContext}
-              disabled={aiLoading !== null || !title.trim()}
+              disabled={aiLoading !== null || !title.trim() || gatherModalOpen}
             >
-              {aiLoading === "context" ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSearch className="h-3 w-3" />}
+              <FileSearch className="h-3 w-3" />
               Gather Context
             </Button>
             <Button
@@ -333,6 +300,15 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <GatherContextModal
+        open={gatherModalOpen}
+        onOpenChange={setGatherModalOpen}
+        taskTitle={title}
+        taskDescription={description || undefined}
+        projectId={projectId}
+        onAccept={handleGatherContextAccept}
+      />
     </Dialog>
   );
 }
