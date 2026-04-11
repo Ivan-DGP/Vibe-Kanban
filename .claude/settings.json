@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun run check)",
+      "Bash(bun run lint)",
+      "Bash(bun run --cwd server test)",
+      "Bash(bun run build)",
+      "Bash(bun run dev)",
+      "Bash(bun run dev:client)",
+      "Bash(bun run dev:server)",
+      "Bash(bun install)"
+    ]
+  }
+}

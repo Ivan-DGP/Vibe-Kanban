@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, X, Terminal, Play, Bot, Zap, CheckCircle2 } from "lucide-react";
+import { Plus, X, Terminal, Play, Bot, Zap, FlaskConical, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TerminalSessionType, TerminalSessionInfo } from "@vibe-kanban/shared";
 
@@ -9,6 +9,7 @@ const SESSION_ICONS: Record<TerminalSessionType, typeof Terminal> = {
   dev: Play,
   "claude-ai": Bot,
   "ai-resolve": Zap,
+  "ai-test": FlaskConical,
 };
 
 interface TerminalTabsProps {

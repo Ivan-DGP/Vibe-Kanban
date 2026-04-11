@@ -196,7 +196,7 @@ export function spawnPty(
   const nodePty = require("node-pty") as typeof import("node-pty");
   const pty = nodePty.spawn(cmd, args, {
     cwd: opts.cwd,
-    env: opts.env as any,
+    env: opts.env as Record<string, string>,
     cols: opts.cols,
     rows: opts.rows,
   });

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import type { DatabaseHandle } from "../lib/runtime";
 import type {
   NotionDatabase,
   NotionPage,
@@ -8,10 +9,62 @@ import type {
   NotionSearchResult,
 } from "@vibe-kanban/shared";
 
+// Lightweight types for Notion API responses
+interface NotionRichText {
+  plain_text: string;
+  annotations?: {
+    bold?: boolean;
+    italic?: boolean;
+    code?: boolean;
+    strikethrough?: boolean;
+  };
+  href?: string;
+}
+
+interface NotionBlockContent {
+  rich_text?: NotionRichText[];
+  checked?: boolean;
+  language?: string;
+  icon?: { emoji?: string };
+  caption?: NotionRichText[];
+  file?: { url: string };
+  external?: { url: string };
+}
+
+type NotionBlock = {
+  type: string;
+} & Record<string, NotionBlockContent | undefined>;
+
+interface NotionObject {
+  id: string;
+  object: string;
+  url: string;
+  last_edited_time: string;
+  icon?: { type: string; emoji?: string };
+  title?: NotionRichText[] | string;
+  properties?: Record<string, NotionProperty>;
+}
+
+interface NotionProperty {
+  type: string;
+  title?: NotionRichText[];
+  rich_text?: NotionRichText[];
+  number?: number;
+  select?: { name: string };
+  multi_select?: { name: string }[];
+  status?: { name: string };
+  date?: { start: string };
+  checkbox?: boolean;
+  url?: string;
+  email?: string;
+  phone_number?: string;
+  people?: { name?: string; id: string }[];
+}
+
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-function getNotionToken(db: any): string | null {
+function getNotionToken(db: DatabaseHandle): string | null {
   const row = db
     .prepare("SELECT value FROM settings WHERE key = ?")
     .get("notionApiKey") as { value: string } | undefined;
@@ -28,7 +81,8 @@ async function notionFetch(
   token: string,
   path: string,
   options: RequestInit = {},
-): Promise<any> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<Record<string, any>> {
   const res = await fetch(`${NOTION_API}${path}`, {
     ...options,
     headers: {
@@ -42,46 +96,47 @@ async function notionFetch(
     const body = await res.text();
     throw new Error(`Notion API ${res.status}: ${body}`);
   }
-  return res.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return res.json() as Promise<Record<string, any>>;
 }
 
-function extractTitle(obj: any): string {
+function extractTitle(obj: NotionObject): string {
   if (obj.title) {
     if (Array.isArray(obj.title)) {
-      return obj.title.map((t: any) => t.plain_text || "").join("") || "Untitled";
+      return obj.title.map((t) => t.plain_text || "").join("") || "Untitled";
     }
     if (typeof obj.title === "string") return obj.title;
   }
   if (obj.properties?.title?.title) {
     return obj.properties.title.title
-      .map((t: any) => t.plain_text || "")
+      .map((t) => t.plain_text || "")
       .join("") || "Untitled";
   }
   if (obj.properties?.Name?.title) {
     return obj.properties.Name.title
-      .map((t: any) => t.plain_text || "")
+      .map((t) => t.plain_text || "")
       .join("") || "Untitled";
   }
   // Try all properties for a title type
   if (obj.properties) {
-    for (const prop of Object.values(obj.properties) as any[]) {
+    for (const prop of Object.values(obj.properties)) {
       if (prop.type === "title" && prop.title) {
-        return prop.title.map((t: any) => t.plain_text || "").join("") || "Untitled";
+        return prop.title.map((t) => t.plain_text || "").join("") || "Untitled";
       }
     }
   }
   return "Untitled";
 }
 
-function extractIcon(obj: any): string | null {
+function extractIcon(obj: NotionObject): string | null {
   if (!obj.icon) return null;
-  if (obj.icon.type === "emoji") return obj.icon.emoji;
+  if (obj.icon.type === "emoji") return obj.icon.emoji ?? null;
   return null;
 }
 
-function richTextToMarkdown(richText: any[]): string {
+function richTextToMarkdown(richText: NotionRichText[]): string {
   return richText
-    .map((rt: any) => {
+    .map((rt) => {
       let text = rt.plain_text || "";
       if (rt.annotations?.bold) text = `**${text}**`;
       if (rt.annotations?.italic) text = `*${text}*`;
@@ -93,7 +148,7 @@ function richTextToMarkdown(richText: any[]): string {
     .join("");
 }
 
-function blocksToMarkdown(blocks: any[]): string {
+function blocksToMarkdown(blocks: NotionBlock[]): string {
   const lines: string[] = [];
   for (const block of blocks) {
     const type = block.type;
@@ -177,9 +232,10 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const me = await notionFetch(token, "/users/me");
       return { connected: true, user: me.name || me.bot?.owner?.user?.name || "Notion Bot" };
-    } catch (err: any) {
-      log("warn", "server", `Notion connection check failed: ${err.message}`);
-      return { connected: false, user: null, error: err.message };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("warn", "server", `Notion connection check failed: ${message}`);
+      return { connected: false, user: null, error: message };
     }
   });
 
@@ -194,17 +250,16 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
     };
 
     try {
-      const body: any = {};
+      const body: Record<string, unknown> = { page_size: 50 };
       if (query) body.query = query;
       if (filter) body.filter = { value: filter, property: "object" };
-      body.page_size = 50;
 
       const data = await notionFetch(token, "/search", {
         method: "POST",
         body: JSON.stringify(body),
       });
 
-      const results: NotionSearchResult[] = data.results.map((r: any) => ({
+      const results: NotionSearchResult[] = (data.results as NotionObject[]).map((r) => ({
         id: r.id,
         title: extractTitle(r),
         type: r.object === "database" ? "database" : "page",
@@ -214,9 +269,10 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
       }));
 
       return { results };
-    } catch (err: any) {
-      log("error", "server", `Notion search failed: ${err.message}`);
-      return reply.code(502).send({ error: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", "server", `Notion search failed: ${message}`);
+      return reply.code(502).send({ error: message });
     }
   });
 
@@ -234,7 +290,7 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
         }),
       });
 
-      const databases: NotionDatabase[] = data.results.map((r: any) => ({
+      const databases: NotionDatabase[] = (data.results as NotionObject[]).map((r) => ({
         id: r.id,
         title: extractTitle(r),
         url: r.url,
@@ -243,9 +299,10 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
       }));
 
       return { databases };
-    } catch (err: any) {
-      log("error", "server", `Notion list databases failed: ${err.message}`);
-      return reply.code(502).send({ error: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", "server", `Notion list databases failed: ${message}`);
+      return reply.code(502).send({ error: message });
     }
   });
 
@@ -262,19 +319,20 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
         body: JSON.stringify({ page_size: 100 }),
       });
 
-      const pages: NotionPage[] = data.results.map((r: any) => ({
+      const pages: NotionPage[] = (data.results as NotionObject[]).map((r) => ({
         id: r.id,
         title: extractTitle(r),
         url: r.url,
         icon: extractIcon(r),
         lastEditedTime: r.last_edited_time,
-        properties: simplifyProperties(r.properties),
+        properties: simplifyProperties(r.properties ?? {}),
       }));
 
       return { pages };
-    } catch (err: any) {
-      log("error", "server", `Notion query database failed: ${err.message}`);
-      return reply.code(502).send({ error: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", "server", `Notion query database failed: ${message}`);
+      return reply.code(502).send({ error: message });
     }
   });
 
@@ -292,33 +350,33 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
         notionFetch(token, `/blocks/${pageId}/children?page_size=100`),
       ]);
 
-      const markdown = blocksToMarkdown(blocksData.results || []);
+      const markdown = blocksToMarkdown((blocksData.results || []) as NotionBlock[]);
 
       const result: NotionPageContent = {
-        id: page.id,
-        title: extractTitle(page),
-        url: page.url,
+        id: page.id as string,
+        title: extractTitle(page as unknown as NotionObject),
+        url: page.url as string,
         markdown,
       };
 
       return result;
-    } catch (err: any) {
-      log("error", "server", `Notion get page failed: ${err.message}`);
-      return reply.code(502).send({ error: err.message });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", "server", `Notion get page failed: ${message}`);
+      return reply.code(502).send({ error: message });
     }
   });
 };
 
-function simplifyProperties(props: Record<string, any>): Record<string, unknown> {
+function simplifyProperties(props: Record<string, NotionProperty>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(props)) {
-    const v = val as any;
+  for (const [key, v] of Object.entries(props)) {
     switch (v.type) {
       case "title":
-        result[key] = v.title?.map((t: any) => t.plain_text).join("") || "";
+        result[key] = v.title?.map((t) => t.plain_text).join("") || "";
         break;
       case "rich_text":
-        result[key] = v.rich_text?.map((t: any) => t.plain_text).join("") || "";
+        result[key] = v.rich_text?.map((t) => t.plain_text).join("") || "";
         break;
       case "number":
         result[key] = v.number;
@@ -327,7 +385,7 @@ function simplifyProperties(props: Record<string, any>): Record<string, unknown>
         result[key] = v.select?.name || null;
         break;
       case "multi_select":
-        result[key] = v.multi_select?.map((s: any) => s.name) || [];
+        result[key] = v.multi_select?.map((s) => s.name) || [];
         break;
       case "status":
         result[key] = v.status?.name || null;
@@ -348,7 +406,7 @@ function simplifyProperties(props: Record<string, any>): Record<string, unknown>
         result[key] = v.phone_number;
         break;
       case "people":
-        result[key] = v.people?.map((p: any) => p.name || p.id) || [];
+        result[key] = v.people?.map((p) => p.name || p.id) || [];
         break;
       default:
         result[key] = `[${v.type}]`;

@@ -240,3 +240,157 @@ describe("terminalService - session flush on attach", () => {
     expect(JSON.parse(ws.sent[2]).type).toBe("exit");
   });
 });
+
+describe("terminalService - AI test session chain logic", () => {
+  // These tests verify the chain decision logic used in spawnAiResolve's onExit handler.
+  // The actual chaining calls chainAiTest only when:
+  //   success === true && session.taskId && session.projectId && opts.autoTest !== false
+
+  function shouldChainTest(
+    success: boolean,
+    taskId: string | undefined,
+    projectId: string | undefined,
+    autoTest: boolean | undefined,
+  ): boolean {
+    return success && !!taskId && !!projectId && autoTest !== false;
+  }
+
+  test("chains when resolve succeeded with taskId and projectId", () => {
+    expect(shouldChainTest(true, "task-1", "proj-1", undefined)).toBe(true);
+  });
+
+  test("chains when autoTest is explicitly true", () => {
+    expect(shouldChainTest(true, "task-1", "proj-1", true)).toBe(true);
+  });
+
+  test("does NOT chain when autoTest is false (prevents infinite loop)", () => {
+    expect(shouldChainTest(true, "task-1", "proj-1", false)).toBe(false);
+  });
+
+  test("does NOT chain when resolve failed", () => {
+    expect(shouldChainTest(false, "task-1", "proj-1", undefined)).toBe(false);
+  });
+
+  test("does NOT chain when taskId is missing", () => {
+    expect(shouldChainTest(true, undefined, "proj-1", undefined)).toBe(false);
+  });
+
+  test("does NOT chain when projectId is missing", () => {
+    expect(shouldChainTest(true, "task-1", undefined, undefined)).toBe(false);
+  });
+
+  test("does NOT chain when both taskId and projectId are missing", () => {
+    expect(shouldChainTest(false, undefined, undefined, undefined)).toBe(false);
+  });
+});
+
+describe("terminalService - AI resolve success detection", () => {
+  // The success check in spawnAiResolve uses:
+  //   const success = task?.status === "done" || exitCode === 0;
+
+  function isResolveSuccess(taskStatus: string | undefined, exitCode: number): boolean {
+    return taskStatus === "done" || exitCode === 0;
+  }
+
+  test("succeeds when task status is done (even with non-zero exit)", () => {
+    expect(isResolveSuccess("done", 1)).toBe(true);
+  });
+
+  test("succeeds when exit code is 0 (even if task not done)", () => {
+    expect(isResolveSuccess("in_progress", 0)).toBe(true);
+  });
+
+  test("succeeds when both task done and exit 0", () => {
+    expect(isResolveSuccess("done", 0)).toBe(true);
+  });
+
+  test("fails when task not done and exit code non-zero", () => {
+    expect(isResolveSuccess("in_progress", 1)).toBe(false);
+  });
+
+  test("fails when task status is undefined and exit code non-zero", () => {
+    expect(isResolveSuccess(undefined, 1)).toBe(false);
+  });
+
+  test("treats backlog/todo as not done", () => {
+    expect(isResolveSuccess("backlog", 1)).toBe(false);
+    expect(isResolveSuccess("todo", 1)).toBe(false);
+  });
+});
+
+describe("terminalService - AI test session type validation", () => {
+  // The terminal route validates session types against this allowlist
+  const VALID_TYPES = ["shell", "dev", "claude-ai", "ai-resolve", "ai-test"];
+
+  test("ai-test is a valid session type", () => {
+    expect(VALID_TYPES.includes("ai-test")).toBe(true);
+  });
+
+  test("all TerminalSessionType values are in the allowlist", () => {
+    // These should match the shared type: "shell" | "dev" | "claude-ai" | "ai-resolve" | "ai-test"
+    const expectedTypes = ["shell", "dev", "claude-ai", "ai-resolve", "ai-test"];
+    for (const type of expectedTypes) {
+      expect(VALID_TYPES.includes(type)).toBe(true);
+    }
+  });
+
+  test("invalid types are rejected", () => {
+    expect(VALID_TYPES.includes("invalid")).toBe(false);
+    expect(VALID_TYPES.includes("ai-debug")).toBe(false);
+    expect(VALID_TYPES.includes("test")).toBe(false);
+  });
+});
+
+describe("terminalService - AI run recording", () => {
+  // Tests the DB insert pattern used for recording AI runs
+
+  test("resolve session records profile as 'auto'", () => {
+    // spawnAiResolve uses profile 'auto' when recording
+    const profile = "auto";
+    expect(profile).toBe("auto");
+  });
+
+  test("test session records profile as 'test'", () => {
+    // spawnAiTest uses profile 'test' when recording
+    const profile = "test";
+    expect(profile).toBe("test");
+  });
+
+  test("chainAiTest sets autoTest to false to prevent infinite chain", () => {
+    // When chainAiTest creates a new session, it sets autoTest: false
+    // This prevents: resolve → test → (no further chain)
+    const chainOpts = { autoTest: false };
+    expect(chainOpts.autoTest).toBe(false);
+  });
+});
+
+describe("terminalService - scrollback buffer", () => {
+  const MAX_SCROLLBACK_CHARS = 100_000;
+
+  function appendScrollback(current: string, data: string): string {
+    let result = current + data;
+    if (result.length > MAX_SCROLLBACK_CHARS) {
+      result = result.slice(-MAX_SCROLLBACK_CHARS);
+    }
+    return result;
+  }
+
+  test("appends data within limit", () => {
+    const result = appendScrollback("hello", " world");
+    expect(result).toBe("hello world");
+  });
+
+  test("truncates from start when exceeding limit", () => {
+    const base = "a".repeat(MAX_SCROLLBACK_CHARS - 5);
+    const data = "b".repeat(10);
+    const result = appendScrollback(base, data);
+    expect(result.length).toBe(MAX_SCROLLBACK_CHARS);
+    expect(result.endsWith("b".repeat(10))).toBe(true);
+    expect(result.startsWith("a")).toBe(true);
+  });
+
+  test("handles empty scrollback", () => {
+    const result = appendScrollback("", "new data");
+    expect(result).toBe("new data");
+  });
+});

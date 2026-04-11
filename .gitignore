@@ -6,6 +6,7 @@ data/
 *.db-shm
 .env
 .env.*
+!.env.example
 bun.lock
 .DS_Store
 Thumbs.db

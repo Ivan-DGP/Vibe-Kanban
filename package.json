@@ -13,12 +13,27 @@
     "build": "bun run --cwd client build",
     "start": "bun run --cwd server start",
     "start:node": "npx tsx server/src/index.ts",
-    "check": "bun run --cwd client typecheck && bun run --cwd server typecheck"
+    "check": "bun run --cwd client typecheck && bun run --cwd server typecheck",
+    "lint": "eslint client/src server/src shared/src",
+    "lint:fix": "eslint --fix client/src server/src shared/src",
+    "format": "prettier --write \"**/*.{ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,css,md}\"",
+    "test": "bun run --cwd server test",
+    "test:e2e": "playwright test",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.5.0",
     "concurrently": "^9.1.0",
-    "playwright": "^1.58.2"
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.0",
+    "husky": "^9.1.7",
+    "playwright": "^1.58.2",
+    "prettier": "^3.8.2",
+    "typescript-eslint": "^8.0.0"
   }
 }

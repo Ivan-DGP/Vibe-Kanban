@@ -36,14 +36,14 @@ function applyTimestampCascade(
     if (!task.inboxAt) updates.inboxAt = ts;
     if (!task.inProgressAt) updates.inProgressAt = ts;
     if (!task.doneAt) updates.doneAt = ts;
-    if (!(task as any).approvedAt) updates.approvedAt = ts;
+    if (!task.approvedAt) updates.approvedAt = ts;
   }
   if (newStatus === "archived") {
     if (!task.inboxAt) updates.inboxAt = ts;
     if (!task.inProgressAt) updates.inProgressAt = ts;
     if (!task.doneAt) updates.doneAt = ts;
-    if (!(task as any).approvedAt) updates.approvedAt = ts;
-    if (!(task as any).archivedAt) updates.archivedAt = ts;
+    if (!task.approvedAt) updates.approvedAt = ts;
+    if (!task.archivedAt) updates.archivedAt = ts;
   }
 
   return updates;
@@ -61,9 +61,9 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
   // List tasks for a project
   fastify.get("/projects/:projectId/tasks", async (request) => {
-    const { projectId } = request.params as any;
+    const { projectId } = request.params as { projectId: string };
     const { status, milestoneId, search, sort, limit = "15", offset = "0" } =
-      request.query as any;
+      request.query as { status?: string; milestoneId?: string; search?: string; sort?: string; limit?: string; offset?: string };
 
     let sql = "SELECT * FROM tasks WHERE projectId = ?";
     const params: any[] = [projectId];
@@ -117,7 +117,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
   // List all tasks across all projects
   fastify.get("/tasks/all", async (request) => {
-    const { status, sort = "updated", limit = "50", offset = "0" } = request.query as any;
+    const { status, sort = "updated", limit = "50", offset = "0" } = request.query as { status?: string; sort?: string; limit?: string; offset?: string };
     let orderBy = "t.updatedAt DESC";
     if (sort === "priority") orderBy = "CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.updatedAt DESC";
     if (sort === "newest") orderBy = "t.createdAt DESC";
@@ -141,7 +141,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Search tasks across projects
   fastify.get("/tasks/search", async (request) => {
-    const { q } = request.query as any;
+    const { q } = request.query as { q?: string };
     if (!q) return [];
     const rows = db
       .prepare(
