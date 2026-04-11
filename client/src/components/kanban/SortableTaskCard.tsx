@@ -1,10 +1,11 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import TaskCard from "@/components/tasks/TaskCard";
-import type { Task } from "@vibe-kanban/shared";
+import type { Task, CICheckResult } from "@vibe-kanban/shared";
 
 interface SortableTaskCardProps {
   task: Task;
+  ciResult?: CICheckResult;
   onClick: () => void;
   onAIResolve?: () => void;
   onAnalyze?: () => void;
@@ -13,7 +14,7 @@ interface SortableTaskCardProps {
   onDelete?: () => void;
 }
 
-export default function SortableTaskCard({ task, onClick, onAIResolve, onAnalyze, onEdit, onClone, onDelete }: SortableTaskCardProps) {
+export default function SortableTaskCard({ task, ciResult, onClick, onAIResolve, onAnalyze, onEdit, onClone, onDelete }: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -34,6 +35,7 @@ export default function SortableTaskCard({ task, onClick, onAIResolve, onAnalyze
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <TaskCard
         task={task}
+        ciResult={ciResult}
         onClick={onClick}
         onAIResolve={onAIResolve}
         onAnalyze={onAnalyze}

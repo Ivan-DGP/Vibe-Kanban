@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Search, ListTodo, Inbox, Loader2, CheckCircle2 } from "lucide-react";
+import { Search, ListTodo, Inbox, Loader2, CheckCircle2, ShieldCheck, Archive } from "lucide-react";
 import { useAllTasks, useSearchTasks } from "@/hooks";
 import TaskCard from "@/components/tasks/TaskCard";
 import TaskViewerDialog from "@/components/tasks/TaskViewerDialog";
@@ -14,6 +14,8 @@ const STATUS_FILTERS = [
   { value: "backlog", label: "Inbox", icon: Inbox },
   { value: "in_progress", label: "In Progress", icon: Loader2 },
   { value: "done", label: "Done", icon: CheckCircle2 },
+  { value: "approved", label: "Approved", icon: ShieldCheck },
+  { value: "archived", label: "Archived", icon: Archive },
 ] as const;
 
 export default function Tasks() {

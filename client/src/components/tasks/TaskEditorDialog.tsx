@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { useCreateTask, useUpdateTask, useMilestones } from "@/hooks";
 import BranchSelector from "@/components/git/BranchSelector";
 import { api } from "@/lib/api";
-import type { Task, TaskStatus, TaskPriority, CreateTaskInput } from "@vibe-kanban/shared";
+import type { Task, TaskStatus, TaskPriority, PromptProfile, CreateTaskInput } from "@vibe-kanban/shared";
 
 interface TaskEditorDialogProps {
   open: boolean;
@@ -27,6 +27,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const [status, setStatus] = useState<TaskStatus>("todo");
   const [milestoneId, setMilestoneId] = useState<string>("none");
   const [branch, setBranch] = useState<string | null>(null);
+  const [promptProfile, setPromptProfile] = useState<PromptProfile>("auto");
 
   const [activeTab, setActiveTab] = useState("description");
 
@@ -78,15 +79,46 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const handleGatherContext = async () => {
     if (!title.trim()) return;
     setAiLoading("context");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
-      const result = await streamAI(
-        `For the task "${title}", generate a technical implementation prompt. Include: what files to modify, approach, edge cases. Be concise. Output ONLY the prompt text, no markdown headers.${description ? `\n\nContext: ${description}` : ""}`
-      );
-      setPrompt(result);
+      const res = await api.claude.gatherContext(title, projectId, description || undefined, controller.signal);
+      if (!res.ok) throw new Error(`AI request failed (${res.status})`);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+      let text = "";
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamDone = false;
+      while (!streamDone) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const d = JSON.parse(line.slice(6));
+              if (d.type === "delta" && d.text) text += d.text;
+              if (d.type === "done") { streamDone = true; break; }
+              if (d.type === "error") throw new Error(d.message || "AI error");
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+      if (!text) throw new Error("No response from AI");
+      setPrompt(text);
       setActiveTab("prompt");
     } catch (e: any) {
       toast.error(e.message || "Failed to gather context");
-    } finally { setAiLoading(null); }
+    } finally {
+      clearTimeout(timeout);
+      setAiLoading(null);
+    }
   };
 
   const handleImproveWriting = async () => {
@@ -132,6 +164,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setStatus(task.status);
       setMilestoneId(task.milestoneId ?? "none");
       setBranch(task.branch ?? null);
+      setPromptProfile(task.promptProfile ?? "auto");
     } else {
       setTitle("");
       setDescription("");
@@ -140,6 +173,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setStatus("todo");
       setMilestoneId("none");
       setBranch(null);
+      setPromptProfile("auto");
     }
     setActiveTab("description");
   }, [task, open]);
@@ -151,6 +185,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       description: description.trim() || undefined,
       prompt: prompt.trim() || undefined,
       branch: branch || undefined,
+      promptProfile,
       priority,
       status,
       milestoneId: milestoneId === "none" ? null : milestoneId,
@@ -249,6 +284,8 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
                   <SelectItem value="todo">Inbox</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="done">Done</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -266,9 +303,25 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Branch</Label>
-            <BranchSelector projectId={projectId} value={branch} onSelect={setBranch} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Branch</Label>
+              <BranchSelector projectId={projectId} value={branch} onSelect={setBranch} />
+            </div>
+            <div className="space-y-2">
+              <Label>AI Profile</Label>
+              <Select value={promptProfile} onValueChange={(v) => setPromptProfile(v as PromptProfile)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
+                  <SelectItem value="quick-fix">Quick Fix</SelectItem>
+                  <SelectItem value="feature">Feature</SelectItem>
+                  <SelectItem value="refactor">Refactor</SelectItem>
+                  <SelectItem value="bug-fix">Bug Fix</SelectItem>
+                  <SelectItem value="docs">Documentation</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 

@@ -10,13 +10,14 @@ import {
   type DragEndEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
-import { useTasks, useReorderTasks, useCreateTask, useDeleteTask } from "@/hooks";
+import { useTasks, useReorderTasks, useCreateTask, useDeleteTask, useBatchCIStatus, useArchiveApproved } from "@/hooks";
 import { useAppStore } from "@/stores/appStore";
 import { useCreateTerminalSession, useBatchResolve, useBatchResolveStatus, useCancelBatchResolve } from "@/hooks/useTerminal";
+import type { CICheckResult } from "@vibe-kanban/shared";
 import { useConfirm } from "@/hooks/useConfirm";
 import { api } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
-import { Loader2, Minus, Plus, GitBranch } from "lucide-react";
+import { Loader2, Minus, Plus, GitBranch, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +45,7 @@ const COLUMN_STATUS_MAP: Record<string, TaskStatus> = {
   inbox: "backlog",
   in_progress: "in_progress",
   done: "done",
+  approved: "approved",
 };
 
 export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps) {
@@ -56,6 +58,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const [inboxLimit, setInboxLimit] = useState(PAGE_SIZE);
   const [ipLimit, setIpLimit] = useState(PAGE_SIZE);
   const [doneLimit, setDoneLimit] = useState(PAGE_SIZE);
+  const [approvedLimit, setApprovedLimit] = useState(PAGE_SIZE);
 
   // Task dialogs
   const [editorOpen, setEditorOpen] = useState(false);
@@ -77,6 +80,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const { data: todoData } = useTasks(projectId, { ...baseFilters, status: "todo" as TaskStatus, limit: inboxLimit });
   const { data: ipData } = useTasks(projectId, { ...baseFilters, status: "in_progress" as TaskStatus, limit: ipLimit });
   const { data: doneData } = useTasks(projectId, { ...baseFilters, status: "done" as TaskStatus, limit: doneLimit });
+  const { data: approvedData } = useTasks(projectId, { ...baseFilters, status: "approved" as TaskStatus, limit: approvedLimit });
 
   const inboxTasks = useMemo(() => [
     ...(inboxData?.items ?? []),
@@ -86,8 +90,29 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
 
   const ipTasks = ipData?.items ?? [];
   const doneTasks = doneData?.items ?? [];
+  const approvedTasks = approvedData?.items ?? [];
 
-  const allTasks = useMemo(() => [...inboxTasks, ...ipTasks, ...doneTasks], [inboxTasks, ipTasks, doneTasks]);
+  const allTasks = useMemo(() => [...inboxTasks, ...ipTasks, ...doneTasks, ...approvedTasks], [inboxTasks, ipTasks, doneTasks, approvedTasks]);
+
+  // CI/CD status: collect unique branches and batch-query
+  const allBranches = useMemo(() => {
+    const branches = new Set<string>();
+    for (const t of allTasks) {
+      if (t.branch) branches.add(t.branch);
+    }
+    return [...branches];
+  }, [allTasks]);
+
+  const { data: ciResults } = useBatchCIStatus(projectId, allBranches);
+  const ciMap = useMemo(() => {
+    const map = new Map<string, CICheckResult>();
+    if (ciResults) {
+      for (const r of ciResults) {
+        map.set(r.branch, r);
+      }
+    }
+    return map;
+  }, [ciResults]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -110,7 +135,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
 
     // Determine target column
     let targetColumn: string | null = null;
-    if (["inbox", "in_progress", "done"].includes(overId)) {
+    if (["inbox", "in_progress", "done", "approved"].includes(overId)) {
       targetColumn = overId;
     } else {
       // Dropped on another task — find which column that task is in
@@ -119,6 +144,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         if (overTask.status === "backlog" || overTask.status === "todo") targetColumn = "inbox";
         else if (overTask.status === "in_progress") targetColumn = "in_progress";
         else if (overTask.status === "done") targetColumn = "done";
+        else if (overTask.status === "approved") targetColumn = "approved";
       }
     }
 
@@ -231,6 +257,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
     setEditorOpen(true);
   };
 
+  const archiveApproved = useArchiveApproved(projectId);
   const cloneTask = useCreateTask(projectId);
   const deleteTaskMut = useDeleteTask();
 
@@ -248,6 +275,13 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const handleDelete = async (task: Task) => {
     if (!await confirm({ title: "Delete Task", description: `Delete "${task.title}"?` })) return;
     deleteTaskMut.mutate(task.id);
+  };
+
+  const handleArchiveApproved = async () => {
+    const count = approvedData?.total ?? 0;
+    if (count === 0) return;
+    if (!await confirm({ title: "Archive Approved", description: `Archive ${count} approved task${count !== 1 ? "s" : ""}? They will be hidden from the board but not deleted.` })) return;
+    archiveApproved.mutate();
   };
 
   return (
@@ -323,6 +357,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
               total={inboxTotal}
               projectId={projectId}
               defaultStatus="backlog"
+              ciResults={ciMap}
               onTaskClick={handleTaskClick}
               onAIResolve={handleAIResolve}
               onAnalyze={handleAnalyze}
@@ -339,6 +374,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
               total={ipData?.total ?? 0}
               projectId={projectId}
               defaultStatus="in_progress"
+              ciResults={ciMap}
               onTaskClick={handleTaskClick}
               onAIResolve={handleAIResolve}
               onAnalyze={handleAnalyze}
@@ -355,6 +391,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
               total={doneData?.total ?? 0}
               projectId={projectId}
               defaultStatus="done"
+              ciResults={ciMap}
               onTaskClick={handleTaskClick}
               onAIResolve={handleAIResolve}
               onAnalyze={handleAnalyze}
@@ -363,6 +400,38 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
               onDelete={handleDelete}
               hasMore={doneTasks.length < (doneData?.total ?? 0)}
               onLoadMore={() => setDoneLimit((l) => l + PAGE_SIZE)}
+            />
+            <KanbanColumn
+              id="approved"
+              title="Approved"
+              tasks={approvedTasks}
+              total={approvedData?.total ?? 0}
+              projectId={projectId}
+              defaultStatus="approved"
+              ciResults={ciMap}
+              headerAction={
+                (approvedData?.total ?? 0) > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground ml-1"
+                    onClick={handleArchiveApproved}
+                    disabled={archiveApproved.isPending}
+                    title="Archive all approved tasks"
+                  >
+                    <Archive className="h-3 w-3 mr-1" />
+                    Archive
+                  </Button>
+                ) : undefined
+              }
+              onTaskClick={handleTaskClick}
+              onAIResolve={handleAIResolve}
+              onAnalyze={handleAnalyze}
+              onEdit={handleEditCard}
+              onClone={handleClone}
+              onDelete={handleDelete}
+              hasMore={approvedTasks.length < (approvedData?.total ?? 0)}
+              onLoadMore={() => setApprovedLimit((l) => l + PAGE_SIZE)}
             />
           </div>
 

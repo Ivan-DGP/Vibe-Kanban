@@ -1,10 +1,12 @@
 import { cn } from "@/lib/utils";
 import { Zap, Sparkles, Pencil, Copy, Trash2, GitBranch } from "lucide-react";
 import PriorityBadge from "./PriorityBadge";
-import type { Task } from "@vibe-kanban/shared";
+import CIStatusBadge from "./CIStatusBadge";
+import type { Task, CICheckResult } from "@vibe-kanban/shared";
 
 interface TaskCardProps {
   task: Task;
+  ciResult?: CICheckResult;
   onClick?: () => void;
   onAIResolve?: () => void;
   onAnalyze?: () => void;
@@ -15,7 +17,7 @@ interface TaskCardProps {
   className?: string;
 }
 
-export default function TaskCard({ task, onClick, onAIResolve, onAnalyze, onEdit, onClone, onDelete, dragHandleProps, className }: TaskCardProps) {
+export default function TaskCard({ task, ciResult, onClick, onAIResolve, onAnalyze, onEdit, onClone, onDelete, dragHandleProps, className }: TaskCardProps) {
   const hasActions = onAIResolve || onAnalyze || onEdit || onClone || onDelete;
 
   return (
@@ -46,6 +48,7 @@ export default function TaskCard({ task, onClick, onAIResolve, onAnalyze, onEdit
         <div className="flex items-center gap-1 mt-1">
           <GitBranch className="h-3 w-3 text-muted-foreground/60" />
           <span className="text-[10px] text-muted-foreground/60 font-mono truncate">{task.branch}</span>
+          {ciResult && <CIStatusBadge ciResult={ciResult} className="ml-auto" />}
         </div>
       )}
 

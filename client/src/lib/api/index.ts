@@ -21,6 +21,10 @@ import type {
   ClaudeStatus,
   Report,
   GitHubAccount,
+  CICheckResult,
+  AiPreflightResult,
+  TaskAiRun,
+  ProjectAiStats,
   TerminalSessionInfo,
   TerminalStatusResponse,
   CreateTerminalSessionInput,
@@ -33,6 +37,14 @@ import type {
   NotionPage,
   NotionPageContent,
   NotionSearchResult,
+  ApiCollection,
+  CreateApiCollectionInput,
+  UpdateApiCollectionInput,
+  ApiRequest,
+  CreateApiRequestInput,
+  UpdateApiRequestInput,
+  ApiRequestExecuteInput,
+  ApiRequestExecuteResult,
 } from "@vibe-kanban/shared";
 
 function toQuery(params: Record<string, unknown>): string {
@@ -85,8 +97,16 @@ export const api = {
     workingOn: () => get<Task[]>("/tasks/working-on"),
     bulkImport: (projectId: string, tasks: CreateTaskInput[]) =>
       post<Task[]>(`/projects/${projectId}/tasks/bulk-import`, { tasks }),
+    archiveApproved: (projectId: string) =>
+      post<{ archived: number }>(`/projects/${projectId}/tasks/archive-approved`, {}),
+    aiPreflight: (projectId: string, taskId: string) =>
+      get<AiPreflightResult>(`/projects/${projectId}/tasks/${taskId}/ai-preflight`),
     aiResolvePrompt: (projectId: string, taskId: string) =>
       post<{ prompt: string }>(`/projects/${projectId}/tasks/${taskId}/ai-resolve`, {}),
+    aiRuns: (taskId: string) =>
+      get<TaskAiRun[]>(`/tasks/${taskId}/ai-runs`),
+    aiStats: (projectId: string) =>
+      get<ProjectAiStats>(`/projects/${projectId}/ai-stats`),
   },
 
   milestones: {
@@ -176,6 +196,20 @@ export const api = {
       }),
     bulkImport: (projectId: string, text: string) =>
       post<CreateTaskInput[]>(`/claude/bulk-import`, { projectId, text }),
+    analyze: (projectId: string, taskId: string, signal?: AbortSignal) =>
+      fetch("/api/claude/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, taskId }),
+        signal,
+      }),
+    gatherContext: (taskTitle: string, projectId: string, taskDescription?: string, signal?: AbortSignal) =>
+      fetch("/api/claude/gather-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskTitle, taskDescription, projectId }),
+        signal,
+      }),
   },
 
   settings: {
@@ -247,5 +281,37 @@ export const api = {
     databasePages: (databaseId: string) =>
       get<{ pages: NotionPage[] }>(`/notion/databases/${databaseId}/pages`),
     page: (pageId: string) => get<NotionPageContent>(`/notion/pages/${pageId}`),
+  },
+
+  ci: {
+    status: (projectId: string, branch: string, subPath?: string) =>
+      get<CICheckResult>(`/projects/${projectId}/ci-status${toQuery({ branch, subPath })}`),
+    batchStatus: (projectId: string, branches: string[], subPath?: string) =>
+      post<CICheckResult[]>(`/projects/${projectId}/ci-status/batch`, { branches, subPath }),
+  },
+
+  apiClient: {
+    collections: {
+      list: (projectId: string) =>
+        get<ApiCollection[]>(`/projects/${projectId}/api-collections`),
+      create: (projectId: string, input: CreateApiCollectionInput) =>
+        post<ApiCollection>(`/projects/${projectId}/api-collections`, input),
+      update: (id: string, input: UpdateApiCollectionInput) =>
+        patch<ApiCollection>(`/api-collections/${id}`, input),
+      delete: (id: string) => del(`/api-collections/${id}`),
+    },
+    requests: {
+      list: (collectionId: string) =>
+        get<ApiRequest[]>(`/api-collections/${collectionId}/requests`),
+      listByProject: (projectId: string) =>
+        get<ApiRequest[]>(`/projects/${projectId}/api-requests`),
+      create: (input: CreateApiRequestInput) =>
+        post<ApiRequest>("/api-requests", input),
+      update: (id: string, input: UpdateApiRequestInput) =>
+        patch<ApiRequest>(`/api-requests/${id}`, input),
+      delete: (id: string) => del(`/api-requests/${id}`),
+    },
+    execute: (input: ApiRequestExecuteInput) =>
+      post<ApiRequestExecuteResult>("/api-client/execute", input),
   },
 };

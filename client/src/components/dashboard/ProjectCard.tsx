@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Star, ExternalLink, GitBranch, Inbox, Loader2, CheckCircle2, AlertTriangle, FolderOpen } from "lucide-react";
+import { Star, ExternalLink, GitBranch, Inbox, Loader2, CheckCircle2, ShieldCheck, AlertTriangle, FolderOpen } from "lucide-react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import type { Project } from "@vibe-kanban/shared";
 
 interface ProjectCardProps {
   project: Project;
-  taskCounts?: { inbox: number; inProgress: number; done: number; urgent: number };
+  taskCounts?: { inbox: number; inProgress: number; done: number; approved: number; urgent: number };
   gitBranch?: string;
 }
 
@@ -113,6 +113,17 @@ export default function ProjectCard({ project, taskCounts, gitBranch }: ProjectC
               </TooltipTrigger>
               <TooltipContent>Done</TooltipContent>
             </Tooltip>
+            {taskCounts.approved > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex items-center gap-1 text-emerald-600">
+                    <ShieldCheck className="h-3 w-3" />
+                    {taskCounts.approved}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Approved</TooltipContent>
+              </Tooltip>
+            )}
             {taskCounts.urgent > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>

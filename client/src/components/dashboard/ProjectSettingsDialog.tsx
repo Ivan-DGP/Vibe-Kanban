@@ -20,6 +20,8 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
   const [name, setName] = useState(project.name);
   const [category, setCategory] = useState(project.category ?? "");
   const [aiCommitMode, setAiCommitMode] = useState(project.aiCommitMode);
+  const [treeDepth, setTreeDepth] = useState(project.treeDepth ?? 3);
+  const [aiInstructions, setAiInstructions] = useState(project.aiInstructions ?? "");
   const [links, setLinks] = useState<ExternalLink[]>(project.externalLinks);
   const [notionDatabaseId, setNotionDatabaseId] = useState(project.notionDatabaseId ?? "");
   const [newLinkLabel, setNewLinkLabel] = useState("");
@@ -35,6 +37,8 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
     setName(project.name);
     setCategory(project.category ?? "");
     setAiCommitMode(project.aiCommitMode);
+    setTreeDepth(project.treeDepth ?? 3);
+    setAiInstructions(project.aiInstructions ?? "");
     setLinks(project.externalLinks);
     setNotionDatabaseId(project.notionDatabaseId ?? "");
   }, [project, open]);
@@ -47,6 +51,8 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
           name: name.trim(),
           category: category.trim() || null,
           aiCommitMode,
+          treeDepth,
+          aiInstructions: aiInstructions.trim() || null,
           externalLinks: links,
           notionDatabaseId: notionDatabaseId || null,
         },
@@ -100,6 +106,31 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">How AI handles git after resolving tasks</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Directory Tree Depth</Label>
+            <Select value={String(treeDepth)} onValueChange={(v) => setTreeDepth(Number(v))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[2, 3, 4, 5, 6].map((d) => (
+                  <SelectItem key={d} value={String(d)}>{d} levels{d === 3 ? " (default)" : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">Depth of the project tree included in AI context</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>AI Instructions</Label>
+            <textarea
+              value={aiInstructions}
+              onChange={(e) => setAiInstructions(e.target.value)}
+              placeholder="Custom instructions for AI when working on this project...&#10;e.g., coding style, test commands, forbidden patterns"
+              className="w-full min-h-[80px] rounded-md border bg-background px-3 py-2 text-xs resize-y"
+              rows={3}
+            />
+            <p className="text-[10px] text-muted-foreground">Injected into AI resolve and analyze prompts for all tasks in this project</p>
           </div>
 
           <div className="space-y-2">

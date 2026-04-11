@@ -1,23 +1,28 @@
+import type { ReactNode } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { Inbox, Loader2, CheckCircle2 } from "lucide-react";
+import { Inbox, Loader2, CheckCircle2, ShieldCheck, Archive } from "lucide-react";
 import SortableTaskCard from "./SortableTaskCard";
 import InlineTaskCreate from "@/components/tasks/InlineTaskCreate";
 import { PAGE_SIZE } from "@/lib/constants";
-import type { Task, TaskStatus } from "@vibe-kanban/shared";
+import type { Task, TaskStatus, CICheckResult } from "@vibe-kanban/shared";
 
 const COLUMN_ICONS: Record<string, typeof Inbox> = {
   inbox: Inbox,
   in_progress: Loader2,
   done: CheckCircle2,
+  approved: ShieldCheck,
+  archived: Archive,
 };
 
 const COLUMN_ICON_COLORS: Record<string, string> = {
   inbox: "text-blue-500",
   in_progress: "text-yellow-500",
   done: "text-green-500",
+  approved: "text-emerald-500",
+  archived: "text-muted-foreground",
 };
 
 interface KanbanColumnProps {
@@ -27,6 +32,8 @@ interface KanbanColumnProps {
   total: number;
   projectId: string;
   defaultStatus: TaskStatus;
+  ciResults?: Map<string, CICheckResult>;
+  headerAction?: ReactNode;
   onTaskClick: (task: Task) => void;
   onAIResolve?: (task: Task) => void;
   onAnalyze?: (task: Task) => void;
@@ -44,6 +51,8 @@ export default function KanbanColumn({
   total,
   projectId,
   defaultStatus,
+  ciResults,
+  headerAction,
   onTaskClick,
   onAIResolve,
   onAnalyze,
@@ -70,6 +79,7 @@ export default function KanbanColumn({
         <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
           {total}
         </span>
+        {headerAction}
       </div>
 
       {/* Drop zone */}
@@ -86,6 +96,7 @@ export default function KanbanColumn({
                 <SortableTaskCard
                   key={task.id}
                   task={task}
+                  ciResult={task.branch && ciResults ? ciResults.get(task.branch) : undefined}
                   onClick={() => onTaskClick(task)}
                   onAIResolve={onAIResolve ? () => onAIResolve(task) : undefined}
                   onAnalyze={onAnalyze ? () => onAnalyze(task) : undefined}
