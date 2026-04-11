@@ -11,6 +11,7 @@ const Settings = lazy(() => import("@/routes/Settings"));
 const Reports = lazy(() => import("@/routes/Reports"));
 const Logs = lazy(() => import("@/routes/Logs"));
 const Help = lazy(() => import("@/routes/Help"));
+const ApiClient = lazy(() => import("@/routes/ApiClient"));
 
 function Loading() {
   return (
@@ -79,6 +80,14 @@ export default function App() {
           element={
             <Suspense fallback={<Loading />}>
               <Logs />
+            </Suspense>
+          }
+        />
+        <Route
+          path="api-client"
+          element={
+            <Suspense fallback={<Loading />}>
+              <ApiClient />
             </Suspense>
           }
         />

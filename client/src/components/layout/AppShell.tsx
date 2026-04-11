@@ -19,12 +19,14 @@ import {
   FolderKanban,
   Star,
   CheckSquare,
+  Send,
 } from "lucide-react";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/tasks", icon: ListTodo, label: "Tasks" },
   { to: "/todos", icon: CheckSquare, label: "Todo" },
+  { to: "/api-client", icon: Send, label: "API Client" },
   { to: "/reports", icon: BarChart3, label: "Reports" },
   { to: "/logs", icon: ScrollText, label: "Logs" },
   { to: "/settings", icon: Settings, label: "Settings" },
