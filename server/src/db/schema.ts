@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     REFERENCES projects(id) ON DELETE CASCADE,
   milestoneId  TEXT DEFAULT NULL
     REFERENCES milestones(id) ON DELETE SET NULL,
+  parentTaskId TEXT DEFAULT NULL
+    REFERENCES tasks(id) ON DELETE SET NULL,
   title        TEXT NOT NULL,
   description  TEXT DEFAULT NULL,
   prompt       TEXT DEFAULT NULL,

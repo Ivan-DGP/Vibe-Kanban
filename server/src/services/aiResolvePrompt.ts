@@ -842,3 +842,70 @@ Output ONLY the prompt text. Do not include markdown headers or explanations abo
 
   return parts.join("\n\n");
 }
+
+export async function buildDecomposePrompt(
+  task: Task,
+  projectId: string,
+): Promise<string> {
+  const db = getDb();
+
+  const projectRow = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as any;
+  if (!projectRow) throw new Error("Project not found");
+  const project = rowToProject(projectRow);
+
+  const complexity = estimateComplexity(task);
+  const profile = classifyTaskProfile(task);
+
+  const gitignorePatterns = cached(`gitignore:${project.path}`, () => parseGitignore(project.path));
+  const depth = project.treeDepth ?? 3;
+  const tree = cached(`tree:${project.path}:${depth}`, () => buildTree(project.path, gitignorePatterns, "", 0, depth));
+  const rules = cached(`rules:${project.path}`, () => readRulesFile(project.path));
+
+  const parts: string[] = [];
+
+  parts.push(`You are decomposing a development task into smaller, actionable subtasks.
+
+# Parent Task: ${task.title}
+
+Project: ${project.name}
+Path: ${project.path}
+Tech Stack: ${project.techStack.join(", ") || "unknown"}
+Detected Profile: ${profile}
+Estimated Complexity: ${complexity}
+Priority: ${task.priority}`);
+
+  if (task.description) {
+    parts.push(`## Description\n${task.description}`);
+  }
+
+  if (task.prompt) {
+    parts.push(`## Technical Details\n${task.prompt}`);
+  }
+
+  if (rules) {
+    parts.push(`## Architecture Rules\n${rules}`);
+  }
+
+  if (tree) {
+    parts.push(`## Project Tree\n${tree}`);
+  }
+
+  parts.push(`## Instructions
+
+Break this task into 3-7 smaller subtasks that can each be completed independently. Each subtask should be:
+- Small enough for a single focused work session
+- Clear and actionable with a specific outcome
+- Ordered logically (earlier subtasks first)
+
+Return ONLY a JSON array. No markdown, no explanation, no code fences. Each object must have:
+- "title": string (concise, starts with a verb)
+- "description": string (1-3 sentences explaining what to do)
+- "prompt": string (technical implementation details referencing actual file paths from the project tree)
+- "priority": "${task.priority}" (inherit from parent)
+- "promptProfile": one of "quick-fix", "feature", "refactor", "bug-fix", "docs"
+
+Example format:
+[{"title":"Add parentTaskId column to tasks schema","description":"...","prompt":"...","priority":"medium","promptProfile":"feature"}]`);
+
+  return parts.join("\n\n");
+}

@@ -11,12 +11,16 @@ export interface SpawnResult {
 
 export async function spawnProcess(
   cmd: string[],
-  opts: { cwd: string; env?: Record<string, string>; timeout?: number },
+  opts: { cwd: string; env?: Record<string, string>; timeout?: number; stdinData?: string },
 ): Promise<SpawnResult> {
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, SYSTEMROOT: process.env.SYSTEMROOT, ...opts.env };
 
   if (isBun) {
-    const proc = Bun.spawn(cmd, { cwd: opts.cwd, stdout: "pipe", stderr: "pipe", env });
+    const proc = Bun.spawn(cmd, { cwd: opts.cwd, stdout: "pipe", stderr: "pipe", stdin: opts.stdinData ? "pipe" : null, env });
+    if (opts.stdinData && proc.stdin) {
+      proc.stdin.write(opts.stdinData);
+      proc.stdin.end();
+    }
     const timeoutId = opts.timeout ? setTimeout(() => proc.kill(), opts.timeout) : null;
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
@@ -30,11 +34,15 @@ export async function spawnProcess(
   // Node.js path
   const { spawn } = await import("node:child_process");
   return new Promise((resolve) => {
-    const proc = spawn(cmd[0], cmd.slice(1), { cwd: opts.cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(cmd[0], cmd.slice(1), { cwd: opts.cwd, env, stdio: [opts.stdinData ? "pipe" : "ignore", "pipe", "pipe"] });
+    if (opts.stdinData && proc.stdin) {
+      proc.stdin.write(opts.stdinData);
+      proc.stdin.end();
+    }
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    proc.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-    proc.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    proc.stdout!.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+    proc.stderr!.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
     const timeoutId = opts.timeout ? setTimeout(() => proc.kill(), opts.timeout) : null;
 

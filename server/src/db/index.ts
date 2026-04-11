@@ -371,6 +371,17 @@ function runMigrations(db: DatabaseHandle): void {
         db.exec("PRAGMA foreign_keys = ON");
       },
     },
+    {
+      version: 14,
+      name: "add-parent-task-id",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "parentTaskId")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN parentTaskId TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL");
+          db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parentTaskId ON tasks (parentTaskId)");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

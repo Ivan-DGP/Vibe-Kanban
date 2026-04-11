@@ -59,6 +59,7 @@ export interface Task {
   id: string;
   projectId: string;
   milestoneId: string | null;
+  parentTaskId: string | null;
   title: string;
   description: string | null;
   prompt: string | null;
@@ -86,6 +87,7 @@ export interface CreateTaskInput {
   status?: TaskStatus;
   priority?: TaskPriority;
   milestoneId?: string | null;
+  parentTaskId?: string | null;
 }
 
 export interface UpdateTaskInput {

@@ -107,6 +107,8 @@ export const api = {
       get<TaskAiRun[]>(`/tasks/${taskId}/ai-runs`),
     aiStats: (projectId: string) =>
       get<ProjectAiStats>(`/projects/${projectId}/ai-stats`),
+    decompose: (projectId: string, taskId: string) =>
+      post<{ parentTaskId: string; subtasks: Task[] }>(`/projects/${projectId}/tasks/${taskId}/decompose`, {}),
   },
 
   milestones: {

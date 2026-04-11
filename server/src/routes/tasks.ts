@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { writeTaskSnapshot } from "../services/snapshot";
-import { buildAiResolvePrompt, classifyTaskProfile, estimateComplexity } from "../services/aiResolvePrompt";
+import { buildAiResolvePrompt, buildDecomposePrompt, classifyTaskProfile, estimateComplexity } from "../services/aiResolvePrompt";
 import type { Task, TaskStatus } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -171,7 +171,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Create task
   fastify.post("/projects/:projectId/tasks", async (request) => {
     const { projectId } = request.params as any;
-    const { title, description, prompt, branch, promptProfile = "auto", status = "backlog", priority = "medium", milestoneId } =
+    const { title, description, prompt, branch, promptProfile = "auto", status = "backlog", priority = "medium", milestoneId, parentTaskId } =
       request.body as any;
 
     const id = uuid();
@@ -195,12 +195,13 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const cascaded = applyTimestampCascade({}, status as TaskStatus);
 
     db.prepare(
-      `INSERT INTO tasks (id, projectId, milestoneId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       projectId,
       milestoneId || null,
+      parentTaskId || null,
       title,
       description || null,
       prompt || null,
@@ -453,6 +454,110 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       warnings,
       branch: task.branch,
     };
+  });
+
+  // Decompose task into subtasks via AI
+  fastify.post("/projects/:projectId/tasks/:taskId/decompose", async (request, reply) => {
+    const { projectId, taskId } = request.params as any;
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND projectId = ?").get(taskId, projectId) as Task | undefined;
+    if (!task) return reply.code(404).send({ error: "Task not found" });
+
+    const prompt = await buildDecomposePrompt(task, projectId);
+
+    // Call Claude to generate subtasks
+    const { spawnProcess } = await import("../lib/runtime");
+
+    let responseText = "";
+    try {
+      // Try CLI first
+      const whichCmd = process.platform === "win32" ? "where" : "which";
+      const whichResult = await spawnProcess([whichCmd, "claude"], { cwd: "." });
+      if (whichResult.exitCode === 0) {
+        const result = await spawnProcess(["claude", "-p", "--output-format", "text"], {
+          cwd: ".",
+          timeout: 60000,
+          stdinData: prompt,
+        });
+        responseText = result.stdout;
+      } else {
+        throw new Error("CLI not available");
+      }
+    } catch {
+      // Fall back to API
+      const apiKeyRow = db.prepare("SELECT value FROM settings WHERE key = 'claudeApiKey'").get() as any;
+      const apiKey = apiKeyRow ? (JSON.parse(apiKeyRow.value) || apiKeyRow.value) : null;
+      if (!apiKey) return reply.code(500).send({ error: "No AI backend available" });
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 4096,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json() as any;
+      responseText = data.content?.[0]?.text || "";
+    }
+
+    // Parse JSON array from response
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return reply.code(500).send({ error: "AI did not return valid subtasks" });
+
+    let subtaskInputs: any[];
+    try {
+      subtaskInputs = JSON.parse(jsonMatch[0]);
+    } catch {
+      return reply.code(500).send({ error: "Failed to parse AI response as JSON" });
+    }
+
+    if (!Array.isArray(subtaskInputs) || subtaskInputs.length === 0) {
+      return reply.code(500).send({ error: "AI returned empty subtask list" });
+    }
+
+    // Create subtasks in DB
+    const createdTasks: any[] = [];
+    for (const input of subtaskInputs) {
+      const id = uuid();
+      const ts = now();
+      const maxOrder = db.prepare("SELECT MAX(sortOrder) as m FROM tasks WHERE projectId = ? AND status = 'todo'").get(projectId) as { m: number | null };
+      const sortOrder = (maxOrder?.m ?? 0) + 1;
+      const maxNum = db.prepare("SELECT MAX(taskNumber) as m FROM tasks WHERE projectId = ?").get(projectId) as { m: number | null };
+      const taskNumber = (maxNum?.m ?? 0) + 1;
+
+      db.prepare(
+        `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        projectId,
+        task.milestoneId || null,
+        taskId,
+        input.title || "Untitled subtask",
+        input.description || null,
+        input.prompt || null,
+        task.branch || null,
+        input.promptProfile || "feature",
+        input.priority || task.priority,
+        taskNumber,
+        sortOrder,
+        ts,
+        ts,
+        ts,
+      );
+
+      createdTasks.push(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+    }
+
+    log("info", "tasks", `Decomposed task "${task.title}" into ${createdTasks.length} subtasks`, { projectId });
+    writeTaskSnapshot(projectId);
+
+    return { parentTaskId: taskId, subtasks: createdTasks };
   });
 
   // AI Resolve - generate structured prompt for Claude CLI

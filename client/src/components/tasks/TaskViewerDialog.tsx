@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Pencil, Trash2, Sparkles, Loader2, Zap, GitBranch, ClipboardCopy } from "lucide-react";
+import { Pencil, Trash2, Sparkles, Loader2, Zap, GitBranch, ClipboardCopy, Split } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
@@ -14,6 +14,7 @@ import remarkGfm from "remark-gfm";
 import PriorityBadge from "./PriorityBadge";
 import { STATUS_LABELS } from "@/lib/constants";
 import { useDeleteTask } from "@/hooks";
+import { useTasks } from "@/hooks/useTasks";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import type { Task, AiPreflightResult } from "@vibe-kanban/shared";
@@ -33,6 +34,7 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
   const [preflight, setPreflight] = useState<AiPreflightResult | null>(null);
   const [resolving, setResolving] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [decomposing, setDecomposing] = useState(false);
   const createTermSession = useCreateTerminalSession();
   const { toggleTerminal, terminalVisible } = useAppStore();
 
@@ -121,6 +123,9 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
           {task.doneAt && <div>Done: {new Date(task.doneAt).toLocaleString()}</div>}
         </div>
 
+        {/* Subtasks */}
+        <SubtasksList projectId={task.projectId} parentTaskId={task.id} />
+
         {/* AI Analysis */}
         {analysis && (
           <>
@@ -205,6 +210,20 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
             {analyzing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
             {analyzing ? "Analyzing..." : "Analyze"}
           </Button>
+          <Button variant="outline" size="sm" disabled={decomposing} onClick={async () => {
+            setDecomposing(true);
+            try {
+              const result = await api.tasks.decompose(task.projectId, task.id);
+              toast.success(`Created ${result.subtasks.length} subtasks`);
+            } catch (e: any) {
+              toast.error(e.message || "Failed to decompose task");
+            } finally {
+              setDecomposing(false);
+            }
+          }}>
+            {decomposing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Split className="h-3.5 w-3.5 mr-1" />}
+            {decomposing ? "Breaking down..." : "Break Down"}
+          </Button>
           <Button variant="outline" size="sm" disabled={copying} onClick={async () => {
             setCopying(true);
             try {
@@ -233,5 +252,33 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SubtasksList({ projectId, parentTaskId }: { projectId: string; parentTaskId: string }) {
+  const { data } = useTasks(projectId);
+  const subtasks = data?.items?.filter((t: Task) => t.parentTaskId === parentTaskId) ?? [];
+
+  if (subtasks.length === 0) return null;
+
+  return (
+    <>
+      <Separator />
+      <div className="space-y-1.5">
+        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+          Subtasks ({subtasks.length})
+        </div>
+        <div className="space-y-1">
+          {subtasks.map((st: Task) => (
+            <div key={st.id} className="flex items-center gap-2 text-xs">
+              <Badge variant="secondary" className="text-[10px] shrink-0">
+                {STATUS_LABELS[st.status]}
+              </Badge>
+              <span className="truncate">{st.title}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
