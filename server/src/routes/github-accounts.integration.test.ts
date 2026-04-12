@@ -9,7 +9,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await app.close();
+  
 });
 
 describe("GitHub Accounts API", () => {

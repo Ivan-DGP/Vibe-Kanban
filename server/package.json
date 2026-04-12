@@ -6,7 +6,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test && bun test ./src/services/terminalService.isolated-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

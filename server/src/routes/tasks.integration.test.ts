@@ -20,7 +20,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  await app.close();
+  
 });
 
 // ---------------------------------------------------------------------------

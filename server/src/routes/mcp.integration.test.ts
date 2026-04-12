@@ -21,7 +21,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await app.close();
+  
 });
 
 function mcpRequest(body: Record<string, unknown>) {

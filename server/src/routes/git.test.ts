@@ -175,7 +175,7 @@ describe("Git route integration", () => {
     // Clean up project and app
     if (app && projectId) {
       await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-      await app.close();
+      
     }
     // Remove temp directory
     if (tmpDir && fs.existsSync(tmpDir)) {

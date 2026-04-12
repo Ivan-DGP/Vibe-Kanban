@@ -224,7 +224,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // Cleanup
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  await app.close();
+  
 });
 
 describe("Reports API", () => {

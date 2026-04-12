@@ -39,7 +39,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up project from DB
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  await app.close();
+  
 
   // Remove temp directory
   fs.rmSync(tmpDir, { recursive: true, force: true });

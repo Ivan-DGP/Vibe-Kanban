@@ -2,3 +2,6 @@
 coverage = true
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
+# Exclude mocked tests that use mock.module() — they poison global module state
+# Run them separately with: bun test --test-name-pattern "." src/services/terminalService.mock.test.ts
+exclude = ["**/*.mock.test.ts"]
