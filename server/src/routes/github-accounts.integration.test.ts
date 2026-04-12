@@ -231,3 +231,115 @@ describe("Project GitHub Mappings API", () => {
     expect(found).toBeUndefined();
   });
 });
+
+describe("CI Status API — validation and error paths", () => {
+  const uniqueSuffix = Date.now();
+  let projectId: string;
+
+  beforeAll(async () => {
+    // Create a project for CI status tests
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        name: `CI Status Test Project ${uniqueSuffix}`,
+        path: `/tmp/test-ci-status-${uniqueSuffix}`,
+      },
+    });
+    projectId = projectRes.json().id;
+  });
+
+  afterAll(async () => {
+    await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}`,
+    });
+  });
+
+  test("GET /api/projects/:id/ci-status without branch param returns 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status`,
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe("branch query param required");
+  });
+
+  test("GET /api/projects/:id/ci-status without GitHub mapping returns 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    const body = res.json();
+    expect(body.error).toBe("No GitHub account mapped for this project");
+  });
+
+  test("GET /api/projects/:id/ci-status with non-existent project returns 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/non-existent-project-id/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    const body = res.json();
+    // No mapping exists for a non-existent project, so this returns the mapping error
+    expect(body.error).toBe("No GitHub account mapped for this project");
+  });
+
+  test("POST /api/projects/:id/ci-status/batch without branches array returns 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe("branches array required");
+  });
+
+  test("POST /api/projects/:id/ci-status/batch with empty branches array returns 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: [] },
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe("branches array required");
+  });
+
+  test("POST /api/projects/:id/ci-status/batch with non-array branches returns 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: "main" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe("branches array required");
+  });
+
+  test("POST /api/projects/:id/ci-status/batch without GitHub mapping returns 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["main", "dev"] },
+    });
+
+    expect(res.statusCode).toBe(404);
+    const body = res.json();
+    expect(body.error).toBe("No GitHub account mapped");
+  });
+});

@@ -20,14 +20,25 @@ mock.module("../lib/logger", () => ({
 }));
 
 // Mock runtime so spawnProcessSync doesn't actually run processes
-mock.module("../lib/runtime", () => ({
-  spawnPty: mock(() => ({
+// We keep a reference to the mock so tests can inspect calls
+let spawnPtyCalls: Array<{ cmd: string; args: string[]; opts: any }> = [];
+let latestPtyOnData: ((data: string) => void) | null = null;
+let latestPtyOnExit: ((exitCode: number) => void) | null = null;
+
+const mockSpawnPty = mock((cmd: string, args: string[], opts: any) => {
+  spawnPtyCalls.push({ cmd, args, opts });
+  const handle = {
     write: mock(() => {}),
     resize: mock(() => {}),
     kill: mock(() => {}),
-    onData: mock(() => {}),
-    onExit: mock(() => {}),
-  })),
+    onData: mock((cb: (data: string) => void) => { latestPtyOnData = cb; }),
+    onExit: mock((cb: (exitCode: number) => void) => { latestPtyOnExit = cb; }),
+  };
+  return handle;
+});
+
+mock.module("../lib/runtime", () => ({
+  spawnPty: mockSpawnPty,
   spawnProcessSync: mock((_cmd: string[], _opts: any) => ({
     stdout: "/usr/bin/claude\n",
     exitCode: 0,
@@ -59,6 +70,7 @@ import {
   writeToSession,
   resizeSession,
   getBatchResolveStatus,
+  createSession,
   type PtySession,
 } from "./terminalService";
 
@@ -97,6 +109,10 @@ describe("terminalService unit tests", () => {
     // Clear all sessions between tests
     sessions.clear();
     _resetIdCounter();
+    spawnPtyCalls = [];
+    latestPtyOnData = null;
+    latestPtyOnExit = null;
+    mockSpawnPty.mockClear();
   });
 
   // ── SAFE_ENV_KEYS ────────────────────────────────────────
@@ -726,6 +742,225 @@ describe("terminalService unit tests", () => {
         .filter((m: any) => m.type === "output");
       // scrollback also sent (empty in this case since emitData appended to scrollback)
       expect(session.outputBuffer).toHaveLength(0);
+    });
+  });
+
+  // ── createSession (shell) ─────────────────────────────────
+
+  describe("createSession — shell", () => {
+    test("returns a session with correct type and id in sessions map", async () => {
+      const session = await createSession({ type: "shell" });
+      expect(session.type).toBe("shell");
+      expect(session.id).toMatch(/^term-/);
+      expect(sessions.has(session.id)).toBe(true);
+      expect(sessions.get(session.id)).toBe(session);
+    });
+
+    test("session is marked alive initially", async () => {
+      const session = await createSession({ type: "shell" });
+      expect(session.alive).toBe(true);
+    });
+
+    test("calls spawnPty with a shell executable", async () => {
+      await createSession({ type: "shell" });
+      expect(spawnPtyCalls.length).toBe(1);
+      // On Linux, shell should be bash/zsh/sh; we just check it's a non-empty string
+      expect(typeof spawnPtyCalls[0].cmd).toBe("string");
+      expect(spawnPtyCalls[0].cmd.length).toBeGreaterThan(0);
+    });
+
+    test("passes cols and rows from options", async () => {
+      await createSession({ type: "shell", cols: 120, rows: 40 });
+      expect(spawnPtyCalls[0].opts.cols).toBe(120);
+      expect(spawnPtyCalls[0].opts.rows).toBe(40);
+    });
+
+    test("defaults cols to 80 and rows to 24", async () => {
+      await createSession({ type: "shell" });
+      expect(spawnPtyCalls[0].opts.cols).toBe(80);
+      expect(spawnPtyCalls[0].opts.rows).toBe(24);
+    });
+
+    test("stores projectId on session", async () => {
+      const session = await createSession({ type: "shell", projectId: "proj-abc" });
+      expect(session.projectId).toBe("proj-abc");
+    });
+
+    test("stores name on session", async () => {
+      const session = await createSession({ type: "shell", name: "My Shell" });
+      expect(session.name).toBe("My Shell");
+    });
+
+    test("initializes outputBuffer and scrollback as empty", async () => {
+      const session = await createSession({ type: "shell" });
+      expect(session.outputBuffer).toEqual([]);
+      expect(session.scrollback).toBe("");
+      expect(session.exitBuffer).toBeNull();
+    });
+
+    test("session proc is set after creation", async () => {
+      const session = await createSession({ type: "shell" });
+      expect(session.proc).not.toBeNull();
+    });
+  });
+
+  // ── createSession (dev) ──────────────────────────────────
+
+  describe("createSession — dev", () => {
+    test("creates a session with type 'dev'", async () => {
+      const session = await createSession({ type: "dev" });
+      expect(session.type).toBe("dev");
+      expect(sessions.has(session.id)).toBe(true);
+    });
+
+    test("spawns a shell PTY (same as shell session)", async () => {
+      await createSession({ type: "dev" });
+      expect(spawnPtyCalls.length).toBe(1);
+    });
+
+    test("writes safe dev command to proc after creation", async () => {
+      const session = await createSession({ type: "dev", devCommand: "bun run dev" });
+      // The mock proc should have had write() called with the command
+      expect(session.proc).not.toBeNull();
+      const proc = session.proc as any;
+      expect(proc.write).toHaveBeenCalledWith("bun run dev\r\n");
+    });
+
+    test("does NOT write unsafe dev command to proc", async () => {
+      const session = await createSession({ type: "dev", devCommand: "rm -rf /" });
+      const proc = session.proc as any;
+      // write should not have been called with the unsafe command
+      // (it may have been called 0 times total since only safe commands are written)
+      const writeCalls = proc.write.mock.calls;
+      const hasUnsafe = writeCalls.some((c: any[]) => c[0] === "rm -rf /\r\n");
+      expect(hasUnsafe).toBe(false);
+    });
+
+    test("writes 'npm run dev' as a safe dev command", async () => {
+      const session = await createSession({ type: "dev", devCommand: "npm run dev" });
+      const proc = session.proc as any;
+      expect(proc.write).toHaveBeenCalledWith("npm run dev\r\n");
+    });
+  });
+
+  // ── createSession (claude-ai) ────────────────────────────
+
+  describe("createSession — claude-ai", () => {
+    test("creates a session with type 'claude-ai' and shell PTY", async () => {
+      const session = await createSession({ type: "claude-ai" });
+      expect(session.type).toBe("claude-ai");
+      expect(sessions.has(session.id)).toBe(true);
+      // claude-ai type goes through the shell path (not ai-resolve)
+      expect(spawnPtyCalls.length).toBe(1);
+    });
+  });
+
+  // ── createSession (ai-resolve) ───────────────────────────
+
+  describe("createSession — ai-resolve", () => {
+    test("creates a session with type 'ai-resolve'", async () => {
+      const session = await createSession({ type: "ai-resolve", prompt: "Fix the bug" });
+      expect(session.type).toBe("ai-resolve");
+      expect(sessions.has(session.id)).toBe(true);
+    });
+
+    test("calls spawnPty with claude command and prompt as argument", async () => {
+      await createSession({ type: "ai-resolve", prompt: "Fix the bug" });
+      expect(spawnPtyCalls.length).toBe(1);
+      // The args should include --dangerously-skip-permissions and the prompt
+      expect(spawnPtyCalls[0].args).toContain("--dangerously-skip-permissions");
+      expect(spawnPtyCalls[0].args).toContain("Fix the bug");
+    });
+
+    test("stores taskId and projectId on session", async () => {
+      const session = await createSession({
+        type: "ai-resolve",
+        prompt: "Fix it",
+        taskId: "task-1",
+        projectId: "proj-1",
+      });
+      expect(session.taskId).toBe("task-1");
+      expect(session.projectId).toBe("proj-1");
+    });
+
+    test("session proc is set after creation", async () => {
+      const session = await createSession({ type: "ai-resolve", prompt: "Fix the bug" });
+      expect(session.proc).not.toBeNull();
+    });
+  });
+
+  // ── createSession (ai-test) ──────────────────────────────
+
+  describe("createSession — ai-test", () => {
+    test("creates a session with type 'ai-test'", async () => {
+      const session = await createSession({ type: "ai-test", prompt: "Run tests" });
+      expect(session.type).toBe("ai-test");
+      expect(sessions.has(session.id)).toBe(true);
+    });
+
+    test("calls spawnPty with claude command and prompt", async () => {
+      await createSession({ type: "ai-test", prompt: "Run tests" });
+      expect(spawnPtyCalls.length).toBe(1);
+      expect(spawnPtyCalls[0].args).toContain("--dangerously-skip-permissions");
+      expect(spawnPtyCalls[0].args).toContain("Run tests");
+    });
+
+    test("session proc is set", async () => {
+      const session = await createSession({ type: "ai-test", prompt: "Run tests" });
+      expect(session.proc).not.toBeNull();
+    });
+  });
+
+  // ── PTY onData/onExit callbacks ──────────────────────────
+
+  describe("PTY callbacks wired through createSession", () => {
+    test("onData callback routes data through emitData to outputBuffer", async () => {
+      const session = await createSession({ type: "shell" });
+      // The mock PTY's onData callback was captured
+      expect(latestPtyOnData).not.toBeNull();
+      // Simulate PTY output
+      latestPtyOnData!("hello from pty");
+      // Since no WS is attached, data goes to outputBuffer
+      expect(session.outputBuffer).toContain("hello from pty");
+      expect(session.scrollback).toContain("hello from pty");
+    });
+
+    test("onExit callback marks session as not alive", async () => {
+      const session = await createSession({ type: "shell" });
+      expect(latestPtyOnExit).not.toBeNull();
+      expect(session.alive).toBe(true);
+      // Simulate PTY exit
+      latestPtyOnExit!(0);
+      expect(session.alive).toBe(false);
+    });
+
+    test("onExit callback sets proc to null for shell sessions", async () => {
+      const session = await createSession({ type: "shell" });
+      expect(session.proc).not.toBeNull();
+      latestPtyOnExit!(0);
+      expect(session.proc).toBeNull();
+    });
+
+    test("onExit buffers exit code when no WS attached", async () => {
+      const session = await createSession({ type: "shell" });
+      latestPtyOnExit!(42);
+      expect(session.exitBuffer).toBe(42);
+    });
+
+    test("ai-resolve onExit removes session from map", async () => {
+      const session = await createSession({ type: "ai-resolve", prompt: "Fix it" });
+      const id = session.id;
+      expect(sessions.has(id)).toBe(true);
+      latestPtyOnExit!(0);
+      expect(sessions.has(id)).toBe(false);
+    });
+
+    test("ai-test onExit removes session from map", async () => {
+      const session = await createSession({ type: "ai-test", prompt: "Test it" });
+      const id = session.id;
+      expect(sessions.has(id)).toBe(true);
+      latestPtyOnExit!(0);
+      expect(sessions.has(id)).toBe(false);
     });
   });
 

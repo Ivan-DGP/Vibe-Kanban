@@ -246,4 +246,477 @@ describe("Git route integration", () => {
     const currentBranch = body.find((b: any) => b.current);
     expect(currentBranch).toBeDefined();
   });
+
+  // ===========================================================================
+  // GET /api/projects/:id/git/diff
+  // ===========================================================================
+
+  test("GET /api/projects/:id/git/diff - returns diff for unstaged changes", async () => {
+    // Modify a tracked file to create an unstaged diff
+    fs.writeFileSync(path.join(tmpDir, "README.md"), "# Test Repo\nModified line\n");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/diff`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.body;
+    expect(body).toContain("diff --git");
+    expect(body).toContain("Modified line");
+
+    // Restore the file
+    execSync("git checkout -- README.md", { cwd: tmpDir });
+  });
+
+  test("GET /api/projects/:id/git/diff - returns diff for a specific file", async () => {
+    fs.writeFileSync(path.join(tmpDir, "README.md"), "# Test Repo\nFile-specific diff\n");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/diff?file=README.md`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.body;
+    expect(body).toContain("File-specific diff");
+
+    // Restore
+    execSync("git checkout -- README.md", { cwd: tmpDir });
+  });
+
+  test("GET /api/projects/:id/git/diff - returns staged diff with staged=true", async () => {
+    fs.writeFileSync(path.join(tmpDir, "README.md"), "# Test Repo\nStaged change\n");
+    execSync("git add README.md", { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/diff?staged=true`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.body;
+    expect(body).toContain("Staged change");
+
+    // Unstage and restore
+    execSync("git reset HEAD README.md", { cwd: tmpDir });
+    execSync("git checkout -- README.md", { cwd: tmpDir });
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/stage and POST /api/projects/:id/git/unstage
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/stage - stages specific files", async () => {
+    fs.writeFileSync(path.join(tmpDir, "stage-test.txt"), "stage me\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/stage`,
+      headers: { "Content-Type": "application/json" },
+      payload: { files: ["stage-test.txt"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify the file is staged
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    const status = statusRes.json();
+    expect(status.staged.some((f: any) => f.path === "stage-test.txt")).toBe(true);
+
+    // Unstage for cleanup
+    execSync("git reset HEAD stage-test.txt", { cwd: tmpDir });
+    fs.unlinkSync(path.join(tmpDir, "stage-test.txt"));
+  });
+
+  test("POST /api/projects/:id/git/stage - stages all files when no files specified", async () => {
+    fs.writeFileSync(path.join(tmpDir, "auto-stage1.txt"), "file1\n");
+    fs.writeFileSync(path.join(tmpDir, "auto-stage2.txt"), "file2\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/stage`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Verify both files are staged
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    const status = statusRes.json();
+    expect(status.staged.some((f: any) => f.path === "auto-stage1.txt")).toBe(true);
+    expect(status.staged.some((f: any) => f.path === "auto-stage2.txt")).toBe(true);
+
+    // Unstage and clean up
+    execSync("git reset HEAD auto-stage1.txt auto-stage2.txt", { cwd: tmpDir });
+    fs.unlinkSync(path.join(tmpDir, "auto-stage1.txt"));
+    fs.unlinkSync(path.join(tmpDir, "auto-stage2.txt"));
+  });
+
+  test("POST /api/projects/:id/git/unstage - unstages specific files", async () => {
+    fs.writeFileSync(path.join(tmpDir, "unstage-test.txt"), "unstage me\n");
+    execSync("git add unstage-test.txt", { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/unstage`,
+      headers: { "Content-Type": "application/json" },
+      payload: { files: ["unstage-test.txt"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Verify the file is no longer staged (should be untracked now)
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    const status = statusRes.json();
+    expect(status.staged.some((f: any) => f.path === "unstage-test.txt")).toBe(false);
+    expect(status.untracked).toContain("unstage-test.txt");
+
+    // Clean up
+    fs.unlinkSync(path.join(tmpDir, "unstage-test.txt"));
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/commit
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/commit - creates a commit", async () => {
+    fs.writeFileSync(path.join(tmpDir, "commit-test.txt"), "commit me\n");
+    execSync("git add commit-test.txt", { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/commit`,
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Test commit via API" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify the commit appears in the log
+    const logRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/log`,
+    });
+    const log = logRes.json();
+    expect(log[0].message).toBe("Test commit via API");
+  });
+
+  test("POST /api/projects/:id/git/commit - fails with no staged files", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/commit`,
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Empty commit" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(false);
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/discard
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/discard - discards changes to specific files", async () => {
+    fs.writeFileSync(path.join(tmpDir, "README.md"), "# Test Repo\nDiscard this\n");
+
+    // Verify there is a change
+    const statusBefore = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    expect(statusBefore.json().unstaged.length).toBeGreaterThan(0);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/discard`,
+      headers: { "Content-Type": "application/json" },
+      payload: { files: ["README.md"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Verify file is restored
+    const content = fs.readFileSync(path.join(tmpDir, "README.md"), "utf-8");
+    expect(content).toBe("# Test Repo\n");
+  });
+
+  test("POST /api/projects/:id/git/discard - discards all changes when no files specified", async () => {
+    fs.writeFileSync(path.join(tmpDir, "README.md"), "# Test Repo\nDiscard all\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/discard`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    const content = fs.readFileSync(path.join(tmpDir, "README.md"), "utf-8");
+    expect(content).toBe("# Test Repo\n");
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/undo-commit
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/undo-commit - soft resets the last commit", async () => {
+    // Create a commit to undo
+    fs.writeFileSync(path.join(tmpDir, "undo-test.txt"), "undo me\n");
+    execSync("git add undo-test.txt", { cwd: tmpDir });
+    execSync('git commit -m "Commit to undo"', { cwd: tmpDir });
+
+    // Count commits before undo
+    const logBefore = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/log`,
+    });
+    const countBefore = logBefore.json().length;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/undo-commit`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Count commits after undo - should be one less
+    const logAfter = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/log`,
+    });
+    expect(logAfter.json().length).toBe(countBefore - 1);
+
+    // The file should still be staged (soft reset)
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    const status = statusRes.json();
+    expect(status.staged.some((f: any) => f.path === "undo-test.txt")).toBe(true);
+
+    // Clean up: commit the file back so subsequent tests have a clean state
+    execSync('git commit -m "Re-commit after undo test"', { cwd: tmpDir });
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/create-branch
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/create-branch - creates and switches to new branch", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/create-branch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branch: "feature/test-branch" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Verify we're on the new branch
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    expect(statusRes.json().branch).toBe("feature/test-branch");
+
+    // Switch back to default branch for subsequent tests
+    const defaultBranch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: tmpDir }).toString().trim();
+    // We're on feature/test-branch, so we need to know the original branch name
+    // Let's get it from the branches list
+    const branchRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/branches`,
+    });
+    const branches = branchRes.json();
+    const mainBranch = branches.find((b: any) => b.name === "main" || b.name === "master");
+    if (mainBranch) {
+      execSync(`git checkout ${mainBranch.name}`, { cwd: tmpDir });
+    }
+  });
+
+  test("POST /api/projects/:id/git/create-branch - rejects invalid branch names", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/create-branch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branch: "bad;name" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("Invalid branch name");
+  });
+
+  test("POST /api/projects/:id/git/create-branch - creates branch from baseBranch", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/create-branch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branch: "feature/from-base", baseBranch: "feature/test-branch" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Verify we're on the new branch
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    expect(statusRes.json().branch).toBe("feature/from-base");
+
+    // Switch back to default branch
+    const branchRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/branches`,
+    });
+    const branches = branchRes.json();
+    const mainBranch = branches.find((b: any) => b.name === "main" || b.name === "master");
+    if (mainBranch) {
+      execSync(`git checkout ${mainBranch.name}`, { cwd: tmpDir });
+    }
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/checkout
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/checkout - switches to existing branch", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/checkout`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branch: "feature/test-branch" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    // Verify we're on the branch
+    const statusRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/status`,
+    });
+    expect(statusRes.json().branch).toBe("feature/test-branch");
+
+    // Switch back to default branch
+    const branchRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/branches`,
+    });
+    const branches = branchRes.json();
+    const mainBranch = branches.find((b: any) => b.name === "main" || b.name === "master");
+    if (mainBranch) {
+      execSync(`git checkout ${mainBranch.name}`, { cwd: tmpDir });
+    }
+  });
+
+  test("POST /api/projects/:id/git/checkout - rejects invalid branch names", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/checkout`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branch: "bad|name" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("Invalid branch name");
+  });
+
+  test("POST /api/projects/:id/git/checkout - fails for non-existent branch", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/checkout`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branch: "does-not-exist" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(false);
+  });
+
+  // ===========================================================================
+  // GET /api/projects/:id/git/divergence
+  // ===========================================================================
+
+  test("GET /api/projects/:id/git/divergence - returns divergence from main branch", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/divergence`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // The main branch exists (we're on it), so mainBranch should be detected
+    expect(body.mainBranch).toBeDefined();
+    expect(typeof body.ahead).toBe("number");
+    expect(typeof body.behind).toBe("number");
+  });
+
+  // ===========================================================================
+  // GET /api/projects/:id/git/sub-repos
+  // ===========================================================================
+
+  test("GET /api/projects/:id/git/sub-repos - detects git repos", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/sub-repos`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    // The temp dir itself is a git repo, so "" should be in the list
+    expect(body).toContain("");
+  });
+
+  test("GET /api/projects/:id/git/sub-repos - detects sub-directory repos", async () => {
+    // Create a sub-directory with its own git repo
+    const subRepoDir = path.join(tmpDir, "sub-project");
+    fs.mkdirSync(subRepoDir, { recursive: true });
+    execSync("git init", { cwd: subRepoDir });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/sub-repos`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toContain("");
+    expect(body).toContain("sub-project");
+
+    // Clean up sub-repo
+    fs.rmSync(subRepoDir, { recursive: true, force: true });
+  });
 });

@@ -223,3 +223,200 @@ describe("POST /api/claude/bulk-import — validation", () => {
     expect(res.statusCode).toBe(500);
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/claude/analyze — deeper validation
+// ---------------------------------------------------------------------------
+
+describe("POST /api/claude/analyze — additional validation", () => {
+  test("returns 404 when projectId exists but taskId does not", async () => {
+    // Create a real project
+    const db = getDb();
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Analyze Test Project", path: `/tmp/test-analyze-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/analyze",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: projId, taskId: "nonexistent-task-id" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+
+    // Cleanup
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+
+  test("returns 404 when task exists but projectId is wrong", async () => {
+    // Create a project with a task
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Analyze Cross Project", path: `/tmp/test-analyze-cross-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Task in project A" },
+    });
+    const taskId = taskRes.json().id;
+
+    // Try to analyze with a different projectId
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/analyze",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: "wrong-project-id", taskId },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+
+    // Cleanup
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+
+  test("returns 404 when both projectId and taskId are missing", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/analyze",
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+    // undefined projectId and taskId => db query finds nothing => 404
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/claude/chat — project context path
+// ---------------------------------------------------------------------------
+
+describe("POST /api/claude/chat — with project context", () => {
+  test("sends SSE when called with a valid projectId (no AI backend)", async () => {
+    const cliAvail = await isCliAvailable();
+    if (cliAvail) {
+      // Cannot easily test the no-backend SSE error path when CLI is present
+      expect(true).toBe(true);
+      return;
+    }
+
+    // Ensure no API key
+    const db = getDb();
+    db.prepare("DELETE FROM settings WHERE key = 'claudeApiKey'").run();
+
+    // Create a project with tasks so the context-building code path is exercised
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Chat Context Project", path: `/tmp/test-chat-ctx-${Date.now()}`, techStack: "Node.js" },
+    });
+    const projId = projRes.json().id;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Task for context", status: "todo", priority: "high" },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/chat",
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Hello from test", projectId: projId },
+    });
+
+    // Should get SSE error about no backend
+    const body = res.body;
+    expect(body).toContain('"type":"error"');
+    expect(body).toContain("No Claude CLI or API key configured");
+
+    // Cleanup
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+
+  test("sends SSE when called with null projectId (no AI backend)", async () => {
+    const cliAvail = await isCliAvailable();
+    if (cliAvail) {
+      expect(true).toBe(true);
+      return;
+    }
+
+    const db = getDb();
+    db.prepare("DELETE FROM settings WHERE key = 'claudeApiKey'").run();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/chat",
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Hello with no project", projectId: null },
+    });
+
+    const body = res.body;
+    expect(body).toContain('"type":"error"');
+    expect(body).toContain("No Claude CLI or API key configured");
+  });
+
+  test("sends SSE when called with a non-existent projectId (no AI backend)", async () => {
+    const cliAvail = await isCliAvailable();
+    if (cliAvail) {
+      expect(true).toBe(true);
+      return;
+    }
+
+    const db = getDb();
+    db.prepare("DELETE FROM settings WHERE key = 'claudeApiKey'").run();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/chat",
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Hello with bad project", projectId: "nonexistent-project-id" },
+    });
+
+    // Still returns SSE with error (the project lookup just finds nothing, falls through)
+    const body = res.body;
+    expect(body).toContain('"type":"error"');
+    expect(body).toContain("No Claude CLI or API key configured");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/claude/gather-context — edge cases
+// ---------------------------------------------------------------------------
+
+describe("POST /api/claude/gather-context — edge cases", () => {
+  test("returns 400 when taskTitle is empty string", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/gather-context",
+      headers: { "Content-Type": "application/json" },
+      payload: { taskTitle: "", projectId: "some-project" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("taskTitle and projectId are required");
+  });
+
+  test("returns 400 when projectId is empty string", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/gather-context",
+      headers: { "Content-Type": "application/json" },
+      payload: { taskTitle: "Valid title", projectId: "" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("taskTitle and projectId are required");
+  });
+});

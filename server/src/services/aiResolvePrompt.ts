@@ -421,7 +421,7 @@ export function applyComplexityToConfig(config: ProfileConfig, complexity: "smal
   return config;
 }
 
-function buildProfileInstructions(
+export function buildProfileInstructions(
   profile: ResolvedProfile,
   project: Project,
   task: Task,

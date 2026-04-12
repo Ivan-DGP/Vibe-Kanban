@@ -312,4 +312,156 @@ describe("MCP JSON-RPC endpoint", () => {
     expect(body.result).toBeDefined();
     expect(Array.isArray(body.result.tools)).toBe(true);
   });
+
+  test("resources/list — returns unknown method error (not implemented)", async () => {
+    const res = await mcpRequest({
+      jsonrpc: "2.0",
+      id: 20,
+      method: "resources/list",
+      params: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe(20);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32601);
+    expect(body.error.message).toContain("resources/list");
+  });
+
+  test("prompts/list — returns unknown method error (not implemented)", async () => {
+    const res = await mcpRequest({
+      jsonrpc: "2.0",
+      id: 21,
+      method: "prompts/list",
+      params: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe(21);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32601);
+    expect(body.error.message).toContain("prompts/list");
+  });
+
+  test("notifications/initialized — returns unknown method error (notifications are not bidirectional)", async () => {
+    const res = await mcpRequest({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "notifications/initialized",
+      params: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe(22);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32601);
+    expect(body.error.message).toContain("notifications/initialized");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MCP SSE endpoint
+// ---------------------------------------------------------------------------
+describe("MCP SSE endpoint", () => {
+  test("GET /mcp — SSE endpoint streams server info event", async () => {
+    // The SSE handler writes to reply.raw and never closes (keep-alive),
+    // so we use a raw HTTP request with a timeout to capture the initial data.
+    const address = await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      let body = "";
+      let contentType = "";
+      try {
+        const res = await fetch(`${address}/mcp`, {
+          method: "GET",
+          signal: controller.signal,
+        });
+        contentType = res.headers.get("content-type") || "";
+        // Read a chunk from the stream
+        const reader = res.body!.getReader();
+        const { value } = await reader.read();
+        if (value) body = new TextDecoder().decode(value);
+        controller.abort();
+      } catch (e: any) {
+        // AbortError is expected when we cut the connection
+        if (e.name !== "AbortError") throw e;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      expect(contentType).toBe("text/event-stream");
+      expect(body).toContain("data:");
+      expect(body).toContain("notifications/initialized");
+      expect(body).toContain("vibe-kanban");
+    } finally {
+      await app.close();
+      // Rebuild the app for remaining tests
+      app = await buildApp();
+      await app.ready();
+      // Re-enable MCP settings
+      const db = getDb();
+      db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+        "mcpEnabled",
+        JSON.stringify(true),
+      );
+      db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+        "mcpAuthRequired",
+        JSON.stringify(false),
+      );
+    }
+  });
+
+  test("GET /mcp — returns 404 when MCP is disabled", async () => {
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpEnabled",
+      JSON.stringify(false),
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/mcp",
+    });
+
+    expect(res.statusCode).toBe(404);
+    const body = res.json();
+    expect(body.error).toBe("MCP server is disabled");
+
+    // Re-enable MCP
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpEnabled",
+      JSON.stringify(true),
+    );
+  });
+
+  test("GET /mcp — returns 401 when auth is required but no token", async () => {
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpAuthRequired",
+      JSON.stringify(true),
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/mcp",
+    });
+
+    expect(res.statusCode).toBe(401);
+    const body = res.json();
+    expect(body.error).toBe("Unauthorized");
+
+    // Disable auth
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpAuthRequired",
+      JSON.stringify(false),
+    );
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import { buildApp } from "../app";
 import * as termService from "../services/terminalService";
 import { mkdirSync, rmSync } from "node:fs";
@@ -255,6 +255,31 @@ describe("Session Type Validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Session creation error handling
+// ---------------------------------------------------------------------------
+
+describe("Session Creation Error", () => {
+  test("POST /api/terminal/sessions — returns 500 when createSession throws", async () => {
+    const spy = spyOn(termService, "createSession").mockRejectedValueOnce(
+      new Error("Simulated PTY spawn failure"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/terminal/sessions",
+      headers: { "Content-Type": "application/json" },
+      payload: { type: "shell", projectId },
+    });
+
+    expect(res.statusCode).toBe(500);
+    const body = res.json();
+    expect(body.error).toBe("Simulated PTY spawn failure");
+
+    spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AI Sessions endpoint
 // ---------------------------------------------------------------------------
 
@@ -273,6 +298,45 @@ describe("AI Sessions", () => {
       expect(s.taskId).toBeDefined();
       expect(s.taskId).not.toBeNull();
     }
+  });
+
+  test("GET /api/terminal/ai-sessions — returns session created with taskId", async () => {
+    // Mock listSessions to return a session with a taskId
+    const fakeSession = {
+      id: "fake-ai-session",
+      type: "ai-resolve",
+      projectId,
+      taskId: "fake-task-id",
+      name: "AI Resolve: fake task",
+      cwd: testDir,
+      alive: true,
+      ws: null,
+      proc: null,
+      outputBuffer: [],
+      exitBuffer: null,
+      scrollback: "",
+    };
+    const spy = spyOn(termService, "listSessions").mockReturnValueOnce([fakeSession as any]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/terminal/ai-sessions",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBe(1);
+    expect(body[0].id).toBe("fake-ai-session");
+    expect(body[0].taskId).toBe("fake-task-id");
+    expect(body[0].type).toBe("ai-resolve");
+    expect(body[0].name).toBe("AI Resolve: fake task");
+    // Internal fields should not be exposed
+    expect(body[0]).not.toHaveProperty("proc");
+    expect(body[0]).not.toHaveProperty("ws");
+    expect(body[0]).not.toHaveProperty("scrollback");
+
+    spy.mockRestore();
   });
 });
 
@@ -346,6 +410,51 @@ describe("Batch Resolve", () => {
     const body = res.json();
     // When not running, state should remain idle or become cancelled
     expect(["idle", "cancelled"]).toContain(body.state);
+  });
+
+  test("POST /api/terminal/batch-resolve — successful start returns status", async () => {
+    const fakeStatus = {
+      state: "running",
+      totalTasks: 2,
+      completedTasks: 0,
+      taskResults: [],
+    };
+    const spy = spyOn(termService, "startBatchResolve").mockResolvedValueOnce(fakeStatus as any);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/terminal/batch-resolve",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId, taskIds: ["task-1", "task-2"], concurrency: 1 },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.state).toBe("running");
+    expect(body.totalTasks).toBe(2);
+    expect(body.completedTasks).toBe(0);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
+  });
+
+  test("POST /api/terminal/batch-resolve — returns 409 when already running", async () => {
+    const spy = spyOn(termService, "startBatchResolve").mockRejectedValueOnce(
+      new Error("Batch resolve already running"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/terminal/batch-resolve",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId, taskIds: ["task-1"] },
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = res.json();
+    expect(body.error).toBe("Batch resolve already running");
+
+    spy.mockRestore();
   });
 });
 

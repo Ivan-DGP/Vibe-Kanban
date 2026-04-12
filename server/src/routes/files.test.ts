@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildApp } from "../app";
 import { safePath, isBlockedPath } from "./files";
+import * as spawnModule from "../lib/spawn";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let projectId: string;
@@ -512,5 +513,179 @@ describe("Files API - Delete file", () => {
     expect(res.statusCode).toBe(403);
     const body = res.json();
     expect(body.error).toBe("Cannot delete protected file");
+  });
+});
+
+// ===========================================================================
+// Read file — image (base64) and large file (413)
+// ===========================================================================
+
+describe("Files API - Read image file (base64)", () => {
+  test("GET /api/projects/:id/files/read — returns base64 for .png file", async () => {
+    // Create a small PNG file (1x1 pixel red PNG)
+    const pngBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    fs.writeFileSync(path.join(tmpDir, "tiny.png"), pngBytes);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/read?path=tiny.png`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.encoding).toBe("base64");
+    expect(typeof body.content).toBe("string");
+    // Content should be valid base64 that decodes to the original bytes
+    const decoded = Buffer.from(body.content, "base64");
+    expect(decoded.length).toBe(pngBytes.length);
+  });
+
+  test("GET /api/projects/:id/files/read — returns base64 for .jpg file", async () => {
+    // Create a minimal file with .jpg extension
+    const fakeJpg = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+    fs.writeFileSync(path.join(tmpDir, "photo.jpg"), fakeJpg);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/read?path=photo.jpg`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.encoding).toBe("base64");
+    expect(typeof body.content).toBe("string");
+  });
+});
+
+describe("Files API - Large file rejection", () => {
+  test("GET /api/projects/:id/files/read — returns 413 for file > 5MB", async () => {
+    // Create a file slightly over 5MB
+    const largePath = path.join(tmpDir, "large-file.bin");
+    const fiveAndABitMB = 5 * 1024 * 1024 + 1;
+    // Write a sparse file by writing one byte at position > 5MB
+    const fd = fs.openSync(largePath, "w");
+    fs.writeSync(fd, Buffer.alloc(1), 0, 1, fiveAndABitMB - 1);
+    fs.closeSync(fd);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/read?path=large-file.bin`,
+    });
+
+    expect(res.statusCode).toBe(413);
+    const body = res.json();
+    expect(body.error).toBe("File too large (max 5MB)");
+  });
+});
+
+// ===========================================================================
+// Search (grep) endpoint
+// ===========================================================================
+
+describe("Files API - Search", () => {
+  test("GET /api/projects/:id/files/search — returns empty array when q is missing", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/search`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBe(0);
+  });
+
+  test("GET /api/projects/:id/files/search?q=... — parses grep output and returns structured results", async () => {
+    // Mock spawn to simulate grep output since GNU grep doesn't support
+    // brace expansion in --include patterns
+    const spy = spyOn(spawnModule, "spawn").mockResolvedValueOnce({
+      stdout:
+        "./searchable.ts:1:const MAGIC_SEARCH_TERM = \"found_it\";\n" +
+        "./match-too.json:1:{\"key\": \"MAGIC_SEARCH_TERM\"}\n",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/search?q=MAGIC_SEARCH_TERM`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBe(2);
+
+    // Verify structured results
+    expect(body[0].file).toBe("searchable.ts");
+    expect(body[0].line).toBe(1);
+    expect(body[0].content).toContain("MAGIC_SEARCH_TERM");
+
+    expect(body[1].file).toBe("match-too.json");
+    expect(body[1].line).toBe(1);
+
+    // Verify spawn was called with grep args
+    expect(spy).toHaveBeenCalledTimes(1);
+    const callArgs = spy.mock.calls[0][0] as string[];
+    expect(callArgs[0]).toBe("grep");
+    expect(callArgs).toContain("-i"); // case insensitive by default
+
+    spy.mockRestore();
+  });
+
+  test("GET /api/projects/:id/files/search?q=...&caseSensitive=true — omits -i flag", async () => {
+    const spy = spyOn(spawnModule, "spawn").mockResolvedValueOnce({
+      stdout: "./file.ts:5:exact MATCH\n",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/search?q=MATCH&caseSensitive=true`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.length).toBe(1);
+    expect(body[0].file).toBe("file.ts");
+    expect(body[0].line).toBe(5);
+
+    // Verify -i flag is NOT included when caseSensitive=true
+    const callArgs = spy.mock.calls[0][0] as string[];
+    expect(callArgs).not.toContain("-i");
+
+    spy.mockRestore();
+  });
+
+  test("GET /api/projects/:id/files/search — handles malformed grep output lines gracefully", async () => {
+    const spy = spyOn(spawnModule, "spawn").mockResolvedValueOnce({
+      stdout: "some unexpected output format\n./valid.ts:10:valid line\n",
+      stderr: "",
+      exitCode: 0,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/files/search?q=test`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.length).toBe(2);
+
+    // Malformed line falls through to the fallback
+    expect(body[0].file).toBe("");
+    expect(body[0].line).toBe(0);
+    expect(body[0].content).toBe("some unexpected output format");
+
+    // Valid line is parsed correctly
+    expect(body[1].file).toBe("valid.ts");
+    expect(body[1].line).toBe(10);
+
+    spy.mockRestore();
   });
 });

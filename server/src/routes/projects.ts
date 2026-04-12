@@ -14,7 +14,7 @@ function now(): string {
 }
 
 // Tech stack detection from package.json and config files
-function detectTechStack(projectPath: string): string[] {
+export function detectTechStack(projectPath: string): string[] {
   const techs: string[] = [];
 
   try {
@@ -73,7 +73,7 @@ const PROJECT_MARKERS = [
   "pyproject.toml",
 ];
 
-function scanDirectory(dir: string, depth = 0, maxDepth = 3): { name: string; path: string; techStack: string[] }[] {
+export function scanDirectory(dir: string, depth = 0, maxDepth = 3): { name: string; path: string; techStack: string[] }[] {
   const results: { name: string; path: string; techStack: string[] }[] = [];
   if (depth > maxDepth) return results;
 

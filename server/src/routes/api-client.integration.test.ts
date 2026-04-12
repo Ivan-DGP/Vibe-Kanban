@@ -351,9 +351,40 @@ describe("API Client — Requests CRUD", () => {
 });
 
 describe("API Client — Execute Request (Proxy)", () => {
+  let targetServer: ReturnType<typeof Bun.serve>;
+  let targetUrl: string;
+
   beforeAll(async () => {
-    // Ensure app is ready (already done in top-level beforeAll, but
-    // this describe block depends on the app being usable as a target)
+    // Start a tiny HTTP server to serve as a proxy target
+    targetServer = Bun.serve({
+      port: 0, // OS picks a free port
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === "/json-endpoint") {
+          return new Response(JSON.stringify({ hello: "world" }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.pathname === "/text-endpoint") {
+          return new Response("plain text response", {
+            headers: { "Content-Type": "text/plain" },
+          });
+        }
+        if (url.pathname === "/echo-post" && req.method === "POST") {
+          return req.text().then((body) =>
+            new Response(JSON.stringify({ method: "POST", receivedBody: body }), {
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    targetUrl = `http://localhost:${targetServer.port}`;
+  });
+
+  afterAll(() => {
+    targetServer?.stop();
   });
 
   test("POST /api/api-client/execute — missing url returns 400", async () => {
@@ -387,6 +418,105 @@ describe("API Client — Execute Request (Proxy)", () => {
     expect(body.status).toBe(0);
     expect(body.statusText).toBe("Network Error");
     expect(body.timeMs).toBeDefined();
+  });
+
+  test("POST /api/api-client/execute — successful GET returning JSON", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-client/execute",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        method: "GET",
+        url: `${targetUrl}/json-endpoint`,
+        headers: { Accept: "application/json" },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe(200);
+    expect(body.statusText).toBe("OK");
+    expect(typeof body.timeMs).toBe("number");
+    expect(body.timeMs).toBeGreaterThanOrEqual(0);
+    expect(typeof body.headers).toBe("object");
+    // Body should be pretty-printed JSON
+    const parsed = JSON.parse(body.body);
+    expect(parsed.hello).toBe("world");
+  });
+
+  test("POST /api/api-client/execute — successful GET returning text", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-client/execute",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        method: "GET",
+        url: `${targetUrl}/text-endpoint`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe(200);
+    expect(body.body).toBe("plain text response");
+  });
+
+  test("POST /api/api-client/execute — successful POST with body", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-client/execute",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        method: "POST",
+        url: `${targetUrl}/echo-post`,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: "test-payload" }),
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe(200);
+    const parsed = JSON.parse(body.body);
+    expect(parsed.method).toBe("POST");
+    expect(parsed.receivedBody).toBe(JSON.stringify({ data: "test-payload" }));
+  });
+
+  test("POST /api/api-client/execute — GET ignores body even if provided", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-client/execute",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        method: "GET",
+        url: `${targetUrl}/json-endpoint`,
+        body: "should-be-ignored",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe(200);
+    // Should still get the JSON response since body is ignored for GET
+    const parsed = JSON.parse(body.body);
+    expect(parsed.hello).toBe("world");
+  });
+
+  test("POST /api/api-client/execute — defaults method to GET when omitted", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-client/execute",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        url: `${targetUrl}/json-endpoint`,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe(200);
+    const parsed = JSON.parse(body.body);
+    expect(parsed.hello).toBe("world");
   });
 });
 

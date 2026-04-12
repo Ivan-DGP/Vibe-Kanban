@@ -807,4 +807,524 @@ describe("Additional task endpoints", () => {
     const updated = res.json();
     expect(updated.updatedAt).not.toBe(originalUpdatedAt);
   });
+
+  test("PATCH /api/tasks/:id - empty update body returns existing task unchanged", async () => {
+    const task = await createTask({ title: "No Change Task" });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${task.id}`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const returned = res.json();
+    expect(returned.id).toBe(task.id);
+    expect(returned.title).toBe("No Change Task");
+  });
+
+  test("POST /api/projects/:projectId/tasks - create task with parentTaskId (subtask)", async () => {
+    const parent = await createTask({ title: "Parent Task" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Subtask", parentTaskId: parent.id },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const child = res.json();
+    expect(child.parentTaskId).toBe(parent.id);
+    expect(child.title).toBe("Subtask");
+  });
+});
+
+// ===========================================================================
+// Sort variations
+// ===========================================================================
+
+describe("Task sort variations", () => {
+  test("GET /api/projects/:projectId/tasks?sort=newest - sort by newest first", async () => {
+    await createTask({ title: "Older Task" });
+    await new Promise((r) => setTimeout(r, 10));
+    const newer = await createTask({ title: "Newer Task" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks?sort=newest`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThanOrEqual(2);
+    // First item should be most recently created
+    expect(body.items[0].id).toBe(newer.id);
+  });
+
+  test("GET /api/projects/:projectId/tasks?sort=oldest - sort by oldest first", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks?sort=oldest`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThanOrEqual(1);
+    // Items should be ordered oldest first
+    for (let i = 1; i < body.items.length; i++) {
+      expect(body.items[i - 1].createdAt <= body.items[i].createdAt).toBe(true);
+    }
+  });
+
+  test("GET /api/projects/:projectId/tasks?sort=updated - sort by updated", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks?sort=updated`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThanOrEqual(1);
+    // Items should be ordered most recently updated first
+    for (let i = 1; i < body.items.length; i++) {
+      expect(body.items[i - 1].updatedAt >= body.items[i].updatedAt).toBe(true);
+    }
+  });
+
+  test("GET /api/projects/:projectId/tasks?milestoneId=null - filter by null milestone", async () => {
+    const task = await createTask({ title: "No Milestone Task" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks?milestoneId=null&limit=200`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // All returned items should have null milestoneId
+    for (const item of body.items) {
+      expect(item.milestoneId).toBeNull();
+    }
+    const found = body.items.find((t: any) => t.id === task.id);
+    expect(found).toBeDefined();
+  });
+
+  test("GET /api/projects/:projectId/tasks?milestoneId=general - filter by general milestone", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks?milestoneId=general`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // "general" is an alias for null milestoneId
+    for (const item of body.items) {
+      expect(item.milestoneId).toBeNull();
+    }
+  });
+
+  test("GET /api/tasks/all?sort=priority - sort all tasks by priority", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/tasks/all?sort=priority",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.items)).toBe(true);
+  });
+
+  test("GET /api/tasks/all?sort=newest - sort all tasks by newest", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/tasks/all?sort=newest",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.items)).toBe(true);
+  });
+
+  test("GET /api/tasks/all?sort=oldest - sort all tasks by oldest", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/tasks/all?sort=oldest",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.items)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// AI preflight, decompose, ai-resolve, ai-runs, ai-stats
+// ===========================================================================
+
+describe("AI preflight endpoint", () => {
+  test("GET /api/projects/:projectId/tasks/:taskId/ai-preflight - returns preflight data", async () => {
+    const task = await createTask({
+      title: "Implement user authentication flow",
+      description: "Add login, signup, and password reset pages",
+      prompt: "Use bcrypt for hashing, JWT for sessions",
+      status: "todo",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks/${task.id}/ai-preflight`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.taskId).toBe(task.id);
+    expect(body.title).toBe("Implement user authentication flow");
+    expect(body.detectedProfile).toBeDefined();
+    expect(body.effectiveProfile).toBeDefined();
+    expect(body.scope).toBeDefined();
+    expect(typeof body.hasDescription).toBe("boolean");
+    expect(body.hasDescription).toBe(true);
+    expect(typeof body.hasPrompt).toBe("boolean");
+    expect(body.hasPrompt).toBe(true);
+    expect(Array.isArray(body.warnings)).toBe(true);
+    expect(body.warnings.length).toBe(0); // has description and prompt, title is long enough
+  });
+
+  test("GET /api/projects/:projectId/tasks/:taskId/ai-preflight - returns 404 for non-existent task", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks/non-existent-task/ai-preflight`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("GET /api/projects/:projectId/tasks/:taskId/ai-preflight - returns 404 when task belongs to different project", async () => {
+    const task = await createTask({ title: "Some Task" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/nonexistent-project/tasks/${task.id}/ai-preflight`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("GET /api/projects/:projectId/tasks/:taskId/ai-preflight - warns about missing description/prompt", async () => {
+    const task = await createTask({ title: "Short", description: "" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks/${task.id}/ai-preflight`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.hasDescription).toBe(false);
+    expect(body.hasPrompt).toBe(false);
+    expect(body.warnings.length).toBeGreaterThanOrEqual(1);
+    // Should warn about no description and short title
+    expect(body.warnings.some((w: string) => w.includes("no description"))).toBe(true);
+    expect(body.warnings.some((w: string) => w.includes("very short"))).toBe(true);
+  });
+
+  test("GET /api/projects/:projectId/tasks/:taskId/ai-preflight - detects bug-fix profile", async () => {
+    const task = await createTask({
+      title: "Fix crash when uploading large files",
+      description: "The app crashes with an error when files exceed 10MB",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks/${task.id}/ai-preflight`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.detectedProfile).toBe("bug-fix");
+  });
+
+  test("GET /api/projects/:projectId/tasks/:taskId/ai-preflight - estimates complexity based on content length", async () => {
+    // Small task
+    const smallTask = await createTask({ title: "Fix typo" });
+    const smallRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks/${smallTask.id}/ai-preflight`,
+    });
+    expect(smallRes.json().scope).toBe("small");
+
+    // Large task
+    const longDescription = "A".repeat(500);
+    const largeTask = await createTask({ title: "Major refactor of the entire codebase", description: longDescription });
+    const largeRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks/${largeTask.id}/ai-preflight`,
+    });
+    expect(largeRes.json().scope).toBe("large");
+  });
+});
+
+describe("AI decompose endpoint", () => {
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - returns 404 for non-existent task", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/non-existent-task/decompose`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - returns 404 when task belongs to different project", async () => {
+    const task = await createTask({ title: "Decompose Test" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/nonexistent-project/tasks/${task.id}/decompose`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+});
+
+describe("AI resolve endpoint", () => {
+  test("POST /api/projects/:projectId/tasks/:taskId/ai-resolve - returns 404 for non-existent task", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/non-existent-task/ai-resolve`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/ai-resolve - returns 404 when task belongs to different project", async () => {
+    const task = await createTask({ title: "Resolve Test" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/nonexistent-project/tasks/${task.id}/ai-resolve`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+});
+
+// ===========================================================================
+// AI Runs endpoints
+// ===========================================================================
+
+describe("AI runs endpoints", () => {
+  test("POST /api/tasks/:taskId/ai-runs - record an AI run", async () => {
+    const task = await createTask({ title: "AI Run Task" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        profile: "feature",
+        complexity: "medium",
+        exitCode: 0,
+        success: true,
+        filesChanged: 3,
+        durationMs: 15000,
+        summary: "Successfully implemented feature",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const run = res.json();
+    expect(run.id).toBeDefined();
+    expect(run.taskId).toBe(task.id);
+    expect(run.projectId).toBe(projectId);
+    expect(run.profile).toBe("feature");
+    expect(run.complexity).toBe("medium");
+    expect(run.exitCode).toBe(0);
+    expect(run.success).toBe(1);
+    expect(run.filesChanged).toBe(3);
+    expect(run.durationMs).toBe(15000);
+    expect(run.summary).toBe("Successfully implemented feature");
+  });
+
+  test("POST /api/tasks/:taskId/ai-runs - returns 404 for non-existent task", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/tasks/non-existent-task/ai-runs",
+      headers: { "Content-Type": "application/json" },
+      payload: { success: false },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("POST /api/tasks/:taskId/ai-runs - defaults profile and complexity", async () => {
+    const task = await createTask({ title: "Default AI Run" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: false },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const run = res.json();
+    expect(run.profile).toBe("feature");
+    expect(run.complexity).toBe("medium");
+    expect(run.success).toBe(0);
+  });
+
+  test("GET /api/tasks/:taskId/ai-runs - list AI runs for a task", async () => {
+    const task = await createTask({ title: "List AI Runs" });
+
+    // Create a couple of runs
+    await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: true, summary: "Run 1" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: false, summary: "Run 2" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${task.id}/ai-runs`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const runs = res.json();
+    expect(Array.isArray(runs)).toBe(true);
+    expect(runs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("GET /api/tasks/:taskId/ai-runs - returns empty array for task with no runs", async () => {
+    const task = await createTask({ title: "No Runs Task" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${task.id}/ai-runs`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const runs = res.json();
+    expect(Array.isArray(runs)).toBe(true);
+    expect(runs.length).toBe(0);
+  });
+});
+
+// ===========================================================================
+// AI Stats endpoint
+// ===========================================================================
+
+describe("AI stats endpoint", () => {
+  test("GET /api/projects/:projectId/ai-stats - returns stats shape", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ai-stats`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const stats = res.json();
+    expect(typeof stats.totalRuns).toBe("number");
+    expect(typeof stats.successCount).toBe("number");
+    expect(typeof stats.successRate).toBe("number");
+    expect(typeof stats.profileBreakdown).toBe("object");
+    expect(Array.isArray(stats.commonFailures)).toBe(true);
+  });
+
+  test("GET /api/projects/:projectId/ai-stats - returns zero stats for project with no runs", async () => {
+    // Create a clean project
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Stats Project", path: `/tmp/test-stats-${Date.now()}` },
+    });
+    const statsProjId = projRes.json().id;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${statsProjId}/ai-stats`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const stats = res.json();
+    expect(stats.totalRuns).toBe(0);
+    expect(stats.successCount).toBe(0);
+    expect(stats.successRate).toBe(0);
+    expect(stats.avgDurationMs).toBeNull();
+
+    // Cleanup
+    await app.inject({ method: "DELETE", url: `/api/projects/${statsProjId}` });
+  });
+
+  test("GET /api/projects/:projectId/ai-stats - counts runs correctly", async () => {
+    // Create a clean project and task
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Stats Count Project", path: `/tmp/test-stats-count-${Date.now()}` },
+    });
+    const countProjId = projRes.json().id;
+
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${countProjId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Stats Task" },
+    });
+    const taskId = taskRes.json().id;
+
+    // Record some AI runs
+    await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: true, durationMs: 10000, profile: "feature" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: true, durationMs: 20000, profile: "bug-fix" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: false, durationMs: 5000, profile: "feature" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${countProjId}/ai-stats`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const stats = res.json();
+    expect(stats.totalRuns).toBe(3);
+    expect(stats.successCount).toBe(2);
+    expect(stats.successRate).toBe(67); // Math.round(2/3 * 100) = 67
+    expect(stats.avgDurationMs).toBeDefined();
+    expect(stats.avgDurationMs).toBeGreaterThan(0);
+    expect(stats.profileBreakdown.feature).toBe(2);
+    expect(stats.profileBreakdown["bug-fix"]).toBe(1);
+
+    // Cleanup
+    await app.inject({ method: "DELETE", url: `/api/projects/${countProjId}` });
+  });
 });
