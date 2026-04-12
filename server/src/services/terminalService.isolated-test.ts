@@ -641,7 +641,7 @@ describe("terminalService unit tests", () => {
 
     test("returns project path when DB returns a project", () => {
       // Override the mock for this specific test
-      const originalGet = mockPrepare;
+      const _originalGet = mockPrepare;
       mockPrepare.mockImplementationOnce(() => ({
         get: mock((..._args: any[]) => ({ path: "/home/user/my-project" })),
         all: mock((..._args: any[]) => []),
@@ -721,7 +721,7 @@ describe("terminalService unit tests", () => {
       attachWs("int1", ws);
 
       // Buffer should be flushed to WS
-      const outputMsgs = ws.sent
+      ws.sent
         .map((s) => JSON.parse(s))
         .filter((m: any) => m.type === "output");
       // scrollback also sent (empty in this case since emitData appended to scrollback)

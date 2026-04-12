@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, mock } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { APPS_SCRIPT_REGEX } from "./sync";
 import { buildApp } from "../app";
 
