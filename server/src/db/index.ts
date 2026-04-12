@@ -30,13 +30,13 @@ function runMigrations(db: DatabaseHandle): void {
     .get();
 
   if (!migrationTableExists) {
-    // First run - create all tables
+    // First run - create all tables from base schema
     db.exec(SCHEMA_SQL);
     db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
       1,
       "initial-schema",
     );
-    return;
+    // Fall through to run remaining migrations (2+)
   }
 
   // Check current version
