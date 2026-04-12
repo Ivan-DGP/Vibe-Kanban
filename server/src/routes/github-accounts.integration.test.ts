@@ -1,5 +1,9 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { buildApp } from "../app";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -341,5 +345,241 @@ describe("CI Status API — validation and error paths", () => {
     expect(res.statusCode).toBe(404);
     const body = res.json();
     expect(body.error).toBe("No GitHub account mapped");
+  });
+});
+
+describe("CI Status API — with mapping + git repo (GitHub API unreachable)", () => {
+  const uniqueSuffix = Date.now();
+  let projectId: string;
+  let accountId: string;
+  let tmpDir: string;
+
+  beforeAll(async () => {
+    // Create a temp git repo with a GitHub remote
+    tmpDir = mkdtempSync(join(tmpdir(), "ci-test-"));
+    execSync("git init", { cwd: tmpDir });
+    execSync("git remote add origin https://github.com/test-owner/test-repo.git", { cwd: tmpDir });
+
+    // Create project pointing to this temp dir
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        name: `CI Deep Test ${uniqueSuffix}`,
+        path: tmpDir,
+      },
+    });
+    projectId = projectRes.json().id;
+
+    // Create a GitHub account
+    const accountRes = await app.inject({
+      method: "POST",
+      url: "/api/github-accounts",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        name: `CI Deep Account ${uniqueSuffix}`,
+        token: `ghp_fake_token_for_ci_test_${uniqueSuffix}`,
+      },
+    });
+    accountId = accountRes.json().id;
+
+    // Map the account to the project
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { githubAccountId: accountId, subPath: "" },
+    });
+  });
+
+  afterAll(async () => {
+    await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { subPath: "" },
+    });
+    await app.inject({ method: "DELETE", url: `/api/github-accounts/${accountId}` });
+    await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  test("GET ci-status — exercises token decrypt, repo detection, returns error from GitHub API", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    // GitHub API will reject the fake token — expect either 401 or 500
+    const body = res.json();
+    expect([401, 500]).toContain(res.statusCode);
+    expect(body.error).toBeDefined();
+  });
+
+  test("POST ci-status/batch — exercises token decrypt, repo detection, returns results", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["main", "develop"] },
+    });
+
+    // Batch endpoint catches errors per-branch and returns unknown status
+    // It may return 200 with unknown statuses, or the outer try may fail
+    if (res.statusCode === 200) {
+      const body = res.json();
+      expect(Array.isArray(body)).toBe(true);
+      expect(body.length).toBe(2);
+      for (const result of body) {
+        expect(result.branch).toBeDefined();
+        expect(result.status).toBeDefined();
+      }
+    } else {
+      // If the whole thing errored, it should still be a valid error response
+      expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    }
+  });
+
+  test("GET ci-status with orphaned mapping (project row gone) returns 404 'Project not found'", async () => {
+    // The mapping table has ON DELETE CASCADE from projects, so we need to
+    // temporarily disable FK enforcement to create an orphaned mapping.
+    const { getDb } = await import("../db");
+    const db = getDb();
+
+    const fakeProjectId = "orphan-proj-" + uniqueSuffix;
+
+    // Create a temp account for this test
+    const fakeAccountRes = await app.inject({
+      method: "POST",
+      url: "/api/github-accounts",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Orphan Acct ${uniqueSuffix}`, token: `ghp_orphan_${uniqueSuffix}` },
+    });
+    const fakeAccountId = fakeAccountRes.json().id;
+
+    // Get the encrypted token from the account row
+    const acctRow = db.prepare("SELECT token FROM github_accounts WHERE id = ?").get(fakeAccountId) as { token: string };
+
+    // Disable FK checks, insert orphaned mapping, re-enable FK checks
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.prepare(
+      "INSERT INTO project_github_mappings (projectId, subPath, githubAccountId) VALUES (?, '', ?)",
+    ).run(fakeProjectId, fakeAccountId);
+    db.exec("PRAGMA foreign_keys = ON");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${fakeProjectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Project not found");
+
+    // Also test batch with same orphaned mapping
+    const batchRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${fakeProjectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["main"] },
+    });
+
+    expect(batchRes.statusCode).toBe(404);
+    expect(batchRes.json().error).toBe("Project not found");
+
+    // Cleanup
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.prepare("DELETE FROM project_github_mappings WHERE projectId = ?").run(fakeProjectId);
+    db.exec("PRAGMA foreign_keys = ON");
+    await app.inject({ method: "DELETE", url: `/api/github-accounts/${fakeAccountId}` });
+  });
+
+  test("GET ci-status — repo without github remote returns 404", async () => {
+    // Create a temp repo with a non-GitHub remote
+    const nonGhDir = mkdtempSync(join(tmpdir(), "ci-non-gh-"));
+    execSync("git init", { cwd: nonGhDir });
+    execSync("git remote add origin https://gitlab.com/test/repo.git", { cwd: nonGhDir });
+
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Non-GH ${uniqueSuffix}`, path: nonGhDir },
+    });
+    const projId = projRes.json().id;
+
+    // Map same account
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { githubAccountId: accountId, subPath: "" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Could not determine GitHub repo from git remote");
+
+    // Also test batch
+    const batchRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["main"] },
+    });
+
+    expect(batchRes.statusCode).toBe(404);
+    expect(batchRes.json().error).toBe("Could not determine GitHub repo");
+
+    // Cleanup
+    await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { subPath: "" },
+    });
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+    try { rmSync(nonGhDir, { recursive: true, force: true }); } catch {}
+  });
+
+  test("GET ci-status — project path that does not exist (git fails) returns 404", async () => {
+    // Create a project with a non-existent path
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Bad Path ${uniqueSuffix}`, path: `/tmp/nonexistent-path-${uniqueSuffix}` },
+    });
+    const projId = projRes.json().id;
+
+    // Map same account
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { githubAccountId: accountId, subPath: "" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projId}/ci-status?branch=main`,
+    });
+
+    // git command fails silently, repoFullName stays null → 404
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toContain("Could not determine GitHub repo");
+
+    // Cleanup
+    await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { subPath: "" },
+    });
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
   });
 });

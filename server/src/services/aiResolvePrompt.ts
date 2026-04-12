@@ -5,10 +5,10 @@ import { spawn } from "../lib/spawn";
 import type { Task, Project, PromptProfile } from "@vibe-kanban/shared";
 
 // Simple TTL cache for expensive file system / git operations
-const contextCache = new Map<string, { value: any; expiry: number }>();
-const CACHE_TTL = 30_000; // 30 seconds
+export const contextCache = new Map<string, { value: any; expiry: number }>();
+export const CACHE_TTL = 30_000; // 30 seconds
 
-function cached<T>(key: string, fn: () => T): T {
+export function cached<T>(key: string, fn: () => T): T {
   const now = Date.now();
   const entry = contextCache.get(key);
   if (entry && entry.expiry > now) return entry.value as T;
@@ -17,7 +17,7 @@ function cached<T>(key: string, fn: () => T): T {
   return value;
 }
 
-async function cachedAsync<T>(key: string, fn: () => Promise<T>): Promise<T> {
+export async function cachedAsync<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const entry = contextCache.get(key);
   if (entry && entry.expiry > now) return entry.value as T;

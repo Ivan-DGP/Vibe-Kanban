@@ -12,6 +12,10 @@ import {
   readKeyFileSnippets,
   PROFILE_CONFIGS,
   STOP_WORDS,
+  cached,
+  cachedAsync,
+  contextCache,
+  CACHE_TTL,
 } from "./aiResolvePrompt";
 import type { ProfileConfig } from "./aiResolvePrompt";
 
@@ -553,5 +557,169 @@ describe("readKeyFileSnippets", () => {
   test("returns null for non-existent directory", () => {
     const result = readKeyFileSnippets("/non/existent/path/snippets-test");
     expect(result).toBeNull();
+  });
+});
+
+// ============================================================
+// cached (sync TTL cache helper)
+// ============================================================
+
+describe("cached", () => {
+  beforeAll(() => {
+    // Clear cache before this suite
+    contextCache.clear();
+  });
+
+  afterAll(() => {
+    contextCache.clear();
+  });
+
+  test("returns value from fn on first call", () => {
+    contextCache.clear();
+    let callCount = 0;
+    const result = cached("test-sync-1", () => {
+      callCount++;
+      return 42;
+    });
+    expect(result).toBe(42);
+    expect(callCount).toBe(1);
+  });
+
+  test("returns cached value on subsequent call within TTL", () => {
+    contextCache.clear();
+    let callCount = 0;
+    const fn = () => {
+      callCount++;
+      return "hello";
+    };
+    const r1 = cached("test-sync-2", fn);
+    const r2 = cached("test-sync-2", fn);
+    expect(r1).toBe("hello");
+    expect(r2).toBe("hello");
+    expect(callCount).toBe(1); // fn called only once
+  });
+
+  test("returns fresh value after TTL expires", () => {
+    contextCache.clear();
+    let callCount = 0;
+    const key = "test-sync-3";
+    cached(key, () => {
+      callCount++;
+      return "first";
+    });
+    expect(callCount).toBe(1);
+
+    // Manually expire the cache entry
+    const entry = contextCache.get(key)!;
+    entry.expiry = Date.now() - 1;
+
+    const r2 = cached(key, () => {
+      callCount++;
+      return "second";
+    });
+    expect(r2).toBe("second");
+    expect(callCount).toBe(2);
+  });
+
+  test("different keys are cached independently", () => {
+    contextCache.clear();
+    const r1 = cached("key-a", () => "aaa");
+    const r2 = cached("key-b", () => "bbb");
+    expect(r1).toBe("aaa");
+    expect(r2).toBe("bbb");
+    // Both should be in cache
+    expect(contextCache.has("key-a")).toBe(true);
+    expect(contextCache.has("key-b")).toBe(true);
+  });
+
+  test("cache entry has correct expiry relative to CACHE_TTL", () => {
+    contextCache.clear();
+    const before = Date.now();
+    cached("test-ttl", () => "val");
+    const after = Date.now();
+    const entry = contextCache.get("test-ttl")!;
+    expect(entry.expiry).toBeGreaterThanOrEqual(before + CACHE_TTL);
+    expect(entry.expiry).toBeLessThanOrEqual(after + CACHE_TTL);
+  });
+});
+
+// ============================================================
+// cachedAsync (async TTL cache helper)
+// ============================================================
+
+describe("cachedAsync", () => {
+  beforeAll(() => {
+    contextCache.clear();
+  });
+
+  afterAll(() => {
+    contextCache.clear();
+  });
+
+  test("returns value from async fn on first call", async () => {
+    contextCache.clear();
+    let callCount = 0;
+    const result = await cachedAsync("test-async-1", async () => {
+      callCount++;
+      return 99;
+    });
+    expect(result).toBe(99);
+    expect(callCount).toBe(1);
+  });
+
+  test("returns cached value on subsequent call within TTL", async () => {
+    contextCache.clear();
+    let callCount = 0;
+    const fn = async () => {
+      callCount++;
+      return "async-hello";
+    };
+    const r1 = await cachedAsync("test-async-2", fn);
+    const r2 = await cachedAsync("test-async-2", fn);
+    expect(r1).toBe("async-hello");
+    expect(r2).toBe("async-hello");
+    expect(callCount).toBe(1);
+  });
+
+  test("returns fresh value after TTL expires", async () => {
+    contextCache.clear();
+    let callCount = 0;
+    const key = "test-async-3";
+    await cachedAsync(key, async () => {
+      callCount++;
+      return "first-async";
+    });
+    expect(callCount).toBe(1);
+
+    // Manually expire
+    const entry = contextCache.get(key)!;
+    entry.expiry = Date.now() - 1;
+
+    const r2 = await cachedAsync(key, async () => {
+      callCount++;
+      return "second-async";
+    });
+    expect(r2).toBe("second-async");
+    expect(callCount).toBe(2);
+  });
+
+  test("different keys are cached independently", async () => {
+    contextCache.clear();
+    const r1 = await cachedAsync("async-a", async () => "aaa");
+    const r2 = await cachedAsync("async-b", async () => "bbb");
+    expect(r1).toBe("aaa");
+    expect(r2).toBe("bbb");
+    expect(contextCache.has("async-a")).toBe(true);
+    expect(contextCache.has("async-b")).toBe(true);
+  });
+
+  test("cache entry has correct expiry relative to CACHE_TTL", async () => {
+    contextCache.clear();
+    const before = Date.now();
+    await cachedAsync("test-async-ttl", async () => "val");
+    const after = Date.now();
+    const entry = contextCache.get("test-async-ttl")!;
+    expect(entry.expiry).toBeGreaterThanOrEqual(before + CACHE_TTL);
+    expect(entry.expiry).toBeLessThanOrEqual(after + CACHE_TTL);
   });
 });

@@ -10,15 +10,21 @@ import {
   deleteTask,
   getAllTasks,
   tools,
+  toolMap,
 } from "./tools";
 
 const TEST_PROJECT_ID = crypto.randomUUID();
+const GIT_PROJECT_ID = crypto.randomUUID();
 const TEST_TASK_ID = crypto.randomUUID();
 const TEST_PROJECT_NAME = `__test_project_${Date.now()}`;
+const GIT_PROJECT_NAME = `__test_git_project_${Date.now()}`;
 const TEST_TASK_TITLE = `__test_task_${Date.now()}`;
 
 // Track IDs created by createTask so we can clean them up
 const createdTaskIds: string[] = [];
+
+// Resolve the repo root (parent of server/)
+const REPO_ROOT = new URL("../../..", import.meta.url).pathname.replace(/\/$/, "");
 
 beforeAll(() => {
   const db = getDb();
@@ -26,6 +32,11 @@ beforeAll(() => {
   db.query(
     "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
   ).run(TEST_PROJECT_ID, TEST_PROJECT_NAME, `/tmp/test-project-${Date.now()}`, '["TypeScript","Bun"]', 1);
+
+  // Project pointing at the real git repo for gitStatus / gitDiff tests
+  db.query(
+    "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+  ).run(GIT_PROJECT_ID, GIT_PROJECT_NAME, REPO_ROOT, '["TypeScript","Bun"]', 0);
 
   const now = new Date().toISOString();
   db.query(
@@ -40,6 +51,7 @@ afterAll(() => {
     db.query("DELETE FROM tasks WHERE id = ?").run(id);
   }
   db.query("DELETE FROM projects WHERE id = ?").run(TEST_PROJECT_ID);
+  db.query("DELETE FROM projects WHERE id = ?").run(GIT_PROJECT_ID);
 });
 
 describe("MCP tools - listProjects", () => {
@@ -259,5 +271,35 @@ describe("MCP tools - getTools (tool definitions)", () => {
     expect(names).toContain("get_all_tasks");
     expect(names).toContain("git_status");
     expect(names).toContain("git_diff");
+  });
+});
+
+describe("MCP tools - gitStatus (via toolMap)", () => {
+  test("returns projectPath for a project with a valid git repo", () => {
+    const handler = toolMap.get("git_status")!.handler;
+    const result = handler({ projectId: GIT_PROJECT_ID }) as any;
+    expect(result.projectPath).toBe(REPO_ROOT);
+    expect(result.note).toContain("git CLI");
+  });
+
+  test("returns error for non-existent project", () => {
+    const handler = toolMap.get("git_status")!.handler;
+    const result = handler({ projectId: "non-existent-id" }) as any;
+    expect(result.error).toBe("Project not found");
+  });
+});
+
+describe("MCP tools - gitDiff (via toolMap)", () => {
+  test("returns diff output for a project with a valid git repo", async () => {
+    const handler = toolMap.get("git_diff")!.handler;
+    const result = (await handler({ projectId: GIT_PROJECT_ID })) as any;
+    // Should have either a diff string or "(no changes)"
+    expect(typeof result.diff === "string" || typeof result.stat === "string").toBe(true);
+  });
+
+  test("returns error for non-existent project", async () => {
+    const handler = toolMap.get("git_diff")!.handler;
+    const result = (await handler({ projectId: "non-existent-id" })) as any;
+    expect(result.error).toBe("Project not found");
   });
 });
