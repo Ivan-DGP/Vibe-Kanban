@@ -1,4 +1,4 @@
-import { describe, test, expect, afterAll, afterEach } from "bun:test";
+import { describe, test, expect, afterAll } from "bun:test";
 import { openDatabase, type DatabaseHandle } from "../lib/runtime";
 import { _runMigrations } from "./index";
 import { SCHEMA_SQL } from "./schema";

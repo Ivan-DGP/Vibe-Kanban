@@ -81,7 +81,7 @@ function connectWs(sessionId: string): Promise<WebSocket> {
 }
 
 // Helper: wait for the next message from the WebSocket
-function nextMessage(ws: WebSocket, timeoutMs = 5000): Promise<any> {
+function _nextMessage(ws: WebSocket, timeoutMs = 5000): Promise<any> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("WS message timeout")), timeoutMs);
     ws.addEventListener("message", (event) => {
@@ -239,7 +239,7 @@ describe("WebSocket to non-existent session", () => {
 describe("WebSocket origin validation", () => {
   test("rejects connections from disallowed origins", async () => {
     const sessionId = await createShellSession();
-    const wsUrl = baseUrl.replace("http", "ws") + `/ws/terminal/${sessionId}`;
+    const _wsUrl = baseUrl.replace("http", "ws") + `/ws/terminal/${sessionId}`;
 
     // Bun's WebSocket doesn't natively support setting custom headers for the
     // upgrade request. The origin check in the handler inspects request.headers.origin.

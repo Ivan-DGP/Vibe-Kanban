@@ -459,7 +459,7 @@ describe("CI Status API — with mapping + git repo (GitHub API unreachable)", (
     const fakeAccountId = fakeAccountRes.json().id;
 
     // Get the encrypted token from the account row
-    const acctRow = db.prepare("SELECT token FROM github_accounts WHERE id = ?").get(fakeAccountId) as { token: string };
+    db.prepare("SELECT token FROM github_accounts WHERE id = ?").get(fakeAccountId);
 
     // Disable FK checks, insert orphaned mapping, re-enable FK checks
     db.exec("PRAGMA foreign_keys = OFF");
