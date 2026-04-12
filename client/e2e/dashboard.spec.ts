@@ -1,8 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
 
 const BASE_API = 'http://localhost:3001/api';
-const SEED_PROJECT_NAME = `E2E-Dashboard-${Date.now()}`;
-const SEED_PROJECT_PATH = `/tmp/e2e-dashboard-${Date.now()}`;
+const SEED_PROJECT_NAME = `E2E-Seed-${Date.now()}`;
+const SEED_PROJECT_PATH = `/tmp/e2e-seed-${Date.now()}`;
 let seedProjectId: string;
 
 async function dismissOnboarding(page: Page) {
@@ -46,7 +46,7 @@ test.describe('Dashboard basics', () => {
     await page.goto('/', { waitUntil: 'networkidle' });
     await dismissOnboarding(page);
 
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
 
     const cards = page.locator('[data-slot="card"]').filter({ has: page.locator('h3') });
     await expect(cards.first()).toBeVisible({ timeout: 10000 });
@@ -99,7 +99,7 @@ test.describe('Dashboard basics', () => {
     await dashboardLink.click();
 
     await page.waitForURL(/\/$/, { timeout: 10000 });
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   });
 });
 
