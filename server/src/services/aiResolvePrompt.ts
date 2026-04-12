@@ -92,7 +92,7 @@ export function buildTree(dir: string, gitignorePatterns: string[], prefix = "",
 }
 
 // Read architecture rules files
-function readRulesFile(projectPath: string): string | null {
+export function readRulesFile(projectPath: string): string | null {
   const candidates = ["AGENTS.md", ".cursorrules", "CLAUDE.md", ".github/copilot-instructions.md"];
   for (const file of candidates) {
     try {
@@ -104,7 +104,7 @@ function readRulesFile(projectPath: string): string | null {
 }
 
 // Read dependency files
-function readDependencies(projectPath: string): string | null {
+export function readDependencies(projectPath: string): string | null {
   const deps: string[] = [];
 
   // package.json
@@ -145,7 +145,7 @@ function readDependencies(projectPath: string): string | null {
 }
 
 // Read key file snippets for AI context
-function readKeyFileSnippets(projectPath: string): string | null {
+export function readKeyFileSnippets(projectPath: string): string | null {
   const MAX_FILES = 8;
   const snippets: string[] = [];
 
@@ -248,9 +248,9 @@ export function rowToProject(row: any): Project {
 }
 
 // Related task scoring by keyword overlap
-const STOP_WORDS = new Set(["the", "a", "an", "is", "it", "to", "in", "on", "of", "for", "and", "or", "not", "with", "as", "at", "by", "from", "be", "this", "that", "add", "update", "fix", "make", "use", "get", "set"]);
+export const STOP_WORDS = new Set(["the", "a", "an", "is", "it", "to", "in", "on", "of", "for", "and", "or", "not", "with", "as", "at", "by", "from", "be", "this", "that", "add", "update", "fix", "make", "use", "get", "set"]);
 
-function extractKeywords(text: string): Set<string> {
+export function extractKeywords(text: string): Set<string> {
   return new Set(
     text.toLowerCase()
       .replace(/[^a-z0-9\s-_]/g, " ")
@@ -259,7 +259,7 @@ function extractKeywords(text: string): Set<string> {
   );
 }
 
-function scoreTaskRelevance(
+export function scoreTaskRelevance(
   taskKeywords: Set<string>,
   otherTitle: string,
 ): number {
@@ -271,7 +271,7 @@ function scoreTaskRelevance(
   return overlap;
 }
 
-function rankRelatedTasks(
+export function rankRelatedTasks(
   taskTitle: string,
   taskDescription: string | null,
   otherTasks: { title: string; status: string; priority: string }[],
@@ -293,7 +293,7 @@ function rankRelatedTasks(
 
 type ResolvedProfile = Exclude<PromptProfile, "auto">;
 
-interface ProfileConfig {
+export interface ProfileConfig {
   includeTree: boolean;
   treeMaxDepth: number;
   includeDeps: boolean;
@@ -303,7 +303,7 @@ interface ProfileConfig {
   includeRules: boolean;
 }
 
-const PROFILE_CONFIGS: Record<ResolvedProfile, ProfileConfig> = {
+export const PROFILE_CONFIGS: Record<ResolvedProfile, ProfileConfig> = {
   "quick-fix": {
     includeTree: false,
     treeMaxDepth: 0,
@@ -402,7 +402,7 @@ export function estimateComplexity(task: Pick<Task, "title" | "description" | "p
   return "medium";
 }
 
-function applyComplexityToConfig(config: ProfileConfig, complexity: "small" | "medium" | "large"): ProfileConfig {
+export function applyComplexityToConfig(config: ProfileConfig, complexity: "small" | "medium" | "large"): ProfileConfig {
   if (complexity === "small") {
     return {
       ...config,

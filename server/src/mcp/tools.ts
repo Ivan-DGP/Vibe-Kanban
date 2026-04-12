@@ -7,7 +7,7 @@ interface ToolHandler {
   handler: (params: Record<string, unknown>) => unknown | Promise<unknown>;
 }
 
-function listProjects(): unknown {
+export function listProjects(): unknown {
   const db = getDb();
   const rows = db.query("SELECT id, name, path, techStack, favorite FROM projects ORDER BY name").all();
   return rows.map((r: any) => ({
@@ -19,14 +19,14 @@ function listProjects(): unknown {
   }));
 }
 
-function getProject(params: Record<string, unknown>): unknown {
+export function getProject(params: Record<string, unknown>): unknown {
   const db = getDb();
   const row = db.query("SELECT * FROM projects WHERE id = ?").get(params.projectId as string) as any;
   if (!row) return { error: "Project not found" };
   return { id: row.id, name: row.name, path: row.path, techStack: JSON.parse(row.techStack || "[]") };
 }
 
-function listTasks(params: Record<string, unknown>): unknown {
+export function listTasks(params: Record<string, unknown>): unknown {
   const db = getDb();
   const projectId = params.projectId as string;
   const status = params.status as string | undefined;
@@ -40,7 +40,7 @@ function listTasks(params: Record<string, unknown>): unknown {
   return db.query(sql).all(...(bindings as [string, ...string[]]));
 }
 
-function getTask(params: Record<string, unknown>): unknown {
+export function getTask(params: Record<string, unknown>): unknown {
   const db = getDb();
   const row = db.query("SELECT id, title, description, prompt, status, priority, milestoneId FROM tasks WHERE id = ?")
     .get(params.taskId as string);
@@ -48,7 +48,7 @@ function getTask(params: Record<string, unknown>): unknown {
   return row;
 }
 
-function createTask(params: Record<string, unknown>): unknown {
+export function createTask(params: Record<string, unknown>): unknown {
   const db = getDb();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -69,7 +69,7 @@ function createTask(params: Record<string, unknown>): unknown {
   return { id, title: params.title };
 }
 
-function updateTask(params: Record<string, unknown>): unknown {
+export function updateTask(params: Record<string, unknown>): unknown {
   const db = getDb();
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -91,13 +91,13 @@ function updateTask(params: Record<string, unknown>): unknown {
   return { updated: true };
 }
 
-function deleteTask(params: Record<string, unknown>): unknown {
+export function deleteTask(params: Record<string, unknown>): unknown {
   const db = getDb();
   db.query("DELETE FROM tasks WHERE id = ?").run(params.taskId as string);
   return { deleted: true };
 }
 
-function getAllTasks(_params: Record<string, unknown>): unknown {
+export function getAllTasks(_params: Record<string, unknown>): unknown {
   const db = getDb();
   return db.query(
     "SELECT t.id, t.title, t.status, t.priority, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id ORDER BY t.updatedAt DESC LIMIT 100"

@@ -10,7 +10,7 @@ import type {
 } from "@vibe-kanban/shared";
 
 // Lightweight types for Notion API responses
-interface NotionRichText {
+export interface NotionRichText {
   plain_text: string;
   annotations?: {
     bold?: boolean;
@@ -21,7 +21,7 @@ interface NotionRichText {
   href?: string;
 }
 
-interface NotionBlockContent {
+export interface NotionBlockContent {
   rich_text?: NotionRichText[];
   checked?: boolean;
   language?: string;
@@ -31,11 +31,11 @@ interface NotionBlockContent {
   external?: { url: string };
 }
 
-type NotionBlock = {
+export type NotionBlock = {
   type: string;
 } & Record<string, NotionBlockContent | undefined>;
 
-interface NotionObject {
+export interface NotionObject {
   id: string;
   object: string;
   url: string;
@@ -45,7 +45,7 @@ interface NotionObject {
   properties?: Record<string, NotionProperty>;
 }
 
-interface NotionProperty {
+export interface NotionProperty {
   type: string;
   title?: NotionRichText[];
   rich_text?: NotionRichText[];
@@ -100,7 +100,7 @@ async function notionFetch(
   return res.json() as Promise<Record<string, any>>;
 }
 
-function extractTitle(obj: NotionObject): string {
+export function extractTitle(obj: NotionObject): string {
   if (obj.title) {
     if (Array.isArray(obj.title)) {
       return obj.title.map((t) => t.plain_text || "").join("") || "Untitled";
@@ -128,13 +128,13 @@ function extractTitle(obj: NotionObject): string {
   return "Untitled";
 }
 
-function extractIcon(obj: NotionObject): string | null {
+export function extractIcon(obj: NotionObject): string | null {
   if (!obj.icon) return null;
   if (obj.icon.type === "emoji") return obj.icon.emoji ?? null;
   return null;
 }
 
-function richTextToMarkdown(richText: NotionRichText[]): string {
+export function richTextToMarkdown(richText: NotionRichText[]): string {
   return richText
     .map((rt) => {
       let text = rt.plain_text || "";
@@ -148,7 +148,7 @@ function richTextToMarkdown(richText: NotionRichText[]): string {
     .join("");
 }
 
-function blocksToMarkdown(blocks: NotionBlock[]): string {
+export function blocksToMarkdown(blocks: NotionBlock[]): string {
   const lines: string[] = [];
   for (const block of blocks) {
     const type = block.type;
@@ -372,7 +372,7 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 };
 
-function simplifyProperties(props: Record<string, NotionProperty>): Record<string, unknown> {
+export function simplifyProperties(props: Record<string, NotionProperty>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(props)) {
     switch (v.type) {
