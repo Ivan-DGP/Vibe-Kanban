@@ -546,7 +546,7 @@ describe("Git route integration", () => {
     expect(statusRes.json().branch).toBe("feature/test-branch");
 
     // Switch back to default branch for subsequent tests
-    const defaultBranch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: tmpDir }).toString().trim();
+    execSync("git rev-parse --abbrev-ref HEAD", { cwd: tmpDir }).toString().trim();
     // We're on feature/test-branch, so we need to know the original branch name
     // Let's get it from the branches list
     const branchRes = await app.inject({

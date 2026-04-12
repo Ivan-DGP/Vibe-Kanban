@@ -16,7 +16,7 @@ const PROJECT_PATH = "/home/ivanf/projects/Vibe-Kanban";
 
 const TEST_PROJECT_ID = "__test_builder_proj__";
 const TEST_TASK_ID = "__test_builder_task__";
-const TEST_TASK_NONEXISTENT_ID = "__test_builder_no_such_task__";
+const _TEST_TASK_NONEXISTENT_ID = "__test_builder_no_such_task__";
 const TEST_PROJECT_NONEXISTENT_ID = "__test_builder_no_such_proj__";
 const TEST_PORT = 3099;
 
@@ -58,7 +58,7 @@ function getTestTask(): Task {
   } as Task;
 }
 
-function getTestProject(): Project {
+function _getTestProject(): Project {
   const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(TEST_PROJECT_ID) as any;
   return rowToProject(row);
 }

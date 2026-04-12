@@ -231,7 +231,6 @@ describe("POST /api/claude/bulk-import — validation", () => {
 describe("POST /api/claude/analyze — additional validation", () => {
   test("returns 404 when projectId exists but taskId does not", async () => {
     // Create a real project
-    const db = getDb();
     const projRes = await app.inject({
       method: "POST",
       url: "/api/projects",

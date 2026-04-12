@@ -402,10 +402,6 @@ describe("MCP SSE endpoint", () => {
       expect(body).toContain("notifications/initialized");
       expect(body).toContain("vibe-kanban");
     } finally {
-      await app.close();
-      // Rebuild the app for remaining tests
-      app = await buildApp();
-      await app.ready();
       // Re-enable MCP settings
       const db = getDb();
       db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
