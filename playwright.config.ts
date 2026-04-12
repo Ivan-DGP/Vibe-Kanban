@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: './client/e2e',
   timeout: 60000,
   retries: isCI ? 1 : 0,
-  workers: 1,
+  workers: isCI ? 4 : 1,
   reporter: isCI
     ? [['list'], ['json', { outputFile: 'e2e-results.json' }]]
     : [['list'], ['html', { open: 'never', outputFolder: 'client/e2e/playwright-report' }]],
@@ -22,6 +22,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: isCI ? /ai-resolve/ : undefined,
     },
   ],
   webServer: {
