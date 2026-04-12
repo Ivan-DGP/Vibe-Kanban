@@ -11,7 +11,7 @@ function getProjectPath(projectId: string): string {
   return project.path;
 }
 
-function safePath(basePath: string, userPath: string): string {
+export function safePath(basePath: string, userPath: string): string {
   const resolved = nodePath.resolve(basePath, userPath);
   if (!resolved.startsWith(nodePath.resolve(basePath))) {
     throw new Error("Path traversal detected");
@@ -26,7 +26,7 @@ const IMAGE_EXTENSIONS = new Set([
 // Block writes/deletes to sensitive paths within projects
 const BLOCKED_PATH_SEGMENTS = [".git/hooks", ".env", ".git/config", ".git/objects"];
 
-function isBlockedPath(relativePath: string): boolean {
+export function isBlockedPath(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, "/");
   return BLOCKED_PATH_SEGMENTS.some(
     (blocked) => normalized === blocked || normalized.startsWith(blocked + "/"),

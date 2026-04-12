@@ -8,7 +8,7 @@ const PRIORITY_HOURS: Record<string, number> = {
   low: 1,
 };
 
-function getDateRange(period: string, from?: string, to?: string): { from: string; to: string } {
+export function getDateRange(period: string, from?: string, to?: string): { from: string; to: string } {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -43,7 +43,7 @@ function getDateRange(period: string, from?: string, to?: string): { from: strin
   }
 }
 
-function calculateHours(task: any): number {
+export function calculateHours(task: any): number {
   if (task.inProgressAt && task.doneAt) {
     const start = new Date(task.inProgressAt).getTime();
     const end = new Date(task.doneAt).getTime();
