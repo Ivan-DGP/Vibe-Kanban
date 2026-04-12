@@ -15,7 +15,7 @@ interface OAuthToken {
   expiresAt: string;
 }
 
-function safeCompare(a: string, b: string): boolean {
+export function safeCompare(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   try {
     return timingSafeEqual(Buffer.from(a), Buffer.from(b));

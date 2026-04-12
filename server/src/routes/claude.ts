@@ -9,7 +9,7 @@ import type { Task } from "@vibe-kanban/shared";
 let cliAvailableCache: boolean | null = null;
 let cliCheckTime = 0;
 
-async function isCliAvailable(): Promise<boolean> {
+export async function isCliAvailable(): Promise<boolean> {
   if (cliAvailableCache !== null && Date.now() - cliCheckTime < 60000) {
     return cliAvailableCache;
   }
@@ -24,7 +24,13 @@ async function isCliAvailable(): Promise<boolean> {
   return cliAvailableCache;
 }
 
-function getApiKey(): string | null {
+/** Reset the CLI availability cache (used by tests). */
+export function resetCliCache(): void {
+  cliAvailableCache = null;
+  cliCheckTime = 0;
+}
+
+export function getApiKey(): string | null {
   const db = getDb();
   const row = db.prepare("SELECT value FROM settings WHERE key = 'claudeApiKey'").get() as any;
   if (!row) return null;

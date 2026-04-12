@@ -13,7 +13,7 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function applyTimestampCascade(
+export function applyTimestampCascade(
   task: Partial<Task>,
   newStatus: TaskStatus,
 ): Record<string, string> {

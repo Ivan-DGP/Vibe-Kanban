@@ -5,7 +5,7 @@ import { log } from "../lib/logger";
 import path from "node:path";
 import fs from "node:fs";
 
-function resolveGitCwd(projectPath: string, subPath?: string): string {
+export function resolveGitCwd(projectPath: string, subPath?: string): string {
   if (!subPath) return projectPath;
   const resolved = path.resolve(projectPath, subPath);
   if (!resolved.startsWith(path.resolve(projectPath))) {
@@ -21,7 +21,7 @@ function getProjectPath(projectId: string): string {
   return project.path;
 }
 
-function parseStatus(stdout: string) {
+export function parseStatus(stdout: string) {
   const lines = stdout.split("\n").filter(Boolean);
   const result = {
     branch: "",

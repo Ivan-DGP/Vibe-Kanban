@@ -11,6 +11,10 @@ bun.lock
 .DS_Store
 Thumbs.db
 
+# Coverage
+server/coverage/
+e2e-results.json
+
 # Debug / test artifacts
 debug-browse-dialog.mjs
 debug-browse-dialog2.mjs

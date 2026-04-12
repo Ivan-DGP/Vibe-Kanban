@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Response Style
+
+Write terse. Drop articles, filler words, pleasantries, hedging. Use fragments. Keep all technical accuracy and substance. No trailing summaries of what you just did — the diff speaks for itself. Code blocks, URLs, and commands stay exact.
+
 ## Project Overview
 
 Vibe Kanban is a local development dashboard for managing projects, tasks, git, terminals, and AI. It runs on localhost as a web app that complements VS Code.

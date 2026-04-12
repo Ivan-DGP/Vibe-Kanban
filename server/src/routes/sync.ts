@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 
-const APPS_SCRIPT_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/.+$/;
+export const APPS_SCRIPT_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/.+$/;
 
 const syncRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/sync/push", async (request, reply) => {

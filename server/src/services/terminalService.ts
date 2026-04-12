@@ -10,9 +10,9 @@ import type { Task } from "@vibe-kanban/shared";
 
 // Maximum scrollback to retain per session (in characters).
 // This allows reconnecting clients to see recent terminal output.
-const MAX_SCROLLBACK_CHARS = 100_000;
+export const MAX_SCROLLBACK_CHARS = 100_000;
 
-interface PtySession {
+export interface PtySession {
   id: string;
   proc: PtyHandle | null;
   cwd: string;
@@ -29,7 +29,7 @@ interface PtySession {
 
 // ── Safe environment ───────────────────────────────────────────
 
-const SAFE_ENV_KEYS = new Set([
+export const SAFE_ENV_KEYS = new Set([
   "PATH", "HOME", "HOMEDRIVE", "HOMEPATH", "USERPROFILE",
   "USER", "USERNAME", "SHELL", "TERM", "LANG", "LC_ALL",
   "TMPDIR", "TEMP", "TMP", "NODE_ENV", "EDITOR",
@@ -37,7 +37,7 @@ const SAFE_ENV_KEYS = new Set([
   "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA",
 ]);
 
-function getSafeEnv(): Record<string, string> {
+export function getSafeEnv(): Record<string, string> {
   const safe: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value && (SAFE_ENV_KEYS.has(key) || key.startsWith("LC_"))) {
@@ -49,16 +49,21 @@ function getSafeEnv(): Record<string, string> {
 
 // ── Session store ──────────────────────────────────────────────
 
-const sessions = new Map<string, PtySession>();
-let idCounter = 0;
+export const sessions = new Map<string, PtySession>();
+export let idCounter = 0;
 
-function generateId(): string {
+export function generateId(): string {
   return `term-${++idCounter}-${Date.now().toString(36)}`;
+}
+
+/** Reset id counter (for testing) */
+export function _resetIdCounter(): void {
+  idCounter = 0;
 }
 
 // ── Resolve CWD from projectId or fallback ─────────────────────
 
-function resolveCwd(projectId?: string): string {
+export function resolveCwd(projectId?: string): string {
   if (projectId) {
     const db = getDb();
     const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as any;
@@ -69,7 +74,7 @@ function resolveCwd(projectId?: string): string {
 
 // ── Output routing: send to WS or buffer ───────────────────────
 
-function emitData(session: PtySession, data: string) {
+export function emitData(session: PtySession, data: string) {
   // Always append to scrollback for reconnection support
   session.scrollback += data;
   if (session.scrollback.length > MAX_SCROLLBACK_CHARS) {
@@ -83,7 +88,7 @@ function emitData(session: PtySession, data: string) {
   }
 }
 
-function emitExit(session: PtySession, exitCode: number) {
+export function emitExit(session: PtySession, exitCode: number) {
   if (session.ws && session.ws.readyState === 1) {
     session.ws.send(JSON.stringify({ type: "exit", exitCode }));
   } else {
@@ -140,7 +145,7 @@ function spawnShellPty(
 
 // ── AI Resolve via PTY ──────────────────────────────────────────
 
-function resolveClaudeCmd(safeEnv: Record<string, string>): string {
+export function resolveClaudeCmd(safeEnv: Record<string, string>): string {
   try {
     const whichCmd = process.platform === "win32" ? "where" : "which";
     const result = spawnProcessSync([whichCmd, "claude"], { env: safeEnv });
@@ -475,7 +480,7 @@ export function detachWs(id: string): void {
 
 // ── Batch AI Resolve Queue ──────────────────────────────────
 
-let batchState: BatchResolveStatus = {
+export let batchState: BatchResolveStatus = {
   state: "idle",
   totalTasks: 0,
   completedTasks: 0,
