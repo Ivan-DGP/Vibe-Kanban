@@ -1,5 +1,20 @@
 import { test, expect, Page } from "@playwright/test";
 
+const BASE_API = "http://localhost:3001/api";
+
+/** Delete any leftover E2E-* / LogTest-* projects from previous failed runs */
+async function cleanupStaleE2EProjects() {
+  try {
+    const res = await fetch(`${BASE_API}/projects`);
+    const projects: any[] = await res.json();
+    for (const p of projects) {
+      if (/^(E2E-|LogTest-)/.test(p.name)) {
+        await fetch(`${BASE_API}/projects/${p.id}`, { method: "DELETE" });
+      }
+    }
+  } catch {}
+}
+
 /**
  * Dismiss the onboarding wizard if it appears.
  */
@@ -71,6 +86,10 @@ async function goToLogsPage(page: Page) {
 }
 
 test.describe("Logs Page", () => {
+  test.beforeAll(async () => {
+    await cleanupStaleE2EProjects();
+  });
+
   test.beforeEach(async ({ page }) => {
     // Visit the app root first to dismiss onboarding if needed
     await page.goto("/", { waitUntil: "networkidle" });

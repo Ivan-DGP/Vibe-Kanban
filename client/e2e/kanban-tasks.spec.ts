@@ -6,6 +6,19 @@ const SEED_PROJECT_NAME = `E2E-Kanban-${Date.now()}`;
 const SEED_PROJECT_PATH = `/tmp/e2e-kanban-${Date.now()}`;
 let seedProjectId: string;
 
+/** Delete any leftover E2E-* projects from previous failed runs */
+async function cleanupStaleE2EProjects() {
+  try {
+    const res = await fetch(`${BASE_API}/projects`);
+    const projects: any[] = await res.json();
+    for (const p of projects) {
+      if (/^E2E-/.test(p.name)) {
+        await fetch(`${BASE_API}/projects/${p.id}`, { method: 'DELETE' });
+      }
+    }
+  } catch {}
+}
+
 async function cleanupTestTasks() {
   if (!seedProjectId) return;
   try {
@@ -49,7 +62,7 @@ async function navigateToKanban(page: Page) {
 
 test.describe.serial('Kanban board task workflow', () => {
   test.beforeAll(async () => {
-    // Seed a project via API
+    await cleanupStaleE2EProjects();
     const res = await fetch(`${BASE_API}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

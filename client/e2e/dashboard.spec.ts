@@ -5,6 +5,19 @@ const SEED_PROJECT_NAME = `E2E-Seed-${Date.now()}`;
 const SEED_PROJECT_PATH = `/tmp/e2e-seed-${Date.now()}`;
 let seedProjectId: string;
 
+/** Delete any leftover E2E-* projects from previous failed runs */
+async function cleanupStaleE2EProjects() {
+  try {
+    const res = await fetch(`${BASE_API}/projects`);
+    const projects: any[] = await res.json();
+    for (const p of projects) {
+      if (/^E2E-/.test(p.name)) {
+        await fetch(`${BASE_API}/projects/${p.id}`, { method: 'DELETE' });
+      }
+    }
+  } catch {}
+}
+
 async function dismissOnboarding(page: Page) {
   const getStartedBtn = page.getByRole('button', { name: /get started/i });
   if (await getStartedBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -24,8 +37,9 @@ function projectCard(page: Page, name: string) {
   return page.locator('[data-slot="card"]').filter({ hasText: name });
 }
 
-// Seed a project via API so tests don't depend on existing data
+// Clean up stale E2E projects, then seed a fresh one
 test.beforeAll(async () => {
+  await cleanupStaleE2EProjects();
   const res = await fetch(`${BASE_API}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -106,6 +120,19 @@ test.describe('Dashboard basics', () => {
 test.describe.serial('Create and delete project', () => {
   const testProjectName = `E2E-CreateDel-${Date.now()}`;
   const testProjectPath = `/tmp/e2e-test-project-${Date.now()}`;
+
+  // Safety net: clean up the project via API if the UI delete test fails
+  test.afterAll(async () => {
+    try {
+      const res = await fetch(`${BASE_API}/projects`);
+      const projects: any[] = await res.json();
+      for (const p of projects) {
+        if (p.name === testProjectName) {
+          await fetch(`${BASE_API}/projects/${p.id}`, { method: 'DELETE' });
+        }
+      }
+    } catch {}
+  });
 
   test('Create a new project', async ({ page }) => {
     await page.goto('/', { waitUntil: 'networkidle' });
