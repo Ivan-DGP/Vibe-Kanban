@@ -1,4 +1,4 @@
 [test]
 coverage = true
-coverageReporter = ["text"]
+coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
