@@ -5,6 +5,20 @@ let app: Awaited<ReturnType<typeof buildApp>>;
 
 beforeAll(async () => {
   app = await buildApp();
+
+  // Register a route with JSON schema validation so we can trigger
+  // the error handler's validation branch (error.validation truthy).
+  app.post("/test-validation", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["name"],
+        properties: { name: { type: "string" } },
+      },
+    },
+    handler: async () => ({ ok: true }),
+  });
+
   await app.ready();
 });
 
@@ -81,6 +95,20 @@ describe("error handler", () => {
     const body = res.json();
     expect(body.error).toBeDefined();
     expect(typeof body.error).toBe("string");
+  });
+
+  test("validation error returns 400 with details", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/test-validation",
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe("Validation error");
+    expect(body.details).toBeDefined();
+    expect(Array.isArray(body.details)).toBe(true);
   });
 });
 

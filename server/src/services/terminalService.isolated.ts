@@ -70,6 +70,9 @@ import {
   writeToSession,
   resizeSession,
   getBatchResolveStatus,
+  startBatchResolve,
+  cancelBatchResolve,
+  batchState,
   createSession,
   type PtySession,
 } from "./terminalService";
@@ -1000,6 +1003,147 @@ describe("terminalService unit tests", () => {
       const session = makeMockSession({ ws });
       emitExit(session, -1);
       expect(JSON.parse(ws.sent[0]).exitCode).toBe(-1);
+    });
+  });
+
+  // ── startBatchResolve ─────────────────────────────────────
+
+  describe("startBatchResolve", () => {
+    beforeEach(() => {
+      // Reset batchState to idle between tests
+      Object.assign(batchState, {
+        state: "idle",
+        projectId: undefined,
+        totalTasks: 0,
+        completedTasks: 0,
+        concurrency: undefined,
+        currentTaskId: undefined,
+        currentTaskTitle: undefined,
+        currentSessionId: undefined,
+        activeTasks: [],
+        taskResults: [],
+      });
+    });
+
+    test("throws when no valid tasks found", async () => {
+      // mockPrepare().get() returns undefined by default, so no tasks found
+      await expect(startBatchResolve("proj-1", ["task-1", "task-2"])).rejects.toThrow(
+        "No valid tasks found",
+      );
+    });
+
+    test("sets batchState to running with valid tasks", async () => {
+      // Make the mock return a task for SELECT * FROM tasks WHERE id = ? AND projectId = ?
+      mockPrepare.mockImplementation(() => ({
+        get: mock((..._args: any[]) => ({
+          id: "task-1",
+          title: "Test task",
+          description: null,
+          prompt: null,
+          status: "todo",
+          projectId: "proj-1",
+          branch: null,
+          priority: "medium",
+        })),
+        all: mock((..._args: any[]) => []),
+        run: mock((..._args: any[]) => {}),
+      }));
+
+      const status = await startBatchResolve("proj-1", ["task-1"]);
+      expect(status.state).toBe("running");
+      expect(status.totalTasks).toBe(1);
+      expect(status.completedTasks).toBe(0);
+    });
+
+    test("throws when already running", async () => {
+      // Set state to running manually
+      batchState.state = "running";
+      await expect(startBatchResolve("proj-1", ["task-1"])).rejects.toThrow(
+        "A batch resolve is already running",
+      );
+    });
+
+    test("clamps concurrency between 1 and 10", async () => {
+      mockPrepare.mockImplementation(() => ({
+        get: mock((..._args: any[]) => ({
+          id: "task-1",
+          title: "Test task",
+          description: null,
+          prompt: null,
+          status: "todo",
+          projectId: "proj-1",
+          branch: null,
+          priority: "medium",
+        })),
+        all: mock((..._args: any[]) => []),
+        run: mock((..._args: any[]) => {}),
+      }));
+
+      const status = await startBatchResolve("proj-1", ["task-1"], 50);
+      expect(status.concurrency).toBe(10);
+    });
+  });
+
+  // ── cancelBatchResolve ────────────────────────────────────
+
+  describe("cancelBatchResolve", () => {
+    beforeEach(() => {
+      Object.assign(batchState, {
+        state: "idle",
+        projectId: undefined,
+        totalTasks: 0,
+        completedTasks: 0,
+        concurrency: undefined,
+        currentTaskId: undefined,
+        currentTaskTitle: undefined,
+        currentSessionId: undefined,
+        activeTasks: [],
+        taskResults: [],
+      });
+    });
+
+    test("returns current status when not running", () => {
+      const status = cancelBatchResolve();
+      expect(status.state).toBe("idle");
+    });
+
+    test("sets state to cancelled when running", () => {
+      batchState.state = "running";
+      batchState.activeTasks = [];
+      const status = cancelBatchResolve();
+      expect(status.state).toBe("cancelled");
+    });
+
+    test("kills active sessions on cancel", () => {
+      // Create a session that batch resolve is tracking
+      const session = makeMockSession({ id: "batch-s1" });
+      sessions.set("batch-s1", session);
+
+      batchState.state = "running";
+      batchState.activeTasks = [
+        { taskId: "t1", taskTitle: "Task 1", sessionId: "batch-s1" },
+      ];
+      batchState.currentSessionId = undefined;
+
+      cancelBatchResolve();
+
+      // Session should be killed (removed from map)
+      expect(sessions.has("batch-s1")).toBe(false);
+      expect(session.alive).toBe(false);
+    });
+
+    test("also kills legacy currentSessionId on cancel", () => {
+      const session = makeMockSession({ id: "batch-legacy" });
+      sessions.set("batch-legacy", session);
+
+      batchState.state = "running";
+      batchState.activeTasks = [];
+      batchState.currentSessionId = "batch-legacy";
+
+      cancelBatchResolve();
+
+      expect(sessions.has("batch-legacy")).toBe(false);
+      expect(session.alive).toBe(false);
     });
   });
 });

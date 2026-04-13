@@ -119,6 +119,32 @@ describe("Notion API — invalid API key", () => {
     expect(body.error).toBeDefined();
   });
 
+  test("POST /api/notion/search with filter — returns 502 with invalid key", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/notion/search",
+      headers: { "Content-Type": "application/json" },
+      payload: { query: "test", filter: "database" },
+    });
+
+    expect(res.statusCode).toBe(502);
+    const body = res.json();
+    expect(body.error).toBeDefined();
+  });
+
+  test("POST /api/notion/search without query — returns 502 with invalid key", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/notion/search",
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(502);
+    const body = res.json();
+    expect(body.error).toBeDefined();
+  });
+
   test("GET /api/notion/databases — returns 502 with invalid key", async () => {
     const res = await app.inject({
       method: "GET",
@@ -150,5 +176,96 @@ describe("Notion API — invalid API key", () => {
     expect(res.statusCode).toBe(502);
     const body = res.json();
     expect(body.error).toBeDefined();
+  });
+});
+
+describe("Notion API — malformed settings value (getNotionToken edge cases)", () => {
+  test("getNotionToken returns null for non-JSON value in DB", async () => {
+    const db = getDb();
+    // Insert a raw non-JSON string — triggers the catch branch in getNotionToken
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "notionApiKey",
+      "not-valid-json{{{",
+    );
+
+    // Status endpoint should treat it as no token
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/notion/status",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.connected).toBe(false);
+    expect(body.user).toBeNull();
+
+    // Search should return 400 (no token)
+    const searchRes = await app.inject({
+      method: "POST",
+      url: "/api/notion/search",
+      headers: { "Content-Type": "application/json" },
+      payload: { query: "test" },
+    });
+    expect(searchRes.statusCode).toBe(400);
+
+    db.prepare("DELETE FROM settings WHERE key = ?").run("notionApiKey");
+  });
+
+  test("getNotionToken returns null for empty-string token", async () => {
+    const db = getDb();
+    // JSON.parse('""') returns "" which is falsy → null
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "notionApiKey",
+      JSON.stringify(""),
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/notion/status",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.connected).toBe(false);
+    expect(body.user).toBeNull();
+
+    // All endpoints should return 400 since token is null
+    const dbRes = await app.inject({
+      method: "GET",
+      url: "/api/notion/databases",
+    });
+    expect(dbRes.statusCode).toBe(400);
+
+    const pagesRes = await app.inject({
+      method: "GET",
+      url: "/api/notion/databases/some-id/pages",
+    });
+    expect(pagesRes.statusCode).toBe(400);
+
+    const pageRes = await app.inject({
+      method: "GET",
+      url: "/api/notion/pages/some-id",
+    });
+    expect(pageRes.statusCode).toBe(400);
+
+    db.prepare("DELETE FROM settings WHERE key = ?").run("notionApiKey");
+  });
+
+  test("getNotionToken returns null for JSON null value", async () => {
+    const db = getDb();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "notionApiKey",
+      JSON.stringify(null),
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/notion/status",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().connected).toBe(false);
+
+    db.prepare("DELETE FROM settings WHERE key = ?").run("notionApiKey");
   });
 });

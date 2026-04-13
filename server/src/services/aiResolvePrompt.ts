@@ -5,22 +5,32 @@ import { spawn } from "../lib/spawn";
 import type { Task, Project, PromptProfile } from "@vibe-kanban/shared";
 
 // Simple TTL cache for expensive file system / git operations
-const contextCache = new Map<string, { value: any; expiry: number }>();
-const CACHE_TTL = 30_000; // 30 seconds
+export const contextCache = new Map<string, { value: any; expiry: number }>();
+export const CACHE_TTL = 30_000; // 30 seconds
+const MAX_CACHE_SIZE = 200;
 
-function cached<T>(key: string, fn: () => T): T {
+function evictExpired(): void {
+  const now = Date.now();
+  for (const [k, v] of contextCache) {
+    if (v.expiry <= now) contextCache.delete(k);
+  }
+}
+
+export function cached<T>(key: string, fn: () => T): T {
   const now = Date.now();
   const entry = contextCache.get(key);
   if (entry && entry.expiry > now) return entry.value as T;
+  if (contextCache.size >= MAX_CACHE_SIZE) evictExpired();
   const value = fn();
   contextCache.set(key, { value, expiry: now + CACHE_TTL });
   return value;
 }
 
-async function cachedAsync<T>(key: string, fn: () => Promise<T>): Promise<T> {
+export async function cachedAsync<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const entry = contextCache.get(key);
   if (entry && entry.expiry > now) return entry.value as T;
+  if (contextCache.size >= MAX_CACHE_SIZE) evictExpired();
   const value = await fn();
   contextCache.set(key, { value, expiry: now + CACHE_TTL });
   return value;

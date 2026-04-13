@@ -520,6 +520,87 @@ describe("API Client — Execute Request (Proxy)", () => {
   });
 });
 
+describe("API Client — PATCH edge cases", () => {
+  const uniqueSuffix = Date.now();
+  let projectId: string;
+  let collectionId: string;
+  let requestId: string;
+
+  beforeAll(async () => {
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        name: `PATCH Edge Test ${uniqueSuffix}`,
+        path: `/tmp/patch-edge-test-${uniqueSuffix}`,
+      },
+    });
+    projectId = projectRes.json().id;
+
+    const collRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/api-collections`,
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Edge Collection ${uniqueSuffix}` },
+    });
+    collectionId = collRes.json().id;
+
+    const reqRes = await app.inject({
+      method: "POST",
+      url: "/api/api-requests",
+      headers: { "Content-Type": "application/json" },
+      payload: { collectionId, name: "Edge Request", method: "GET", url: "http://example.com" },
+    });
+    requestId = reqRes.json().id;
+  });
+
+  afterAll(async () => {
+    await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
+  });
+
+  test("PATCH /api/api-collections/:id with no recognized fields still returns current row", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/api-collections/${collectionId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { unknownField: "ignored" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.id).toBe(collectionId);
+    expect(body.name).toBe(`Edge Collection ${uniqueSuffix}`);
+  });
+
+  test("PATCH /api/api-requests/:id with no recognized fields still returns current row", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/api-requests/${requestId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { unknownField: "ignored" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.id).toBe(requestId);
+    expect(body.name).toBe("Edge Request");
+  });
+
+  test("POST /api/api-client/execute — filters out empty header values", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/api-client/execute",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        method: "GET",
+        url: "http://this-host-does-not-exist.invalid/path",
+        headers: { "X-Empty": "", "X-Spaces": "   ", "X-Valid": "yes" },
+      },
+    });
+    // Will fail to connect, but the header filtering logic is exercised
+    expect(res.statusCode).toBe(502);
+  });
+});
+
 describe("API Client — Cascade Delete", () => {
   const uniqueSuffix = Date.now();
   let projectId: string;

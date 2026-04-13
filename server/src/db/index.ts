@@ -409,3 +409,13 @@ export function closeDb(): void {
     _db = null;
   }
 }
+
+/** @internal Reset singleton — for testing only */
+export function _resetDb(): void {
+  _db = null;
+}
+
+/** @internal Run migrations on any DatabaseHandle — for testing only */
+export function _runMigrations(db: DatabaseHandle): void {
+  runMigrations(db);
+}

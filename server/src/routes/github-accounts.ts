@@ -131,6 +131,7 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
             Accept: "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
           },
+          signal: AbortSignal.timeout(15_000),
         },
       );
 
@@ -228,6 +229,7 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
                 Accept: "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
               },
+              signal: AbortSignal.timeout(15_000),
             },
           );
           if (!res.ok) {
