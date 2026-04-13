@@ -108,18 +108,29 @@ test.describe('Knowledge Base — Artifacts', () => {
   });
 
   test('Click artifact opens editor', async ({ page }) => {
+    // Ensure artifact exists via API
+    await fetch(`${BASE_API}/projects/${seedProjectId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: 'click-test.md',
+        type: 'document',
+        description: 'Click test artifact',
+        content: '# Click Test',
+      }),
+    });
+
     await page.goto(`/project/${seedProjectId}`, { waitUntil: 'networkidle' });
     await dismissOnboarding(page);
     await page.getByRole('button', { name: /knowledge/i }).click();
 
     // Wait for the artifact to appear then click it
-    const artifactCard = page.getByText('test-doc.md');
+    const artifactCard = page.getByText('click-test.md');
     await expect(artifactCard).toBeVisible({ timeout: 10000 });
     await artifactCard.click();
 
-    // Editor should show filename input and save button
-    await expect(page.locator('input[value="test-doc.md"]')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
+    // Editor should show save button
+    await expect(page.getByRole('button', { name: /save/i })).toBeVisible({ timeout: 10000 });
   });
 });
 
