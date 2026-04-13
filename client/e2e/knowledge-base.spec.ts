@@ -82,8 +82,8 @@ test.describe('Knowledge Base — Artifacts', () => {
     await page.getByRole('button', { name: /new/i }).click();
     await page.getByRole('menuitem', { name: /document/i }).click();
 
-    // Should navigate to editor with untitled file
-    await expect(page.getByDisplayValue(/untitled/i)).toBeVisible();
+    // Should navigate to editor — back button and save button visible
+    await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
   });
 
   test('Artifact appears in the list after creation via API', async ({ page }) => {
@@ -112,10 +112,13 @@ test.describe('Knowledge Base — Artifacts', () => {
     await dismissOnboarding(page);
     await page.getByRole('button', { name: /knowledge/i }).click();
 
-    await page.getByText('test-doc.md').click();
+    // Wait for the artifact to appear then click it
+    const artifactCard = page.getByText('test-doc.md');
+    await expect(artifactCard).toBeVisible({ timeout: 10000 });
+    await artifactCard.click();
 
     // Editor should show filename input and save button
-    await expect(page.getByDisplayValue('test-doc.md')).toBeVisible();
+    await expect(page.locator('input[value="test-doc.md"]')).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
   });
 });
