@@ -305,6 +305,138 @@ describe("Artifacts API", () => {
     expect(res.statusCode).toBe(413);
   });
 
+  test("POST /upload — upload a text file via multipart", async () => {
+    const boundary = "----TestBoundary" + Date.now();
+    const filename = "upload-test.txt";
+    const fileContent = "Hello from uploaded file!";
+    const body = [
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="file"; filename="${filename}"`,
+      `Content-Type: text/plain`,
+      ``,
+      fileContent,
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts/upload`,
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const artifact = res.json();
+    expect(artifact.filename).toBe("upload-test.txt");
+    expect(artifact.mimeType).toBe("text/plain");
+    expect(artifact.type).toBe("document");
+    expect(artifact.sizeBytes).toBe(fileContent.length);
+
+    // Verify content was written
+    const contentRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/artifacts/${artifact.id}/content`,
+    });
+    expect(contentRes.json().content).toBe(fileContent);
+    expect(contentRes.json().encoding).toBe("utf-8");
+  });
+
+  test("POST /upload — upload a binary file (PNG)", async () => {
+    const boundary = "----TestBoundary" + Date.now();
+    // Minimal PNG: 1x1 transparent pixel
+    const pngBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==",
+      "base64"
+    );
+
+    const bodyParts = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`),
+      pngBytes,
+      Buffer.from(`\r\n--${boundary}--`),
+    ]);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts/upload`,
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      payload: bodyParts,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const artifact = res.json();
+    expect(artifact.filename).toBe("pixel.png");
+    expect(artifact.mimeType).toBe("image/png");
+    expect(artifact.type).toBe("image");
+    expect(artifact.sizeBytes).toBe(pngBytes.length);
+
+    // Verify content is returned as base64
+    const contentRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/artifacts/${artifact.id}/content`,
+    });
+    expect(contentRes.json().encoding).toBe("base64");
+  });
+
+  test("POST /upload — upload a PDF", async () => {
+    const boundary = "----TestBoundary" + Date.now();
+    const pdfContent = "%PDF-1.4 fake pdf content";
+
+    const body = [
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="file"; filename="spec.pdf"`,
+      `Content-Type: application/pdf`,
+      ``,
+      pdfContent,
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts/upload`,
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const artifact = res.json();
+    expect(artifact.filename).toBe("spec.pdf");
+    expect(artifact.mimeType).toBe("application/pdf");
+    expect(artifact.type).toBe("document");
+  });
+
+  test("POST /upload — 400 when no file provided", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts/upload`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+    // No multipart data → should fail
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+  });
+
+  test("POST /upload — infers type from mime", async () => {
+    const boundary = "----TestBoundary" + Date.now();
+    const body = [
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="file"; filename="data.json"`,
+      `Content-Type: application/json`,
+      ``,
+      `{"key":"value"}`,
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts/upload`,
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().type).toBe("spec");
+  });
+
   test("cascade deletes artifacts when project is deleted", async () => {
     // Create a temp project with an artifact
     const projRes = await app.inject({

@@ -337,6 +337,16 @@ export const api = {
       get<{ content: string; encoding: string }>(`/projects/${projectId}/artifacts/${id}/content`),
     create: (projectId: string, input: CreateArtifactInput) =>
       post<Artifact>(`/projects/${projectId}/artifacts`, input),
+    upload: async (projectId: string, file: File): Promise<Artifact> => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/projects/${projectId}/artifacts/upload`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+      return res.json();
+    },
     update: (projectId: string, id: string, input: UpdateArtifactInput) =>
       patch<Artifact>(`/projects/${projectId}/artifacts/${id}`, input),
     delete: (projectId: string, id: string) =>

@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
@@ -20,6 +21,7 @@ export async function buildApp() {
       "http://127.0.0.1:3001",
     ],
   });
+  await app.register(fastifyMultipart, { limits: { fileSize: 10 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
   // In production, serve the Vite build

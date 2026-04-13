@@ -144,6 +144,45 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
     );
   });
 
+  // Upload artifact (multipart file)
+  fastify.post("/projects/:projectId/artifacts/upload", async (request, reply) => {
+    const { projectId } = request.params as any;
+
+    const file = await request.file();
+    if (!file) return reply.code(400).send({ error: "No file uploaded" });
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.file) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+
+    if (file.file.truncated) {
+      return reply.code(413).send({ error: "File too large (max 10MB)" });
+    }
+
+    const originalFilename = file.filename;
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const ext = getExtension(originalFilename);
+    const mimeType = file.mimetype || getMimeType(originalFilename);
+    const type = inferArtifactType(mimeType);
+
+    // Write to disk
+    const artifactsDir = getProjectArtifactsDir(projectId);
+    const filePath = path.join(artifactsDir, id + ext);
+    fs.writeFileSync(filePath, buffer);
+
+    db.prepare(
+      `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, projectId, originalFilename, type, null, "[]", buffer.length, mimeType, now, now);
+
+    return parseArtifactRow(
+      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any
+    );
+  });
+
   // Delete artifact
   fastify.delete("/projects/:projectId/artifacts/:id", async (request, reply) => {
     const { projectId, id } = request.params as any;
@@ -189,8 +228,26 @@ function getMimeType(filename: string): string {
     ".svg": "image/svg+xml",
     ".webp": "image/webp",
     ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".csv": "text/csv",
+    ".xml": "application/xml",
+    ".yaml": "text/yaml",
+    ".yml": "text/yaml",
+    ".ts": "text/typescript",
+    ".js": "text/javascript",
   };
   return mimeMap[ext] || "application/octet-stream";
+}
+
+function inferArtifactType(mimeType: string): string {
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType === "application/pdf") return "document";
+  if (mimeType === "application/json") return "spec";
+  if (mimeType.startsWith("text/")) return "document";
+  return "other";
 }
 
 export default artifactRoutes;

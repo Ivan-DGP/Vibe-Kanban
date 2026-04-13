@@ -34,6 +34,14 @@ export function useCreateArtifact(projectId: string) {
   });
 }
 
+export function useUploadArtifact(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.artifacts.upload(projectId, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["artifacts", projectId] }),
+  });
+}
+
 export function useUpdateArtifact(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

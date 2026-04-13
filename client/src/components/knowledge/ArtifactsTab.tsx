@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useArtifacts, useCreateArtifact, useDeleteArtifact } from "@/hooks";
+import { useState, useRef } from "react";
+import { useArtifacts, useCreateArtifact, useUploadArtifact, useDeleteArtifact } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -17,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, FileText, Image, FlaskConical, FileCode, File, Trash2 } from "lucide-react";
+import { Plus, Search, FileText, Image, FlaskConical, FileCode, File, Trash2, Upload } from "lucide-react";
 import type { Artifact, ArtifactType } from "@vibe-kanban/shared";
 import ArtifactEditor from "./ArtifactEditor";
 
@@ -47,13 +48,26 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useArtifacts(projectId, {
     search: search || undefined,
     type: typeFilter !== "all" ? typeFilter : undefined,
   });
   const createArtifact = useCreateArtifact(projectId);
+  const uploadArtifact = useUploadArtifact(projectId);
   const deleteArtifact = useDeleteArtifact(projectId);
+
+  const handleUpload = (files: FileList | null) => {
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      uploadArtifact.mutate(file, {
+        onSuccess: (artifact) => setSelectedArtifact(artifact),
+      });
+    });
+  };
 
   const handleCreate = (type: ArtifactType) => {
     const extensions: Record<ArtifactType, string> = {
@@ -82,7 +96,20 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4 relative"
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setIsDragging(false); }}
+      onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleUpload(e.dataTransfer.files); }}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 border-2 border-dashed border-primary rounded-lg">
+          <div className="text-center">
+            <Upload className="h-10 w-10 mx-auto mb-2 text-primary" />
+            <p className="text-sm font-medium">Drop files here to upload</p>
+          </div>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
@@ -128,8 +155,20 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
             <DropdownMenuItem onClick={() => handleCreate("diagram")}>
               <FileCode className="h-4 w-4 mr-2" /> Diagram
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-4 w-4 mr-2" /> Upload File
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          multiple
+          accept=".md,.txt,.json,.html,.css,.png,.jpg,.jpeg,.gif,.svg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.csv"
+          onChange={(e) => handleUpload(e.target.files)}
+        />
       </div>
 
       {/* Artifact list */}
