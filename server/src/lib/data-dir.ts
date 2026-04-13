@@ -27,3 +27,11 @@ export function getTaskSnapshotDir(): string {
   }
   return dir;
 }
+
+export function getProjectArtifactsDir(projectId: string): string {
+  const dir = path.join(getDataDir(), "projects", projectId, "artifacts");
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}

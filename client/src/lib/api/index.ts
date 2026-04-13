@@ -45,6 +45,17 @@ import type {
   UpdateApiRequestInput,
   ApiRequestExecuteInput,
   ApiRequestExecuteResult,
+  Artifact,
+  CreateArtifactInput,
+  UpdateArtifactInput,
+  RoadmapItem,
+  CreateRoadmapItemInput,
+  UpdateRoadmapItemInput,
+  ProjectGraph,
+  GraphNode,
+  CreateGraphNodeInput,
+  UpdateGraphNodeInput,
+  CreateGraphEdgeInput,
 } from "@vibe-kanban/shared";
 
 function toQuery(params: Record<string, unknown>): string {
@@ -315,5 +326,43 @@ export const api = {
     },
     execute: (input: ApiRequestExecuteInput) =>
       post<ApiRequestExecuteResult>("/api-client/execute", input),
+  },
+
+  artifacts: {
+    list: (projectId: string, params?: { type?: string; search?: string; limit?: number; offset?: number }) =>
+      get<PaginatedResponse<Artifact>>(`/projects/${projectId}/artifacts${toQuery(params ?? {})}`),
+    get: (projectId: string, id: string) =>
+      get<Artifact>(`/projects/${projectId}/artifacts/${id}`),
+    getContent: (projectId: string, id: string) =>
+      get<{ content: string; encoding: string }>(`/projects/${projectId}/artifacts/${id}/content`),
+    create: (projectId: string, input: CreateArtifactInput) =>
+      post<Artifact>(`/projects/${projectId}/artifacts`, input),
+    update: (projectId: string, id: string, input: UpdateArtifactInput) =>
+      patch<Artifact>(`/projects/${projectId}/artifacts/${id}`, input),
+    delete: (projectId: string, id: string) =>
+      del(`/projects/${projectId}/artifacts/${id}`),
+  },
+
+  roadmap: {
+    list: (projectId: string) =>
+      get<RoadmapItem[]>(`/projects/${projectId}/roadmap`),
+    create: (projectId: string, input: CreateRoadmapItemInput) =>
+      post<RoadmapItem>(`/projects/${projectId}/roadmap`, input),
+    update: (id: string, input: UpdateRoadmapItemInput) =>
+      patch<RoadmapItem>(`/roadmap/${id}`, input),
+    delete: (id: string) => del(`/roadmap/${id}`),
+  },
+
+  graph: {
+    get: (projectId: string) =>
+      get<ProjectGraph>(`/projects/${projectId}/graph`),
+    createNode: (projectId: string, input: CreateGraphNodeInput) =>
+      post<GraphNode>(`/projects/${projectId}/graph/nodes`, input),
+    updateNode: (id: string, input: UpdateGraphNodeInput) =>
+      patch<GraphNode>(`/graph/nodes/${id}`, input),
+    deleteNode: (id: string) => del(`/graph/nodes/${id}`),
+    createEdge: (projectId: string, input: CreateGraphEdgeInput) =>
+      post(`/projects/${projectId}/graph/edges`, input),
+    deleteEdge: (id: string) => del(`/graph/edges/${id}`),
   },
 };

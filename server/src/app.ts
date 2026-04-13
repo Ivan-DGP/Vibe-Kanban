@@ -45,6 +45,9 @@ export async function buildApp() {
   await app.register(import("./routes/notion"), { prefix: "/api" });
   await app.register(import("./routes/todos"), { prefix: "/api" });
   await app.register(import("./routes/api-client"), { prefix: "/api" });
+  await app.register(import("./routes/artifacts"), { prefix: "/api" });
+  await app.register(import("./routes/roadmap"), { prefix: "/api" });
+  await app.register(import("./routes/graph"), { prefix: "/api" });
   await app.register(import("./routes/terminal"), { prefix: "/api" });
   await app.register(import("./routes/terminalWs"), { prefix: "/ws" });
   await app.register(import("./routes/mcp"), { prefix: "/mcp" });

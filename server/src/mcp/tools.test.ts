@@ -9,8 +9,14 @@ import {
   updateTask,
   deleteTask,
   getAllTasks,
+  listArtifacts,
+  readArtifact,
+  listGraphNodes,
   tools,
 } from "./tools";
+import { getProjectArtifactsDir } from "../lib/data-dir";
+import fs from "node:fs";
+import path from "node:path";
 
 const TEST_PROJECT_ID = crypto.randomUUID();
 const TEST_TASK_ID = crypto.randomUUID();
@@ -259,5 +265,106 @@ describe("MCP tools - getTools (tool definitions)", () => {
     expect(names).toContain("get_all_tasks");
     expect(names).toContain("git_status");
     expect(names).toContain("git_diff");
+    expect(names).toContain("list_artifacts");
+    expect(names).toContain("read_artifact");
+    expect(names).toContain("list_graph_nodes");
+  });
+});
+
+describe("MCP tools - listArtifacts", () => {
+  const artifactId = crypto.randomUUID();
+
+  beforeAll(() => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.query(
+      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(artifactId, TEST_PROJECT_ID, "test-doc.md", "document", '["test"]', 100, "text/markdown", now, now);
+
+    // Create file on disk
+    const dir = getProjectArtifactsDir(TEST_PROJECT_ID);
+    fs.writeFileSync(path.join(dir, artifactId + ".md"), "# Test content");
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    db.query("DELETE FROM project_artifacts WHERE id = ?").run(artifactId);
+  });
+
+  test("returns artifacts for project", () => {
+    const result = listArtifacts({ projectId: TEST_PROJECT_ID }) as any[];
+    expect(Array.isArray(result)).toBe(true);
+    const found = result.find((a: any) => a.id === artifactId);
+    expect(found).toBeDefined();
+    expect(found.filename).toBe("test-doc.md");
+    expect(found.tags).toEqual(["test"]);
+  });
+
+  test("returns empty for non-existent project", () => {
+    const result = listArtifacts({ projectId: "nonexistent" }) as any[];
+    expect(result).toEqual([]);
+  });
+});
+
+describe("MCP tools - readArtifact", () => {
+  const artifactId = crypto.randomUUID();
+
+  beforeAll(() => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.query(
+      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(artifactId, TEST_PROJECT_ID, "readable.md", "document", '[]', 50, "text/markdown", now, now);
+
+    const dir = getProjectArtifactsDir(TEST_PROJECT_ID);
+    fs.writeFileSync(path.join(dir, artifactId + ".md"), "# Readable content");
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    db.query("DELETE FROM project_artifacts WHERE id = ?").run(artifactId);
+  });
+
+  test("reads text artifact content", () => {
+    const result = readArtifact({ artifactId }) as any;
+    expect(result.content).toBe("# Readable content");
+    expect(result.filename).toBe("readable.md");
+  });
+
+  test("returns error for non-existent artifact", () => {
+    const result = readArtifact({ artifactId: "nonexistent" }) as any;
+    expect(result.error).toBeDefined();
+  });
+});
+
+describe("MCP tools - listGraphNodes", () => {
+  const nodeId = crypto.randomUUID();
+
+  beforeAll(() => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.query(
+      "INSERT INTO project_graph_nodes (id, projectId, label, type, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(nodeId, TEST_PROJECT_ID, "Test Node", "concept", '{}', now, now);
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    db.query("DELETE FROM project_graph_nodes WHERE id = ?").run(nodeId);
+  });
+
+  test("returns nodes and edges", () => {
+    const result = listGraphNodes({ projectId: TEST_PROJECT_ID }) as any;
+    expect(result.nodes).toBeInstanceOf(Array);
+    expect(result.edges).toBeInstanceOf(Array);
+    const found = result.nodes.find((n: any) => n.id === nodeId);
+    expect(found).toBeDefined();
+    expect(found.label).toBe("Test Node");
+  });
+
+  test("returns empty for non-existent project", () => {
+    const result = listGraphNodes({ projectId: "nonexistent" }) as any;
+    expect(result.nodes).toEqual([]);
+    expect(result.edges).toEqual([]);
   });
 });

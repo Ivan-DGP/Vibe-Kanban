@@ -25,8 +25,8 @@ interface AppStore {
   setOnboardingComplete: (v: boolean) => void;
 
   // Workspace mode per project
-  workspaceModes: Record<string, "tasks" | "editor">;
-  setWorkspaceMode: (projectId: string, mode: "tasks" | "editor") => void;
+  workspaceModes: Record<string, "tasks" | "editor" | "knowledge">;
+  setWorkspaceMode: (projectId: string, mode: "tasks" | "editor" | "knowledge") => void;
 
   // Active milestone per project
   activeMilestones: Record<string, string | null>;

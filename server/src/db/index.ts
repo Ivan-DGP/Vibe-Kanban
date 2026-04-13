@@ -382,6 +382,107 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 15,
+      name: "add-project-artifacts",
+      up: () => {
+        const tableExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_artifacts'")
+          .get();
+        if (!tableExists) {
+          db.exec(`
+            CREATE TABLE project_artifacts (
+              id           TEXT PRIMARY KEY,
+              projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              filename     TEXT NOT NULL,
+              type         TEXT NOT NULL DEFAULT 'document'
+                CHECK (type IN ('document', 'diagram', 'image', 'research', 'spec', 'other')),
+              description  TEXT DEFAULT NULL,
+              tags         TEXT NOT NULL DEFAULT '[]',
+              sizeBytes    INTEGER NOT NULL DEFAULT 0,
+              mimeType     TEXT NOT NULL DEFAULT 'text/markdown',
+              createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_artifacts_projectId ON project_artifacts (projectId);
+            CREATE INDEX idx_artifacts_projectId_type ON project_artifacts (projectId, type);
+          `);
+        }
+      },
+    },
+    {
+      version: 16,
+      name: "add-knowledge-graph",
+      up: () => {
+        const nodesExist = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_graph_nodes'")
+          .get();
+        if (!nodesExist) {
+          db.exec(`
+            CREATE TABLE project_graph_nodes (
+              id           TEXT PRIMARY KEY,
+              projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              label        TEXT NOT NULL,
+              type         TEXT NOT NULL DEFAULT 'concept'
+                CHECK (type IN ('concept', 'system', 'person', 'decision', 'technology', 'risk')),
+              description  TEXT DEFAULT NULL,
+              x            REAL DEFAULT NULL,
+              y            REAL DEFAULT NULL,
+              metadata     TEXT NOT NULL DEFAULT '{}',
+              createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_graph_nodes_projectId ON project_graph_nodes (projectId);
+
+            CREATE TABLE project_graph_edges (
+              id           TEXT PRIMARY KEY,
+              projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              sourceNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+              targetNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+              label        TEXT DEFAULT NULL,
+              type         TEXT NOT NULL DEFAULT 'related'
+                CHECK (type IN ('related', 'depends_on', 'implements', 'extends', 'conflicts', 'owned_by')),
+              createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_graph_edges_projectId ON project_graph_edges (projectId);
+            CREATE INDEX idx_graph_edges_source ON project_graph_edges (sourceNodeId);
+            CREATE INDEX idx_graph_edges_target ON project_graph_edges (targetNodeId);
+          `);
+        }
+      },
+    },
+    {
+      version: 17,
+      name: "add-roadmap-items",
+      up: () => {
+        const tableExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='roadmap_items'")
+          .get();
+        if (!tableExists) {
+          db.exec(`
+            CREATE TABLE roadmap_items (
+              id           TEXT PRIMARY KEY,
+              projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              milestoneId  TEXT DEFAULT NULL REFERENCES milestones(id) ON DELETE SET NULL,
+              title        TEXT NOT NULL,
+              description  TEXT DEFAULT NULL,
+              status       TEXT NOT NULL DEFAULT 'planned'
+                CHECK (status IN ('planned', 'in_progress', 'completed', 'blocked')),
+              startDate    TEXT DEFAULT NULL,
+              endDate      TEXT DEFAULT NULL,
+              dependsOn    TEXT NOT NULL DEFAULT '[]',
+              color        TEXT DEFAULT NULL,
+              sortOrder    REAL NOT NULL DEFAULT 0,
+              createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              updatedAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX idx_roadmap_projectId ON roadmap_items (projectId);
+            CREATE INDEX idx_roadmap_projectId_status ON roadmap_items (projectId, status);
+            CREATE INDEX idx_roadmap_milestoneId ON roadmap_items (milestoneId);
+          `);
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

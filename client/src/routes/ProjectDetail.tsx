@@ -4,13 +4,14 @@ import { useAppStore } from "@/stores/appStore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, GitBranch, Code, ListTodo, GitPullRequest, Settings2, FolderOpen, NotebookPen } from "lucide-react";
+import { ArrowLeft, GitBranch, Code, ListTodo, GitPullRequest, Settings2, FolderOpen, NotebookPen, BookOpen } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TECH_STACK_COLORS } from "@/lib/constants";
 import { useGitStatus } from "@/hooks";
 import KanbanBoard from "@/components/kanban/KanbanBoard";
 import WorkingOnBanner from "@/components/dashboard/WorkingOnBanner";
 import CodeEditorPanel from "@/components/editor/CodeEditorPanel";
+import KnowledgePanel from "@/components/knowledge/KnowledgePanel";
 import GitPanel from "@/components/git/GitPanel";
 import NotionPanel from "@/components/notion/NotionPanel";
 import ProjectSettingsDialog from "@/components/dashboard/ProjectSettingsDialog";
@@ -142,6 +143,15 @@ export default function ProjectDetail() {
             <Code className="h-3.5 w-3.5" />
             Editor
           </Button>
+          <Button
+            variant={mode === "knowledge" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 text-xs gap-1.5 rounded-md"
+            onClick={() => setWorkspaceMode(project.id, "knowledge")}
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Knowledge
+          </Button>
         </div>
       </div>
 
@@ -152,6 +162,8 @@ export default function ProjectDetail() {
             <WorkingOnBanner projectId={project.id} compact />
             <KanbanBoard projectId={project.id} projectName={project.name} />
           </>
+        ) : mode === "knowledge" ? (
+          <KnowledgePanel projectId={project.id} />
         ) : (
           <CodeEditorPanel projectId={project.id} />
         )}
