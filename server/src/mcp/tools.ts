@@ -1,6 +1,9 @@
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
+import { getProjectArtifactsDir } from "../lib/data-dir";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
+import fs from "node:fs";
+import path from "node:path";
 
 interface ToolHandler {
   definition: McpToolDefinition;
@@ -128,6 +131,55 @@ async function gitDiff(params: Record<string, unknown>): Promise<unknown> {
   } catch (e: any) {
     return { error: e.message };
   }
+}
+
+export function listArtifacts(params: Record<string, unknown>): unknown {
+  const db = getDb();
+  const projectId = params.projectId as string;
+  const rows = db.query(
+    "SELECT id, filename, type, description, tags, sizeBytes, mimeType FROM project_artifacts WHERE projectId = ? ORDER BY updatedAt DESC LIMIT 50"
+  ).all(projectId);
+  return (rows as any[]).map((r) => ({
+    ...r,
+    tags: JSON.parse(r.tags || "[]"),
+  }));
+}
+
+export function readArtifact(params: Record<string, unknown>): unknown {
+  const db = getDb();
+  const row = db.query(
+    "SELECT * FROM project_artifacts WHERE id = ?"
+  ).get(params.artifactId as string) as any;
+  if (!row) return { error: "Artifact not found" };
+
+  const artifactsDir = getProjectArtifactsDir(row.projectId);
+  const ext = path.extname(row.filename) || ".md";
+  const filePath = path.join(artifactsDir, row.id + ext);
+  if (!fs.existsSync(filePath)) return { error: "File not found on disk" };
+
+  const isText = row.mimeType.startsWith("text/") || row.mimeType === "application/json";
+  if (!isText) return { id: row.id, filename: row.filename, note: "Binary file — cannot display content" };
+
+  return {
+    id: row.id,
+    filename: row.filename,
+    type: row.type,
+    content: fs.readFileSync(filePath, "utf-8"),
+  };
+}
+
+export function listGraphNodes(params: Record<string, unknown>): unknown {
+  const db = getDb();
+  const projectId = params.projectId as string;
+  const nodes = (db.query(
+    "SELECT id, label, type, description FROM project_graph_nodes WHERE projectId = ? ORDER BY createdAt ASC"
+  ).all(projectId) as any[]);
+
+  const edges = (db.query(
+    "SELECT sourceNodeId, targetNodeId, label, type FROM project_graph_edges WHERE projectId = ?"
+  ).all(projectId) as any[]);
+
+  return { nodes, edges };
 }
 
 export const tools: ToolHandler[] = [
@@ -260,6 +312,42 @@ export const tools: ToolHandler[] = [
       },
     },
     handler: gitDiff,
+  },
+  {
+    definition: {
+      name: "list_artifacts",
+      description: "List knowledge base artifacts (docs, diagrams, specs) for a project",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string", description: "Project ID" } },
+        required: ["projectId"],
+      },
+    },
+    handler: listArtifacts,
+  },
+  {
+    definition: {
+      name: "read_artifact",
+      description: "Read the content of a knowledge base artifact",
+      inputSchema: {
+        type: "object",
+        properties: { artifactId: { type: "string", description: "Artifact ID" } },
+        required: ["artifactId"],
+      },
+    },
+    handler: readArtifact,
+  },
+  {
+    definition: {
+      name: "list_graph_nodes",
+      description: "List knowledge graph nodes and edges for a project",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string", description: "Project ID" } },
+        required: ["projectId"],
+      },
+    },
+    handler: listGraphNodes,
   },
 ];
 

@@ -485,6 +485,146 @@ export interface NotionSearchResult {
 }
 
 // ============================================================
+// Project Artifacts (Knowledge Base)
+// ============================================================
+
+export type ArtifactType = "document" | "diagram" | "image" | "research" | "spec" | "other";
+
+export interface Artifact {
+  id: string;
+  projectId: string;
+  filename: string;
+  type: ArtifactType;
+  description: string | null;
+  tags: string[];
+  sizeBytes: number;
+  mimeType: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateArtifactInput {
+  filename: string;
+  type?: ArtifactType;
+  description?: string;
+  tags?: string[];
+  content?: string; // for text-based artifacts (markdown, etc.)
+}
+
+export interface UpdateArtifactInput {
+  filename?: string;
+  type?: ArtifactType;
+  description?: string | null;
+  tags?: string[];
+  content?: string;
+}
+
+// ============================================================
+// Knowledge Graph
+// ============================================================
+
+export type GraphNodeType = "concept" | "system" | "person" | "decision" | "technology" | "risk";
+export type GraphEdgeType = "related" | "depends_on" | "implements" | "extends" | "conflicts" | "owned_by";
+
+export interface GraphNode {
+  id: string;
+  projectId: string;
+  label: string;
+  type: GraphNodeType;
+  description: string | null;
+  x: number | null;
+  y: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GraphEdge {
+  id: string;
+  projectId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  label: string | null;
+  type: GraphEdgeType;
+  createdAt: string;
+}
+
+export interface ProjectGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface CreateGraphNodeInput {
+  label: string;
+  type?: GraphNodeType;
+  description?: string;
+  x?: number;
+  y?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateGraphNodeInput {
+  label?: string;
+  type?: GraphNodeType;
+  description?: string | null;
+  x?: number;
+  y?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateGraphEdgeInput {
+  sourceNodeId: string;
+  targetNodeId: string;
+  label?: string;
+  type?: GraphEdgeType;
+}
+
+// ============================================================
+// Roadmap
+// ============================================================
+
+export type RoadmapItemStatus = "planned" | "in_progress" | "completed" | "blocked";
+
+export interface RoadmapItem {
+  id: string;
+  projectId: string;
+  milestoneId: string | null;
+  title: string;
+  description: string | null;
+  status: RoadmapItemStatus;
+  startDate: string | null;
+  endDate: string | null;
+  dependsOn: string[]; // array of roadmap item IDs
+  color: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateRoadmapItemInput {
+  title: string;
+  description?: string;
+  status?: RoadmapItemStatus;
+  milestoneId?: string | null;
+  startDate?: string;
+  endDate?: string;
+  dependsOn?: string[];
+  color?: string;
+}
+
+export interface UpdateRoadmapItemInput {
+  title?: string;
+  description?: string | null;
+  status?: RoadmapItemStatus;
+  milestoneId?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  dependsOn?: string[];
+  color?: string | null;
+  sortOrder?: number;
+}
+
+// ============================================================
 // CI/CD (GitHub Actions)
 // ============================================================
 

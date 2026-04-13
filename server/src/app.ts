@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
@@ -20,6 +21,7 @@ export async function buildApp() {
       "http://127.0.0.1:3001",
     ],
   });
+  await app.register(fastifyMultipart, { limits: { fileSize: 10 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
   // In production, serve the Vite build
@@ -45,6 +47,9 @@ export async function buildApp() {
   await app.register(import("./routes/notion"), { prefix: "/api" });
   await app.register(import("./routes/todos"), { prefix: "/api" });
   await app.register(import("./routes/api-client"), { prefix: "/api" });
+  await app.register(import("./routes/artifacts"), { prefix: "/api" });
+  await app.register(import("./routes/roadmap"), { prefix: "/api" });
+  await app.register(import("./routes/graph"), { prefix: "/api" });
   await app.register(import("./routes/terminal"), { prefix: "/api" });
   await app.register(import("./routes/terminalWs"), { prefix: "/ws" });
   await app.register(import("./routes/mcp"), { prefix: "/mcp" });
