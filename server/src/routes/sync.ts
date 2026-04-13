@@ -15,6 +15,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "push", tasks }),
       redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
 
     return response.json();
@@ -32,6 +33,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "pull" }),
       redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
 
     return response.json();
