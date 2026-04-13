@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { useRoadmap, useCreateRoadmapItem, useUpdateRoadmapItem, useDeleteRoadmapItem } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, GripVertical, Calendar } from "lucide-react";
+import { Plus, Trash2, Calendar } from "lucide-react";
 import type { RoadmapItem, RoadmapItemStatus } from "@vibe-kanban/shared";
 
 const STATUS_COLORS: Record<RoadmapItemStatus, string> = {

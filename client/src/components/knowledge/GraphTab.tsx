@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useGraph, useCreateGraphNode, useUpdateGraphNode, useDeleteGraphNode, useCreateGraphEdge, useDeleteGraphEdge } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Plus, Trash2, Link2, Unlink, Network } from "lucide-react";
-import type { GraphNode, GraphEdge, GraphNodeType, GraphEdgeType } from "@vibe-kanban/shared";
+import type { GraphNode, GraphEdge, GraphNodeType } from "@vibe-kanban/shared";
 
 const NODE_COLORS: Record<GraphNodeType, string> = {
   concept: "#60a5fa",    // blue
