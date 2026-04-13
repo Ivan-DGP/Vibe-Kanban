@@ -8,7 +8,7 @@ const db = getDb();
  * The maximum migration version currently defined in index.ts.
  * Update this when new migrations are added.
  */
-const MAX_MIGRATION_VERSION = 14;
+const MAX_MIGRATION_VERSION = 17;
 
 describe("migration versions are recorded", () => {
   test("all migration versions from 1 to MAX exist in _migrations table", () => {
