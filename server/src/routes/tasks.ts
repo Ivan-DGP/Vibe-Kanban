@@ -354,6 +354,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const { tasks } = request.body as { tasks: any[] };
 
     const created: any[] = [];
+    const insertedIds: string[] = [];
 
     db.transaction(() => {
       // Get starting task number for this project
@@ -362,18 +363,21 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
         .get(projectId) as { m: number | null };
       let nextNumber = (maxNum?.m ?? 0) + 1;
 
+      // Pre-fetch max sort orders per status to avoid N+1 queries
+      const sortOrderMap = new Map<string, number>();
+      const rows = db
+        .prepare("SELECT status, MAX(sortOrder) as m FROM tasks WHERE projectId = ? GROUP BY status")
+        .all(projectId) as { status: string; m: number | null }[];
+      for (const row of rows) sortOrderMap.set(row.status, row.m ?? 0);
+
       for (const taskInput of tasks) {
         const id = uuid();
         const ts = now();
         const status = taskInput.status || "backlog";
         const priority = taskInput.priority || "medium";
 
-        const maxOrder = db
-          .prepare(
-            "SELECT MAX(sortOrder) as m FROM tasks WHERE projectId = ? AND status = ?",
-          )
-          .get(projectId, status) as { m: number | null };
-        const sortOrder = (maxOrder?.m ?? 0) + 1;
+        const sortOrder = (sortOrderMap.get(status) ?? 0) + 1;
+        sortOrderMap.set(status, sortOrder);
 
         const cascaded = applyTimestampCascade({}, status);
 
@@ -401,11 +405,13 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
           ts,
         );
 
-        created.push(
-          db.prepare("SELECT * FROM tasks WHERE id = ?").get(id),
-        );
+        insertedIds.push(id);
       }
     })();
+
+    // Batch-fetch all created tasks outside the transaction
+    const selectStmt = db.prepare("SELECT * FROM tasks WHERE id = ?");
+    for (const id of insertedIds) created.push(selectStmt.get(id));
 
     log("info", "tasks", `Bulk imported ${created.length} tasks`, { projectId });
     writeTaskSnapshot(projectId);
@@ -513,15 +519,15 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(500).send({ error: "AI returned empty subtask list" });
     }
 
-    // Create subtasks in DB
+    // Create subtasks in DB — pre-fetch max values to avoid N+1 queries
     const createdTasks: any[] = [];
+    const insertedSubIds: string[] = [];
+    let nextSortOrder = ((db.prepare("SELECT MAX(sortOrder) as m FROM tasks WHERE projectId = ? AND status = 'todo'").get(projectId) as { m: number | null })?.m ?? 0) + 1;
+    let nextTaskNumber = ((db.prepare("SELECT MAX(taskNumber) as m FROM tasks WHERE projectId = ?").get(projectId) as { m: number | null })?.m ?? 0) + 1;
+
     for (const input of subtaskInputs) {
       const id = uuid();
       const ts = now();
-      const maxOrder = db.prepare("SELECT MAX(sortOrder) as m FROM tasks WHERE projectId = ? AND status = 'todo'").get(projectId) as { m: number | null };
-      const sortOrder = (maxOrder?.m ?? 0) + 1;
-      const maxNum = db.prepare("SELECT MAX(taskNumber) as m FROM tasks WHERE projectId = ?").get(projectId) as { m: number | null };
-      const taskNumber = (maxNum?.m ?? 0) + 1;
 
       db.prepare(
         `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, createdAt, updatedAt)
@@ -537,15 +543,17 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
         task.branch || null,
         input.promptProfile || "feature",
         input.priority || task.priority,
-        taskNumber,
-        sortOrder,
+        nextTaskNumber++,
+        nextSortOrder++,
         ts,
         ts,
         ts,
       );
 
-      createdTasks.push(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+      insertedSubIds.push(id);
     }
+    const selectStmt = db.prepare("SELECT * FROM tasks WHERE id = ?");
+    for (const id of insertedSubIds) createdTasks.push(selectStmt.get(id));
 
     log("info", "tasks", `Decomposed task "${task.title}" into ${createdTasks.length} subtasks`, { projectId });
     writeTaskSnapshot(projectId);
