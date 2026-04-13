@@ -409,27 +409,26 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         </div>
       </div>
 
-      {/* Canvas or empty state */}
-      {nodes.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center">
-            <Network className="h-12 w-12 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No nodes yet</p>
-            <p className="text-xs mt-1">Add concepts, systems, people, and decisions to build your knowledge graph</p>
+      {/* Canvas — always mounted so the animation loop can find it */}
+      <div ref={containerRef} className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-background/50 cursor-crosshair relative">
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full"
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+        />
+        {nodes.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <Network className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No nodes yet</p>
+              <p className="text-xs mt-1">Add concepts, systems, people, and decisions to build your knowledge graph</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div ref={containerRef} className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-background/50 cursor-crosshair">
-          <canvas
-            ref={canvasRef}
-            className="w-full h-full"
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
-          />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Selected node info */}
       {selectedNodeData && (
