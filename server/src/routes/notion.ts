@@ -91,6 +91,7 @@ async function notionFetch(
       "Content-Type": "application/json",
       ...options.headers,
     },
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const body = await res.text();
