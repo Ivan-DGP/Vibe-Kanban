@@ -40,7 +40,7 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
   const handleSave = useCallback(() => {
     updateArtifact.mutate(
       { id: artifact.id, input: { filename, description: description || undefined, tags, content } },
-      { onSuccess: () => setDirty(false) },
+      { onSuccess: () => { setDirty(false); onBack(); } },
     );
   }, [artifact.id, filename, description, tags, content, updateArtifact]);
 

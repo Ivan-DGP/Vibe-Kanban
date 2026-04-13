@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useGraph, useCreateGraphNode, useUpdateGraphNode, useDeleteGraphNode, useCreateGraphEdge, useDeleteGraphEdge } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,14 @@ const NODE_COLORS: Record<GraphNodeType, string> = {
 
 const NODE_RADIUS = 24;
 
+// Physics constants
+const DAMPING = 0.7;
+const REPULSION = 2000;
+const ATTRACTION = 0.008;
+const CENTER_FORCE = 0.005;
+const VELOCITY_THRESHOLD = 0.1;
+const COOLING_DECAY = 0.999;
+
 interface GraphTabProps {
   projectId: string;
 }
@@ -50,6 +58,12 @@ export default function GraphTab({ projectId }: GraphTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<number>(0);
 
+  // Simulation state lives in refs — mutated directly by the animation loop
+  const nodesRef = useRef<SimNode[]>([]);
+  const edgesRef = useRef<GraphEdge[]>([]);
+  const coolingRef = useRef(1.0);
+
+  // React state only for things that trigger re-renders
   const [nodes, setNodes] = useState<SimNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -58,22 +72,40 @@ export default function GraphTab({ projectId }: GraphTabProps) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
+  const draggingRef = useRef<string | null>(null);
+  const selectedNodeRef = useRef<string | null>(null);
+  const hoveredNodeRef = useRef<string | null>(null);
+  const linkingFromRef = useRef<string | null>(null);
   const offsetRef = useRef({ x: 0, y: 0 });
+
+  // Keep refs in sync with state for values the render loop needs
+  useEffect(() => { draggingRef.current = dragging; }, [dragging]);
+  useEffect(() => { selectedNodeRef.current = selectedNode; }, [selectedNode]);
+  useEffect(() => { hoveredNodeRef.current = hoveredNode; }, [hoveredNode]);
+  useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
 
   // Sync data from API
   useEffect(() => {
     if (!graph) return;
-    setNodes(graph.nodes.map((n) => ({
-      ...n,
-      x: n.x ?? 200 + Math.random() * 400,
-      y: n.y ?? 200 + Math.random() * 300,
-      vx: 0,
-      vy: 0,
-    })));
+    const simNodes = graph.nodes.map((n): SimNode => {
+      // Preserve existing sim positions if the node already exists
+      const existing = nodesRef.current.find((e) => e.id === n.id);
+      return {
+        ...n,
+        x: existing?.x ?? n.x ?? 200 + Math.random() * 400,
+        y: existing?.y ?? n.y ?? 200 + Math.random() * 300,
+        vx: existing?.vx ?? 0,
+        vy: existing?.vy ?? 0,
+      };
+    });
+    nodesRef.current = simNodes;
+    edgesRef.current = graph.edges;
+    coolingRef.current = 1.0; // Reset cooling on data change
+    setNodes(simNodes);
     setEdges(graph.edges);
   }, [graph]);
 
-  // Force simulation + render loop
+  // Force simulation + render loop — runs entirely from refs
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -85,78 +117,107 @@ export default function GraphTab({ projectId }: GraphTabProps) {
     const tick = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
-      canvas.width = w;
-      canvas.height = h;
+      const dpr = window.devicePixelRatio || 1;
 
-      // Simple force-directed layout
-      setNodes((prevNodes) => {
-        const ns = [...prevNodes];
-        const damping = 0.9;
-        const repulsion = 3000;
-        const attraction = 0.005;
-        const centerForce = 0.01;
+      // Set canvas size with device pixel ratio for sharp rendering
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
 
+      ctx.imageSmoothingEnabled = true;
+
+      const ns = nodesRef.current;
+      const es = edgesRef.current;
+      const cooling = coolingRef.current;
+      const currentDragging = draggingRef.current;
+
+      // Physics step
+      if (cooling > 0.01) {
         for (let i = 0; i < ns.length; i++) {
-          if (ns[i].id === dragging) continue;
+          if (ns[i].id === currentDragging) continue;
           let fx = 0, fy = 0;
 
+          const ix = ns[i].x ?? 0;
+          const iy = ns[i].y ?? 0;
+
           // Center gravity
-          fx += (w / 2 - (ns[i].x ?? 0)) * centerForce;
-          fy += (h / 2 - (ns[i].y ?? 0)) * centerForce;
+          fx += (w / 2 - ix) * CENTER_FORCE;
+          fy += (h / 2 - iy) * CENTER_FORCE;
 
           // Node repulsion
           for (let j = 0; j < ns.length; j++) {
             if (i === j) continue;
-            const dx = (ns[i].x ?? 0) - (ns[j].x ?? 0);
-            const dy = (ns[i].y ?? 0) - (ns[j].y ?? 0);
-            const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-            fx += (dx / dist) * (repulsion / (dist * dist));
-            fy += (dy / dist) * (repulsion / (dist * dist));
+            const dx = ix - (ns[j].x ?? 0);
+            const dy = iy - (ns[j].y ?? 0);
+            const distSq = dx * dx + dy * dy;
+            const dist = Math.max(1, Math.sqrt(distSq));
+            const force = REPULSION / (distSq + 1);
+            fx += (dx / dist) * force;
+            fy += (dy / dist) * force;
           }
 
           // Edge attraction
-          for (const edge of edges) {
+          for (const edge of es) {
             let other: SimNode | undefined;
             if (edge.sourceNodeId === ns[i].id) other = ns.find((n) => n.id === edge.targetNodeId);
             if (edge.targetNodeId === ns[i].id) other = ns.find((n) => n.id === edge.sourceNodeId);
             if (!other) continue;
-            const dx = (other.x ?? 0) - (ns[i].x ?? 0);
-            const dy = (other.y ?? 0) - (ns[i].y ?? 0);
-            fx += dx * attraction;
-            fy += dy * attraction;
+            const dx = (other.x ?? 0) - ix;
+            const dy = (other.y ?? 0) - iy;
+            fx += dx * ATTRACTION;
+            fy += dy * ATTRACTION;
           }
 
-          ns[i] = {
-            ...ns[i],
-            vx: (ns[i].vx + fx) * damping,
-            vy: (ns[i].vy + fy) * damping,
-            x: (ns[i].x ?? 0) + (ns[i].vx + fx) * damping,
-            y: (ns[i].y ?? 0) + (ns[i].vy + fy) * damping,
-          };
+          // Apply forces with damping and cooling
+          let vx = (ns[i].vx + fx) * DAMPING * cooling;
+          let vy = (ns[i].vy + fy) * DAMPING * cooling;
+
+          // Velocity threshold — stop micro-jitter
+          if (Math.abs(vx) < VELOCITY_THRESHOLD && Math.abs(vy) < VELOCITY_THRESHOLD) {
+            vx = 0;
+            vy = 0;
+          }
+
+          ns[i].vx = vx;
+          ns[i].vy = vy;
+          ns[i].x = ix + vx;
+          ns[i].y = iy + vy;
         }
-        return ns;
-      });
+
+        coolingRef.current *= COOLING_DECAY;
+      }
 
       // Draw
       ctx.clearRect(0, 0, w, h);
 
+      const currentSelected = selectedNodeRef.current;
+      const currentHovered = hoveredNodeRef.current;
+      const currentLinking = linkingFromRef.current;
+
       // Edges
       ctx.lineWidth = 1.5;
-      for (const edge of edges) {
-        const source = nodes.find((n) => n.id === edge.sourceNodeId);
-        const target = nodes.find((n) => n.id === edge.targetNodeId);
+      for (const edge of es) {
+        const source = ns.find((n) => n.id === edge.sourceNodeId);
+        const target = ns.find((n) => n.id === edge.targetNodeId);
         if (!source || !target) continue;
 
-        ctx.strokeStyle = edge.id === selectedNode ? "#fff" : "rgba(148, 163, 184, 0.3)";
+        const sx = source.x ?? 0, sy = source.y ?? 0;
+        const tx = target.x ?? 0, ty = target.y ?? 0;
+
+        ctx.strokeStyle = edge.id === currentSelected ? "#fff" : "rgba(148, 163, 184, 0.3)";
         ctx.beginPath();
-        ctx.moveTo(source.x ?? 0, source.y ?? 0);
-        ctx.lineTo(target.x ?? 0, target.y ?? 0);
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(tx, ty);
         ctx.stroke();
 
         // Edge label
         if (edge.label) {
-          const mx = ((source.x ?? 0) + (target.x ?? 0)) / 2;
-          const my = ((source.y ?? 0) + (target.y ?? 0)) / 2;
+          const mx = (sx + tx) / 2;
+          const my = (sy + ty) / 2;
           ctx.font = "10px sans-serif";
           ctx.fillStyle = "rgba(148, 163, 184, 0.6)";
           ctx.textAlign = "center";
@@ -164,13 +225,13 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         }
 
         // Arrow
-        const dx = (target.x ?? 0) - (source.x ?? 0);
-        const dy = (target.y ?? 0) - (source.y ?? 0);
+        const dx = tx - sx;
+        const dy = ty - sy;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len > 0) {
           const ux = dx / len, uy = dy / len;
-          const ax = (target.x ?? 0) - ux * NODE_RADIUS;
-          const ay = (target.y ?? 0) - uy * NODE_RADIUS;
+          const ax = tx - ux * NODE_RADIUS;
+          const ay = ty - uy * NODE_RADIUS;
           ctx.fillStyle = "rgba(148, 163, 184, 0.4)";
           ctx.beginPath();
           ctx.moveTo(ax, ay);
@@ -181,10 +242,10 @@ export default function GraphTab({ projectId }: GraphTabProps) {
       }
 
       // Nodes
-      for (const node of nodes) {
-        const isSelected = selectedNode === node.id;
-        const isHovered = hoveredNode === node.id;
-        const isLinking = linkingFrom === node.id;
+      for (const node of ns) {
+        const isSelected = currentSelected === node.id;
+        const isHovered = currentHovered === node.id;
+        const isLinking = currentLinking === node.id;
         const color = NODE_COLORS[node.type] || "#94a3b8";
         const x = node.x ?? 0, y = node.y ?? 0;
 
@@ -212,15 +273,11 @@ export default function GraphTab({ projectId }: GraphTabProps) {
           ctx.stroke();
         }
 
-        // Label
-        ctx.fillStyle = "#fff";
-        ctx.font = "bold 11px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-
         // Type icon (first letter)
         ctx.font = "bold 9px sans-serif";
         ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         ctx.fillText(node.type[0].toUpperCase(), x, y - 6);
 
         // Node label
@@ -235,26 +292,26 @@ export default function GraphTab({ projectId }: GraphTabProps) {
 
     animRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animRef.current);
-  }, [edges, dragging, selectedNode, hoveredNode, linkingFrom]);
+  }, []); // No deps — reads everything from refs
 
-  // Mouse interactions
-  const findNode = (x: number, y: number): SimNode | undefined => {
-    return nodes.find((n) => {
+  // Mouse interactions — find node from ref
+  const findNode = useCallback((x: number, y: number): SimNode | undefined => {
+    return nodesRef.current.find((n) => {
       const dx = (n.x ?? 0) - x;
       const dy = (n.y ?? 0) - y;
       return dx * dx + dy * dy < NODE_RADIUS * NODE_RADIUS;
     });
-  };
+  }, []);
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const node = findNode(x, y);
 
-    if (linkingFrom && node && node.id !== linkingFrom) {
-      createEdge.mutate({ sourceNodeId: linkingFrom, targetNodeId: node.id });
+    if (linkingFromRef.current && node && node.id !== linkingFromRef.current) {
+      createEdge.mutate({ sourceNodeId: linkingFromRef.current, targetNodeId: node.id });
       setLinkingFrom(null);
       return;
     }
@@ -263,37 +320,51 @@ export default function GraphTab({ projectId }: GraphTabProps) {
       setDragging(node.id);
       setSelectedNode(node.id);
       offsetRef.current = { x: x - (node.x ?? 0), y: y - (node.y ?? 0) };
+      coolingRef.current = 1.0; // Reset cooling on drag start
     } else {
       setSelectedNode(null);
       setLinkingFrom(null);
     }
-  };
+  }, [findNode, createEdge]);
 
-  const onMouseMove = (e: React.MouseEvent) => {
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
     const hovered = findNode(x, y);
-    setHoveredNode(hovered?.id ?? null);
-
-    if (dragging) {
-      setNodes((prev) => prev.map((n) =>
-        n.id === dragging ? { ...n, x: x - offsetRef.current.x, y: y - offsetRef.current.y, vx: 0, vy: 0 } : n
-      ));
+    const hovId = hovered?.id ?? null;
+    if (hovId !== hoveredNodeRef.current) {
+      setHoveredNode(hovId);
     }
-  };
 
-  const onMouseUp = () => {
-    if (dragging) {
-      const node = nodes.find((n) => n.id === dragging);
+    const currentDragging = draggingRef.current;
+    if (currentDragging) {
+      // Update ref directly — no React state for position during drag
+      const node = nodesRef.current.find((n) => n.id === currentDragging);
+      if (node) {
+        node.x = x - offsetRef.current.x;
+        node.y = y - offsetRef.current.y;
+        node.vx = 0;
+        node.vy = 0;
+      }
+    }
+  }, [findNode]);
+
+  const onMouseUp = useCallback(() => {
+    const currentDragging = draggingRef.current;
+    if (currentDragging) {
+      const node = nodesRef.current.find((n) => n.id === currentDragging);
       if (node) {
         updateNode.mutate({ id: node.id, input: { x: node.x ?? 0, y: node.y ?? 0 } });
       }
       setDragging(null);
+      coolingRef.current = 1.0; // Reset cooling after drag
+      // Sync ref to state so UI re-renders with final positions
+      setNodes([...nodesRef.current]);
     }
-  };
+  }, [updateNode]);
 
   const selectedNodeData = nodes.find((n) => n.id === selectedNode);
 
