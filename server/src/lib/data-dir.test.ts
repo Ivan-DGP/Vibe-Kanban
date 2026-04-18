@@ -19,6 +19,23 @@ describe("data-dir", () => {
     expect(fs.existsSync(dir)).toBe(true);
   });
 
+  test("getDataDir creates the directory when it does not exist", () => {
+    const dir = getDataDir();
+    // Temporarily rename the directory so it doesn't exist
+    const tmpName = dir + "__missing_test__";
+    fs.renameSync(dir, tmpName);
+    try {
+      expect(fs.existsSync(dir)).toBe(false);
+      const result = getDataDir();
+      expect(result).toBe(dir);
+      expect(fs.existsSync(dir)).toBe(true);
+    } finally {
+      // Restore: remove the newly-created empty dir and rename original back
+      if (fs.existsSync(dir)) fs.rmdirSync(dir);
+      fs.renameSync(tmpName, dir);
+    }
+  });
+
   test("getDbPath returns path ending in vibe-kanban.db", () => {
     const dbPath = getDbPath();
     expect(path.basename(dbPath)).toBe("vibe-kanban.db");
@@ -59,5 +76,22 @@ describe("data-dir", () => {
     expect(dir.startsWith(dataDir)).toBe(true);
     // Clean up
     fs.rmSync(path.resolve(dataDir, "projects", "check-parent"), { recursive: true });
+  });
+
+  test("getTaskSnapshotDir creates directory when it does not exist", () => {
+    const dataDir = getDataDir();
+    const tasksDir = path.join(dataDir, "tasks");
+    // Rename away so it doesn't exist
+    const tmpName = tasksDir + "__missing_snap_test__";
+    fs.renameSync(tasksDir, tmpName);
+    try {
+      expect(fs.existsSync(tasksDir)).toBe(false);
+      const result = getTaskSnapshotDir();
+      expect(result).toBe(tasksDir);
+      expect(fs.existsSync(tasksDir)).toBe(true);
+    } finally {
+      if (fs.existsSync(tasksDir)) fs.rmdirSync(tasksDir);
+      fs.renameSync(tmpName, tasksDir);
+    }
   });
 });

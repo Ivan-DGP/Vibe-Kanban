@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 export function useNotionStatus() {
@@ -36,5 +36,16 @@ export function useNotionSearch() {
   return useMutation({
     mutationFn: ({ query, filter }: { query?: string; filter?: "database" | "page" }) =>
       api.notion.search(query, filter),
+  });
+}
+
+export function useImportNotionDatabase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => api.notion.importDatabase(projectId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks-all"] });
+    },
   });
 }

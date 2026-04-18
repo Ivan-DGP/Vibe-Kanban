@@ -17,9 +17,24 @@ export function resolveGitCwd(projectPath: string, subPath?: string): string {
 function getProjectPath(projectId: string): string {
   const db = getDb();
   const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as any;
-  if (!project) throw new Error("Project not found");
+  if (!project) {
+    const err = new Error("Project not found") as Error & { statusCode: number };
+    err.statusCode = 404;
+    throw err;
+  }
+  if (!project.path || !fs.existsSync(project.path)) {
+    const err = new Error("Project path does not exist on disk") as Error & { statusCode: number };
+    err.statusCode = 404;
+    throw err;
+  }
   return project.path;
 }
+
+function isGitRepo(dir: string): boolean {
+  return fs.existsSync(path.join(dir, ".git"));
+}
+
+const EMPTY_STATUS = { branch: "", upstream: null, ahead: 0, behind: 0, staged: [], unstaged: [], untracked: [] };
 
 export function parseStatus(stdout: string) {
   const lines = stdout.split("\n").filter(Boolean);
@@ -69,16 +84,20 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/status", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return EMPTY_STATUS;
     const result = await spawn(["git", "status", "--porcelain=v2", "--branch"], { cwd });
-    if (result.exitCode !== 0) return { branch: "", upstream: null, ahead: 0, behind: 0, staged: [], unstaged: [], untracked: [] };
+    if (result.exitCode !== 0) return EMPTY_STATUS;
     return parseStatus(result.stdout);
   });
 
   fastify.get("/projects/:projectId/git/log", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return [];
     const result = await spawn(
       ["git", "log", "--oneline", "-30", "--format=%H|%h|%an|%aI|%s"],
       { cwd },
@@ -96,7 +115,9 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/branches", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return [];
     const result = await spawn(
       ["git", "branch", "-a", "--format=%(refname:short)|%(HEAD)"],
       { cwd },
@@ -187,7 +208,9 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/diff", async (request) => {
     const { projectId } = request.params as any;
     const { file, subPath, staged } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return "";
     const args = ["git", "diff"];
     if (staged === "true") args.push("--cached");
     if (file) args.push(file);
@@ -199,7 +222,9 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/divergence", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return { mainBranch: null, ahead: 0, behind: 0 };
     // Try main, then master
     for (const main of ["main", "master"]) {
       const check = await spawn(["git", "rev-parse", "--verify", main], { cwd });

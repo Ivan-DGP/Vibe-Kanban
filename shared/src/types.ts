@@ -74,6 +74,7 @@ export interface Task {
   doneAt: string | null;
   approvedAt: string | null;
   archivedAt: string | null;
+  notionPageId: string | null;
   createdAt: string;
   updatedAt: string;
 }

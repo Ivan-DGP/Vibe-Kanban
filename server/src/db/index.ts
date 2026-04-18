@@ -483,6 +483,17 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 18,
+      name: "add-task-notion-page-id",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "notionPageId")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN notionPageId TEXT DEFAULT NULL");
+        }
+        db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_notionPageId ON tasks (projectId, notionPageId)");
+      },
+    },
   ];
 
   for (const migration of migrations) {

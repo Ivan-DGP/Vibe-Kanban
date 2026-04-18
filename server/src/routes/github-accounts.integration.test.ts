@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { buildApp } from "../app";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -581,5 +581,363 @@ describe("CI Status API — with mapping + git repo (GitHub API unreachable)", (
       payload: { subPath: "" },
     });
     await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+});
+
+describe("CI Status API — success paths (mocked fetch + real git repo)", () => {
+  const uniqueSuffix = Date.now() + Math.random().toString(36).slice(2);
+  let projectId: string;
+  let accountId: string;
+  let tmpDir: string;
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeAll(async () => {
+    originalFetch = globalThis.fetch;
+
+    // Create a temp git repo with a GitHub remote
+    tmpDir = mkdtempSync(join(tmpdir(), "ci-mock-test-"));
+    execSync("git init", { cwd: tmpDir });
+    execSync("git remote add origin https://github.com/mock-owner/mock-repo.git", { cwd: tmpDir });
+
+    // Create project pointing to this temp dir
+    const projectRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `CI Mock Test ${uniqueSuffix}`, path: tmpDir },
+    });
+    projectId = projectRes.json().id;
+
+    // Create a GitHub account
+    const accountRes = await app.inject({
+      method: "POST",
+      url: "/api/github-accounts",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `CI Mock Account ${uniqueSuffix}`, token: `ghp_mock_${uniqueSuffix}` },
+    });
+    accountId = accountRes.json().id;
+
+    // Map account to project
+    await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { githubAccountId: accountId, subPath: "" },
+    });
+  });
+
+  afterAll(async () => {
+    globalThis.fetch = originalFetch;
+    await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/github-mapping`,
+      headers: { "Content-Type": "application/json" },
+      payload: { subPath: "" },
+    });
+    await app.inject({ method: "DELETE", url: `/api/github-accounts/${accountId}` });
+    await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("GET ci-status — returns 'unknown' status when workflow_runs is empty", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(JSON.stringify({ workflow_runs: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.branch).toBe("main");
+    expect(body.status).toBe("unknown");
+    expect(body.conclusion).toBeNull();
+    expect(body.workflowName).toBeNull();
+    expect(body.runUrl).toBeNull();
+  });
+
+  test("GET ci-status — maps 'queued' run to 'pending' status", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          workflow_runs: [
+            {
+              status: "queued",
+              conclusion: null,
+              name: "CI Pipeline",
+              html_url: "https://github.com/mock-owner/mock-repo/actions/runs/1",
+              updated_at: "2024-01-01T12:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=feature-branch`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("pending");
+    expect(body.workflowName).toBe("CI Pipeline");
+    expect(body.runUrl).toBe("https://github.com/mock-owner/mock-repo/actions/runs/1");
+  });
+
+  test("GET ci-status — maps 'waiting' run to 'pending' status", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          workflow_runs: [
+            { status: "waiting", conclusion: null, name: "CI", html_url: "https://gh.com/run/2", updated_at: "2024-01-01T00:00:00Z" },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("pending");
+  });
+
+  test("GET ci-status — maps 'in_progress' run to 'running' status", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          workflow_runs: [
+            { status: "in_progress", conclusion: null, name: "Build", html_url: "https://gh.com/run/3", updated_at: "2024-01-01T00:00:00Z" },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("running");
+  });
+
+  test("GET ci-status — maps 'completed' + 'success' conclusion to 'success' status", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          workflow_runs: [
+            { status: "completed", conclusion: "success", name: "Tests", html_url: "https://gh.com/run/4", updated_at: "2024-01-02T00:00:00Z" },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("success");
+    expect(body.conclusion).toBe("success");
+    expect(body.updatedAt).toBe("2024-01-02T00:00:00Z");
+  });
+
+  test("GET ci-status — maps 'completed' + 'failure' conclusion to 'failure' status", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(
+        JSON.stringify({
+          workflow_runs: [
+            { status: "completed", conclusion: "failure", name: "Tests", html_url: "https://gh.com/run/5", updated_at: "2024-01-03T00:00:00Z" },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("failure");
+  });
+
+  test("GET ci-status — returns error response when GitHub API returns non-ok (line 142)", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response("Unauthorized", { status: 401 });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error).toBe("GitHub API error");
+  });
+
+  test("POST ci-status/batch — returns per-branch results when GitHub API succeeds", async () => {
+    let callCount = 0;
+    const branchStatuses = ["queued", "completed"];
+    const conclusions = [null, "success"];
+
+    (globalThis as any).fetch = async (_url: any, _init: any) => {
+      const idx = callCount++;
+      return new Response(
+        JSON.stringify({
+          workflow_runs: [
+            {
+              status: branchStatuses[idx] ?? "completed",
+              conclusion: conclusions[idx] ?? null,
+              name: `Run ${idx}`,
+              html_url: `https://gh.com/run/${idx}`,
+              updated_at: "2024-01-01T00:00:00Z",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["main", "develop"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(2);
+    // Each result should have a valid status
+    for (const result of body) {
+      expect(result.branch).toBeDefined();
+      expect(["pending", "running", "success", "failure", "unknown"]).toContain(result.status);
+    }
+    // First branch (queued) should map to 'pending'
+    const mainResult = body.find((r: any) => r.branch === "main");
+    expect(mainResult?.status).toBe("pending");
+    // Second branch (completed/success) should map to 'success'
+    const devResult = body.find((r: any) => r.branch === "develop");
+    expect(devResult?.status).toBe("success");
+  });
+
+  test("POST ci-status/batch — returns 'unknown' for branch when GitHub API returns empty runs", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response(JSON.stringify({ workflow_runs: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["feature-x"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].status).toBe("unknown");
+    expect(body[0].branch).toBe("feature-x");
+  });
+
+  test("POST ci-status/batch — returns 'unknown' for branch when GitHub API returns non-ok", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) =>
+      new Response("Forbidden", { status: 403 });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["protected-branch"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].status).toBe("unknown");
+    expect(body[0].conclusion).toBeNull();
+  });
+
+  test("POST ci-status/batch — deduplicates branches and caps at 10", async () => {
+    const fetchedBranches: string[] = [];
+    (globalThis as any).fetch = async (url: any, _init: any) => {
+      // Extract branch from URL query param
+      const urlObj = new URL(String(url));
+      fetchedBranches.push(urlObj.searchParams.get("branch") || "");
+      return new Response(JSON.stringify({ workflow_runs: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+
+    // Send 12 branches (2 duplicates + 10 unique)
+    const branches = ["main", "main", ...Array.from({ length: 10 }, (_, i) => `branch-${i}`)];
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // After dedup: 11 unique; capped at 10
+    expect(fetchedBranches).toHaveLength(10);
+    // No duplicates were fetched
+    const uniqueFetched = new Set(fetchedBranches);
+    expect(uniqueFetched.size).toBe(10);
+  });
+
+  test("GET ci-status — returns 500 when fetch throws (network error, lines 176-177)", async () => {
+    (globalThis as any).fetch = async (_url: any, _init: any) => {
+      throw new Error("ECONNREFUSED network error");
+    };
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/ci-status?branch=main`,
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json().error).toBe("Failed to fetch CI status");
+  });
+
+  test("POST ci-status/batch — returns 'unknown' when fetch throws inside per-branch handler (line 249)", async () => {
+    globalThis.fetch = (async (_url: any, _init: any) => {
+      throw new Error("DNS resolution failed");
+    }) as unknown as typeof fetch;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/ci-status/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { branches: ["error-branch"] },
+    });
+
+    // Batch catches per-branch errors and returns unknown status
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(1);
+    expect(body[0].status).toBe("unknown");
+    expect(body[0].branch).toBe("error-branch");
+    expect(body[0].conclusion).toBeNull();
   });
 });

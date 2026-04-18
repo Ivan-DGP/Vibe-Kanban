@@ -67,6 +67,92 @@ describe("Settings routes", () => {
     // The key should be redacted in the response
     expect(body.claudeApiKey).toBe("••••••••");
   });
+
+  test("GET /api/settings omits mcp_client_ and mcp_token_ prefixed keys", async () => {
+    // Insert a raw mcp_client_ row directly
+    const { getDb } = await import("../db");
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcp_client_test-filter-key",
+      JSON.stringify({ clientId: "test", clientSecret: "secret" }),
+    );
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcp_token_test-filter-tok",
+      JSON.stringify({ accessToken: "tok", expiresAt: new Date().toISOString() }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/settings" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body["mcp_client_test-filter-key"]).toBeUndefined();
+    expect(body["mcp_token_test-filter-tok"]).toBeUndefined();
+
+    // Clean up
+    db.query("DELETE FROM settings WHERE key = ?").run("mcp_client_test-filter-key");
+    db.query("DELETE FROM settings WHERE key = ?").run("mcp_token_test-filter-tok");
+  });
+
+  test("GET /api/settings returns null for redacted key when value is falsy", async () => {
+    // Set claudeApiKey to null/falsy
+    const { getDb } = await import("../db");
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "claudeApiKey",
+      JSON.stringify(null),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/settings" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // Falsy value → redacted as null
+    expect(body.claudeApiKey).toBeNull();
+  });
+
+  test("GET /api/settings — row with invalid JSON falls back to raw string value", async () => {
+    // Insert a row with non-JSON value to trigger the catch block in readSettings
+    const { getDb } = await import("../db");
+    const db = getDb();
+    const badKey = "terminalShell";
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      badKey,
+      "not-valid-json{{{",
+    );
+
+    const res = await app.inject({ method: "GET", url: "/api/settings" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // The catch block returns the raw string instead of parsed value
+    expect(body[badKey]).toBe("not-valid-json{{{");
+
+    // Restore
+    db.query("DELETE FROM settings WHERE key = ?").run(badKey);
+  });
+
+  test("PUT /api/settings — updates multiple writable keys in one request", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        mcpEnabled: true,
+        mcpAuthRequired: false,
+        terminalShell: "/bin/zsh",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.mcpEnabled).toBe(true);
+    expect(body.mcpAuthRequired).toBe(false);
+    expect(body.terminalShell).toBe("/bin/zsh");
+
+    // Restore defaults
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { "Content-Type": "application/json" },
+      payload: { mcpEnabled: false, mcpAuthRequired: true },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -215,6 +301,57 @@ describe("Todos routes", () => {
       url: "/api/todos/non-existent-id",
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  test("PATCH /api/todos/:id — sets linkedTaskId to null when value is falsy", async () => {
+    // Create a todo without a linkedTaskId
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/todos",
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "linked task null test" },
+    });
+    const created = createRes.json();
+    expect(created.id).toBeDefined();
+
+    // Patch with an empty string linkedTaskId — the code does `value || null`,
+    // so an empty string becomes null
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/api/todos/${created.id}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { linkedTaskId: "" },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    const patched = patchRes.json();
+    expect(patched.linkedTaskId).toBeNull();
+
+    // Clean up
+    await app.inject({ method: "DELETE", url: `/api/todos/${created.id}` });
+  });
+
+  test("PATCH /api/todos/:id — returns unchanged todo when no allowed fields provided", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/todos",
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "no-field patch test" },
+    });
+    const created = createRes.json();
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/api/todos/${created.id}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { unknownField: "ignored" },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    // Should return the existing todo unchanged
+    expect(patchRes.json().id).toBe(created.id);
+    expect(patchRes.json().title).toBe("no-field patch test");
+
+    // Clean up
+    await app.inject({ method: "DELETE", url: `/api/todos/${created.id}` });
   });
 });
 

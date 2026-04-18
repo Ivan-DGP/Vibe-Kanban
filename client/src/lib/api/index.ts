@@ -294,6 +294,8 @@ export const api = {
     databasePages: (databaseId: string) =>
       get<{ pages: NotionPage[] }>(`/notion/databases/${databaseId}/pages`),
     page: (pageId: string) => get<NotionPageContent>(`/notion/pages/${pageId}`),
+    importDatabase: (projectId: string) =>
+      post<{ imported: number; updated: number; total: number }>(`/projects/${projectId}/notion/import`, {}),
   },
 
   ci: {

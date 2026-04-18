@@ -4,8 +4,11 @@ import { buildApp } from "../app";
 let app: Awaited<ReturnType<typeof buildApp>>;
 let projectId: string;
 
+// 25MB body limit so route-level 10MB guard is reachable in tests
+const LARGE_BODY_LIMIT = 25 * 1024 * 1024;
+
 beforeAll(async () => {
-  app = await buildApp();
+  app = await buildApp({ bodyLimit: LARGE_BODY_LIMIT });
   await app.ready();
 
   // Create a test project

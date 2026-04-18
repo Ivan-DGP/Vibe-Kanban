@@ -180,3 +180,153 @@ describe("sync routes integration", () => {
     });
   });
 });
+
+// ─── Fetch mock tests ─────────────────────────────────────────────────────────
+
+describe("sync routes — fetch paths", () => {
+  let app: Awaited<ReturnType<typeof buildApp>>;
+  const VALID_URL = "https://script.google.com/macros/s/AKfycbxTest123/exec";
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    await app.ready();
+    originalFetch = globalThis.fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  describe("POST /api/sync/push — success path", () => {
+    test("calls fetch with push action and returns response JSON", async () => {
+      const mockResponse = { ok: true, synced: 5 };
+      globalThis.fetch = (async (url: any, init: any) => {
+        expect(String(url)).toBe(VALID_URL);
+        expect(init.method).toBe("POST");
+        const body = JSON.parse(init.body);
+        expect(body.action).toBe("push");
+        expect(Array.isArray(body.tasks)).toBe(true);
+        return new Response(JSON.stringify(mockResponse), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sync/push",
+        headers: { "Content-Type": "application/json" },
+        payload: { url: VALID_URL, tasks: [{ id: "1", title: "Task A" }] },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.ok).toBe(true);
+      expect(body.synced).toBe(5);
+    });
+
+    test("forwards tasks array to the Apps Script endpoint", async () => {
+      let capturedBody: any;
+      globalThis.fetch = (async (_url: any, init: any) => {
+        capturedBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({ received: capturedBody.tasks.length }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+
+      const tasks = [
+        { id: "a", title: "Alpha" },
+        { id: "b", title: "Beta" },
+      ];
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sync/push",
+        headers: { "Content-Type": "application/json" },
+        payload: { url: VALID_URL, tasks },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(capturedBody.action).toBe("push");
+      expect(capturedBody.tasks).toHaveLength(2);
+      const body = res.json();
+      expect(body.received).toBe(2);
+    });
+
+    test("propagates fetch errors as 500", async () => {
+      globalThis.fetch = (async () => {
+        throw new Error("Network failure");
+      }) as unknown as typeof fetch;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sync/push",
+        headers: { "Content-Type": "application/json" },
+        payload: { url: VALID_URL, tasks: [] },
+      });
+
+      expect(res.statusCode).toBe(500);
+    });
+  });
+
+  describe("POST /api/sync/pull — success path", () => {
+    test("calls fetch with pull action and returns response JSON", async () => {
+      const mockTasks = [{ id: "x", title: "From Sheet" }];
+      globalThis.fetch = (async (url: any, init: any) => {
+        expect(String(url)).toBe(VALID_URL);
+        expect(init.method).toBe("POST");
+        const body = JSON.parse(init.body);
+        expect(body.action).toBe("pull");
+        return new Response(JSON.stringify({ tasks: mockTasks }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sync/pull",
+        headers: { "Content-Type": "application/json" },
+        payload: { url: VALID_URL },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.tasks).toHaveLength(1);
+      expect(body.tasks[0].id).toBe("x");
+    });
+
+    test("pull sends no tasks in body", async () => {
+      let capturedBody: any;
+      globalThis.fetch = (async (_url: any, init: any) => {
+        capturedBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({ tasks: [] }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+
+      await app.inject({
+        method: "POST",
+        url: "/api/sync/pull",
+        headers: { "Content-Type": "application/json" },
+        payload: { url: VALID_URL },
+      });
+
+      expect(capturedBody.action).toBe("pull");
+      expect(capturedBody.tasks).toBeUndefined();
+    });
+
+    test("propagates fetch errors as 500", async () => {
+      globalThis.fetch = (async () => {
+        throw new Error("Timeout");
+      }) as unknown as typeof fetch;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sync/pull",
+        headers: { "Content-Type": "application/json" },
+        payload: { url: VALID_URL },
+      });
+
+      expect(res.statusCode).toBe(500);
+    });
+  });
+});

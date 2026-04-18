@@ -159,6 +159,19 @@ describe("isAuthRequired", () => {
     // Clean up
     db.query("DELETE FROM settings WHERE key = ?").run(AUTH_SETTING_KEY);
   });
+
+  test("returns true when setting exists with explicit value true", () => {
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      AUTH_SETTING_KEY,
+      JSON.stringify(true)
+    );
+
+    expect(isAuthRequired()).toBe(true);
+
+    // Clean up
+    db.query("DELETE FROM settings WHERE key = ?").run(AUTH_SETTING_KEY);
+  });
 });
 
 describe("safeCompare", () => {

@@ -1,12 +1,17 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import { writeTaskSnapshot } from "../services/snapshot";
+import { applyTimestampCascade } from "./tasks";
 import type { DatabaseHandle } from "../lib/runtime";
 import type {
   NotionDatabase,
   NotionPage,
   NotionPageContent,
   NotionSearchResult,
+  Task,
+  TaskPriority,
+  TaskStatus,
 } from "@vibe-kanban/shared";
 
 // Lightweight types for Notion API responses
@@ -225,6 +230,61 @@ export function blocksToMarkdown(blocks: NotionBlock[]): string {
   return lines.join("\n").trim();
 }
 
+export function mapNotionStatus(value: unknown): TaskStatus {
+  if (typeof value !== "string") return "backlog";
+  const v = value.toLowerCase().trim();
+  if (/^(in[\s_-]?progress|doing|working|wip|active)$/.test(v)) return "in_progress";
+  if (/^(done|complete|completed|finished|closed)$/.test(v)) return "done";
+  if (/^(approved|shipped|released)$/.test(v)) return "approved";
+  if (/^(archived|cancell?ed|abandoned)$/.test(v)) return "archived";
+  if (/^(todo|to[\s_-]?do|next|ready)$/.test(v)) return "todo";
+  return "backlog";
+}
+
+export function mapNotionPriority(value: unknown): TaskPriority {
+  if (typeof value !== "string") return "medium";
+  const v = value.toLowerCase().trim();
+  if (/^(urgent|critical|p0)$/.test(v)) return "urgent";
+  if (/^(high|p1)$/.test(v)) return "high";
+  if (/^(low|p3)$/.test(v)) return "low";
+  return "medium";
+}
+
+function findPropValue(props: Record<string, unknown>, name: string): unknown {
+  const key = Object.keys(props).find((k) => k.toLowerCase() === name.toLowerCase());
+  return key ? props[key] : undefined;
+}
+
+async function fetchAllDatabasePages(token: string, databaseId: string): Promise<NotionObject[]> {
+  const all: NotionObject[] = [];
+  let cursor: string | undefined;
+  while (true) {
+    const body: Record<string, unknown> = { page_size: 100 };
+    if (cursor) body.start_cursor = cursor;
+    const data = await notionFetch(token, `/databases/${databaseId}/query`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    all.push(...((data.results as NotionObject[]) ?? []));
+    if (!data.has_more || !data.next_cursor) break;
+    cursor = data.next_cursor as string;
+  }
+  return all;
+}
+
+async function fetchAllBlocks(token: string, blockId: string): Promise<NotionBlock[]> {
+  const all: NotionBlock[] = [];
+  let cursor: string | undefined;
+  while (true) {
+    const qs = cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : "";
+    const data = await notionFetch(token, `/blocks/${blockId}/children?page_size=100${qs}`);
+    all.push(...((data.results as NotionBlock[]) ?? []));
+    if (!data.has_more || !data.next_cursor) break;
+    cursor = data.next_cursor as string;
+  }
+  return all;
+}
+
 const notionRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
 
@@ -368,6 +428,139 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log("error", "server", `Notion get page failed: ${message}`);
+      return reply.code(502).send({ error: message });
+    }
+  });
+
+  // Import linked Notion database into tasks (one-way: Notion → tasks)
+  fastify.post("/projects/:projectId/notion/import", async (request, reply) => {
+    const token = getNotionToken(db);
+    if (!token) return reply.code(400).send({ error: "Notion API key not configured" });
+
+    const { projectId } = request.params as { projectId: string };
+    const project = db
+      .prepare("SELECT notionDatabaseId FROM projects WHERE id = ?")
+      .get(projectId) as { notionDatabaseId: string | null } | undefined;
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (!project.notionDatabaseId) {
+      return reply.code(400).send({ error: "No Notion database linked to this project" });
+    }
+
+    try {
+      const pages = await fetchAllDatabasePages(token, project.notionDatabaseId);
+      const pageMarkdowns = await Promise.all(
+        pages.map(async (p) => {
+          try {
+            const blocks = await fetchAllBlocks(token, p.id);
+            return blocksToMarkdown(blocks);
+          } catch {
+            return "";
+          }
+        }),
+      );
+
+      let imported = 0;
+      let updated = 0;
+
+      db.transaction(() => {
+        const existingRows = db
+          .prepare(
+            "SELECT id, status, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, notionPageId FROM tasks WHERE projectId = ? AND notionPageId IS NOT NULL",
+          )
+          .all(projectId) as Array<Partial<Task> & { id: string; notionPageId: string }>;
+        const existingByNotion = new Map(existingRows.map((r) => [r.notionPageId, r]));
+
+        const maxNum = db
+          .prepare("SELECT MAX(taskNumber) as m FROM tasks WHERE projectId = ?")
+          .get(projectId) as { m: number | null };
+        let nextNumber = (maxNum?.m ?? 0) + 1;
+
+        const sortOrderMap = new Map<string, number>();
+        const rows = db
+          .prepare("SELECT status, MAX(sortOrder) as m FROM tasks WHERE projectId = ? GROUP BY status")
+          .all(projectId) as { status: string; m: number | null }[];
+        for (const row of rows) sortOrderMap.set(row.status, row.m ?? 0);
+
+        for (let i = 0; i < pages.length; i++) {
+          const page = pages[i];
+          const props = simplifyProperties(page.properties ?? {});
+          const title = extractTitle(page) || "Untitled";
+
+          const statusRaw = findPropValue(props, "status");
+          const priorityRaw = findPropValue(props, "priority");
+          const hasStatus = statusRaw !== undefined;
+          const hasPriority = priorityRaw !== undefined;
+          const status: TaskStatus = hasStatus ? mapNotionStatus(statusRaw) : "backlog";
+          const priority: TaskPriority = hasPriority ? mapNotionPriority(priorityRaw) : "medium";
+
+          const md = pageMarkdowns[i]?.trim() ?? "";
+          const description = md
+            ? `${md}\n\n[Open in Notion](${page.url})`
+            : `[Open in Notion](${page.url})`;
+
+          const existing = existingByNotion.get(page.id);
+          const ts = new Date().toISOString();
+
+          if (existing) {
+            const effectiveStatus = hasStatus ? status : (existing.status as TaskStatus);
+            const cascaded = applyTimestampCascade(existing as Partial<Task>, effectiveStatus);
+
+            const cols: string[] = ["title = ?", "description = ?", "updatedAt = ?"];
+            const vals: unknown[] = [title, description, ts];
+            if (hasStatus) {
+              cols.push("status = ?");
+              vals.push(status);
+            }
+            if (hasPriority) {
+              cols.push("priority = ?");
+              vals.push(priority);
+            }
+            for (const [k, v] of Object.entries(cascaded)) {
+              if (k === "updatedAt") continue;
+              cols.push(`${k} = ?`);
+              vals.push(v);
+            }
+            db.prepare(`UPDATE tasks SET ${cols.join(", ")} WHERE id = ?`).run(...vals, existing.id);
+            updated++;
+          } else {
+            const id = crypto.randomUUID();
+            const sortOrder = (sortOrderMap.get(status) ?? 0) + 1;
+            sortOrderMap.set(status, sortOrder);
+            const cascaded = applyTimestampCascade({}, status);
+
+            db.prepare(
+              `INSERT INTO tasks (id, projectId, title, description, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, notionPageId, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ).run(
+              id,
+              projectId,
+              title,
+              description,
+              status,
+              priority,
+              nextNumber++,
+              sortOrder,
+              cascaded.inboxAt || null,
+              cascaded.inProgressAt || null,
+              cascaded.doneAt || null,
+              cascaded.approvedAt || null,
+              cascaded.archivedAt || null,
+              page.id,
+              ts,
+              ts,
+            );
+            imported++;
+          }
+        }
+      })();
+
+      log("info", "tasks", `Notion import: ${imported} new, ${updated} updated`, { projectId });
+      writeTaskSnapshot(projectId);
+
+      return { imported, updated, total: pages.length };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", "server", `Notion import failed: ${message}`);
       return reply.code(502).send({ error: message });
     }
   });
