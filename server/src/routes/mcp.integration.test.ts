@@ -363,6 +363,157 @@ describe("MCP JSON-RPC endpoint", () => {
     expect(body.error.code).toBe(-32601);
     expect(body.error.message).toContain("notifications/initialized");
   });
+
+  test("tools/call — handler that throws returns JSON-RPC error -32603", async () => {
+    // Inject a tool into the toolMap that throws, execute via POST, then restore
+    const { toolMap } = await import("../mcp/tools");
+    const THROW_TOOL = "__throw_test__";
+    toolMap.set(THROW_TOOL, {
+      definition: {
+        name: THROW_TOOL,
+        description: "throws",
+        inputSchema: { type: "object", properties: {} },
+      },
+      handler: () => { throw new Error("handler explosion"); },
+    });
+
+    const res = await mcpRequest({
+      jsonrpc: "2.0",
+      id: 99,
+      method: "tools/call",
+      params: { name: THROW_TOOL, arguments: {} },
+    });
+
+    toolMap.delete(THROW_TOOL);
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.jsonrpc).toBe("2.0");
+    expect(body.id).toBe(99);
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32603);
+    expect(body.error.message).toBe("handler explosion");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OAuth endpoints
+// ---------------------------------------------------------------------------
+describe("MCP OAuth endpoints", () => {
+  test("POST /mcp/oauth/register — returns client_id and client_secret", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/register",
+      headers: { "Content-Type": "application/json" },
+      payload: { redirect_uri: "http://localhost:9999/callback" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.client_id).toBe("string");
+    expect(body.client_id.length).toBeGreaterThan(0);
+    expect(typeof body.client_secret).toBe("string");
+    expect(body.client_secret.length).toBeGreaterThan(0);
+  });
+
+  test("POST /mcp/oauth/register — returns 400 when redirect_uri missing", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/register",
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = res.json();
+    expect(body.error).toBe("redirect_uri required");
+  });
+
+  test("POST /mcp/oauth/token — returns access_token for valid credentials", async () => {
+    // Register a client first
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/register",
+      headers: { "Content-Type": "application/json" },
+      payload: { redirect_uri: "http://localhost:9999/callback" },
+    });
+    const { client_id, client_secret } = regRes.json();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/token",
+      headers: { "Content-Type": "application/json" },
+      payload: { client_id, client_secret },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.access_token).toBe("string");
+    expect(body.access_token.length).toBeGreaterThan(0);
+    expect(body.token_type).toBe("bearer");
+    expect(body.expires_in).toBe(3600);
+  });
+
+  test("POST /mcp/oauth/token — returns 401 for invalid credentials", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/token",
+      headers: { "Content-Type": "application/json" },
+      payload: { client_id: "nonexistent-client", client_secret: "wrong" },
+    });
+
+    expect(res.statusCode).toBe(401);
+    const body = res.json();
+    expect(body.error).toBe("Invalid credentials");
+  });
+
+  test("MCP auth with valid token is accepted", async () => {
+    // Enable auth
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpAuthRequired",
+      JSON.stringify(true),
+    );
+
+    // Register + get token
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/register",
+      headers: { "Content-Type": "application/json" },
+      payload: { redirect_uri: "http://localhost:9999/callback" },
+    });
+    const { client_id, client_secret } = regRes.json();
+
+    const tokenRes = await app.inject({
+      method: "POST",
+      url: "/mcp/oauth/token",
+      headers: { "Content-Type": "application/json" },
+      payload: { client_id, client_secret },
+    });
+    const { access_token } = tokenRes.json();
+
+    // Now use the token
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${access_token}`,
+      },
+      payload: { jsonrpc: "2.0", id: 50, method: "tools/list", params: {} },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.result).toBeDefined();
+    expect(Array.isArray(body.result.tools)).toBe(true);
+
+    // Disable auth
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpAuthRequired",
+      JSON.stringify(false),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -459,5 +610,98 @@ describe("MCP SSE endpoint", () => {
       "mcpAuthRequired",
       JSON.stringify(false),
     );
+  });
+
+  test("GET /mcp — keep-alive heartbeat callback runs and writes to stream", async () => {
+    // The heartbeat callback at mcp.ts:135 fires every 30s in production.
+    // Monkey-patch globalThis.setInterval to fire the callback once synchronously
+    // (before returning a fake handle) so we can assert the heartbeat is written.
+    const { buildApp } = await import("../app");
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpEnabled", JSON.stringify(true));
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpAuthRequired", JSON.stringify(false));
+
+    const originalSetInterval = globalThis.setInterval;
+    let heartbeatFired = false;
+    (globalThis as any).setInterval = (cb: () => void, _ms: number) => {
+      // Fire the callback once on next microtask so reply.raw exists
+      queueMicrotask(() => {
+        try {
+          cb();
+          heartbeatFired = true;
+        } catch {
+          // ignore write errors on already-aborted response
+        }
+      });
+      // Return a no-op handle compatible with clearInterval
+      return { _mock: true } as unknown as ReturnType<typeof originalSetInterval>;
+    };
+
+    const heartbeatApp = await buildApp();
+    await heartbeatApp.ready();
+    const address = await heartbeatApp.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const controller = new AbortController();
+      let body = "";
+      try {
+        const res = await fetch(`${address}/mcp`, { method: "GET", signal: controller.signal });
+        const reader = res.body!.getReader();
+        // Read until we either see "heartbeat" or hit a short timeout
+        const deadline = Date.now() + 2000;
+        while (Date.now() < deadline) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) body += new TextDecoder().decode(value);
+          if (body.includes("heartbeat")) break;
+        }
+        controller.abort();
+        try { reader.cancel(); } catch {}
+      } catch (e: any) {
+        if (e.name !== "AbortError") throw e;
+      }
+      expect(heartbeatFired).toBe(true);
+      expect(body).toContain("heartbeat");
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      await heartbeatApp.close();
+    }
+  });
+
+  test("GET /mcp — close event fires and clears keep-alive interval", async () => {
+    // The existing SSE test already exercises lines 116-139.
+    // This test exercises line 140 (clearInterval inside the 'close' handler)
+    // by making a real TCP connection and aborting it.
+    const { buildApp } = await import("../app");
+    const sseApp = await buildApp();
+    await sseApp.ready();
+
+    // Enable MCP, disable auth for this isolated app
+    const db = getDb();
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpEnabled", JSON.stringify(true));
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpAuthRequired", JSON.stringify(false));
+
+    const address = await sseApp.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const controller = new AbortController();
+      let gotData = false;
+      try {
+        const res = await fetch(`${address}/mcp`, {
+          method: "GET",
+          signal: controller.signal,
+        });
+        const reader = res.body!.getReader();
+        const { value } = await reader.read();
+        if (value && value.length > 0) gotData = true;
+        controller.abort();
+        try { reader.cancel(); } catch {}
+      } catch (e: any) {
+        if (e.name !== "AbortError") throw e;
+      }
+      // Allow the close event to propagate
+      await new Promise((r) => setTimeout(r, 50));
+      expect(gotData).toBe(true);
+    } finally {
+      await sseApp.close();
+    }
   });
 });

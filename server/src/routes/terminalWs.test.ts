@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { buildApp } from "../app";
 import * as termService from "../services/terminalService";
 import { mkdirSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let baseUrl: string;
@@ -237,18 +238,93 @@ describe("WebSocket to non-existent session", () => {
 // ---------------------------------------------------------------------------
 
 describe("WebSocket origin validation", () => {
-  test("rejects connections from disallowed origins", async () => {
+  test("rejects connections from disallowed origins with close code 4003", async () => {
     const sessionId = await createShellSession();
-    const _wsUrl = baseUrl.replace("http", "ws") + `/ws/terminal/${sessionId}`;
+    const url = new URL(baseUrl);
+    const port = parseInt(url.port);
+    const host = url.hostname;
+    const path = `/ws/terminal/${sessionId}`;
+    // Use node:net to perform a raw WebSocket upgrade with a custom Origin header.
+    // This is the only way to inject a custom Origin since the WebSocket constructor
+    // does not support setting arbitrary headers.
+    const net = require("node:net");
 
-    // Bun's WebSocket doesn't natively support setting custom headers for the
-    // upgrade request. The origin check in the handler inspects request.headers.origin.
-    // For a real WS client in a browser this is automatic. In Bun tests we can't
-    // easily inject a custom origin header via the WebSocket constructor.
-    // Instead, verify the ALLOWED_ORIGINS set exists and is checked by examining
-    // that a connection from localhost (our test server) is ALLOWED.
+    // Sec-WebSocket-Key must be base64 of exactly 16 random bytes — the ws
+    // library (via @fastify/websocket) rejects the upgrade at HTTP level
+    // otherwise, so the handler's origin check would never run.
+    const wsKey = randomBytes(16).toString("base64");
+    const rawHandshake = [
+      `GET ${path} HTTP/1.1`,
+      `Host: ${host}:${port}`,
+      `Upgrade: websocket`,
+      `Connection: Upgrade`,
+      `Sec-WebSocket-Key: ${wsKey}`,
+      `Sec-WebSocket-Version: 13`,
+      `Origin: http://evil.example.com`,
+      ``,
+      ``,
+    ].join("\r\n");
+
+    const closeResult = await new Promise<{ code: number } | "timeout">((resolve) => {
+      const socket = net.connect(port, host, () => { socket.write(rawHandshake); });
+      const chunks: Buffer[] = [];
+      let resolved = false;
+
+      const done = (val: { code: number } | "timeout") => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(val);
+      };
+
+      const timer = setTimeout(() => done("timeout"), 5000);
+
+      function checkCloseFrame() {
+        const buf = Buffer.concat(chunks);
+        const headerEnd = buf.indexOf("\r\n\r\n");
+        if (headerEnd === -1) return;
+        if (!buf.toString("ascii", 0, headerEnd + 4).includes("101")) return;
+        const wsData = buf.slice(headerEnd + 4);
+        // Scan for close frame (opcode 0x88)
+        for (let i = 0; i + 3 < wsData.length; i++) {
+          const opcode = wsData[i] & 0x0f;
+          const payloadLen = wsData[i + 1] & 0x7f;
+          if (opcode === 0x8 && payloadLen >= 2) {
+            const code = (wsData[i + 2] << 8) | wsData[i + 3];
+            done({ code });
+            return;
+          }
+        }
+      }
+
+      socket.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+        checkCloseFrame();
+      });
+
+      socket.on("error", () => done("timeout"));
+      socket.on("close", () => {
+        // Socket closed — must have received 101 and then a close frame from
+        // the handler. If no 101 was received, the upgrade was rejected at
+        // HTTP level (e.g. malformed key) — treat as failure so we don't
+        // silently pass without exercising the handler.
+        checkCloseFrame();
+        if (!resolved) done("timeout");
+      });
+    });
+
+    expect(closeResult).not.toBe("timeout");
+    if (closeResult !== "timeout") {
+      expect(closeResult.code).toBe(4003);
+    }
+  });
+
+  test("allows connections from allowed localhost origins", async () => {
+    const sessionId = await createShellSession();
+    // Bun's WebSocket constructor sends no Origin header by default,
+    // which the handler treats as allowed (origin is falsy → passes check).
     const ws = await connectWs(sessionId);
-    // If we got here, the connection was accepted (localhost origin is allowed)
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
   });
