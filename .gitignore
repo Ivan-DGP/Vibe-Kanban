@@ -27,3 +27,9 @@ test-screenshots/
 pty-test.ts
 server/pty-test.ts
 .claude/sherlock/
+check_positions.mjs
+inspect_*.mjs
+verify_*.mjs
+
+# System packages downloaded for Playwright deps
+*.deb
