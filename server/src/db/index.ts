@@ -507,6 +507,27 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 20,
+      name: "add-orchestration-fields",
+      up: () => {
+        const taskCols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!taskCols.some((c) => c.name === "metadata")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'");
+        }
+
+        const projCols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+        if (!projCols.some((c) => c.name === "autoSpawnEnabled")) {
+          db.exec("ALTER TABLE projects ADD COLUMN autoSpawnEnabled INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!projCols.some((c) => c.name === "qaAgentPath")) {
+          db.exec("ALTER TABLE projects ADD COLUMN qaAgentPath TEXT DEFAULT NULL");
+        }
+        if (!projCols.some((c) => c.name === "qaAgentPython")) {
+          db.exec("ALTER TABLE projects ADD COLUMN qaAgentPython TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {
