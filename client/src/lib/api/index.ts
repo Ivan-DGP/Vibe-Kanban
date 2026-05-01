@@ -253,6 +253,19 @@ export const api = {
     update: (id: string, data: { name?: string; token?: string }) =>
       patch<GitHubAccount>(`/github-accounts/${id}`, data),
     delete: (id: string) => del(`/github-accounts/${id}`),
+    mapping: {
+      get: (projectId: string) =>
+        get<{ projectId: string; subPath: string; githubAccountId: string; accountName: string }[]>(
+          `/projects/${projectId}/github-mapping`,
+        ),
+      set: (projectId: string, githubAccountId: string, subPath: string = "") =>
+        put<{ projectId: string; subPath: string; githubAccountId: string }>(
+          `/projects/${projectId}/github-mapping`,
+          { githubAccountId, subPath },
+        ),
+      clear: (projectId: string, subPath: string = "") =>
+        del<{ ok: boolean }>(`/projects/${projectId}/github-mapping${toQuery({ subPath })}`),
+    },
   },
 
   sync: {

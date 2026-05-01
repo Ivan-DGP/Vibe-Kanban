@@ -28,12 +28,19 @@ export default function GitHubAccountsSection() {
 
       {accounts?.map((acct) => (
         <div key={acct.id} className="flex items-center gap-2 p-2 border rounded">
-          <span className="text-sm font-medium flex-1">{acct.name}</span>
-          {acct.hasToken && <Badge variant="outline" className="text-[10px]">Token configured</Badge>}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{acct.name}</div>
+            {acct.username && (
+              <div className="text-[11px] text-muted-foreground truncate">
+                @{acct.username}{acct.email ? ` · ${acct.email}` : ""}
+              </div>
+            )}
+          </div>
+          {acct.hasToken && <Badge variant="outline" className="text-[10px] shrink-0">Token configured</Badge>}
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-destructive"
+            className="h-7 w-7 text-destructive shrink-0"
             onClick={async () => { if (await confirm({ title: "Delete Account", description: "Delete this account?" })) deleteAccount.mutate(acct.id); }}
           >
             <Trash2 className="h-3.5 w-3.5" />

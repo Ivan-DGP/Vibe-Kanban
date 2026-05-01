@@ -219,6 +219,8 @@ export interface GitHubAccount {
   id: string;
   name: string;
   hasToken: boolean;
+  username: string | null;
+  email: string | null;
   createdAt: string;
 }
 

@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS github_accounts (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
   token        TEXT NOT NULL,
+  username     TEXT DEFAULT NULL,
+  email        TEXT DEFAULT NULL,
   createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 

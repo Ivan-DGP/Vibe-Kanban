@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { log } from "../lib/logger";
+import { getMappedGitHubAccount, gitAuthArgs, gitCommitIdentityArgs } from "../lib/git-auth";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -155,8 +156,10 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { message, subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
-    const result = await spawn(["git", "commit", "-m", message], { cwd });
-    log("info", "git", `Commit: ${message}`, { projectId });
+    const account = getMappedGitHubAccount(projectId, subPath ?? "");
+    const identityArgs = account ? gitCommitIdentityArgs(account) : [];
+    const result = await spawn(["git", ...identityArgs, "commit", "-m", message], { cwd });
+    log("info", "git", `Commit: ${message}`, { projectId, account: account?.name });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });
 
@@ -164,13 +167,15 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const account = getMappedGitHubAccount(projectId, subPath ?? "");
+    const authArgs = account ? gitAuthArgs(account.token) : [];
     // Check if current branch has an upstream; if not, push with --set-upstream
     const upstream = await spawn(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd });
-    const args = upstream.exitCode !== 0
-      ? ["git", "push", "--set-upstream", "origin", "HEAD"]
-      : ["git", "push"];
-    const result = await spawn(args, { cwd, timeout: 30000 });
-    log("info", "git", "Push", { projectId });
+    const pushArgs = upstream.exitCode !== 0
+      ? ["push", "--set-upstream", "origin", "HEAD"]
+      : ["push"];
+    const result = await spawn(["git", ...authArgs, ...pushArgs], { cwd, timeout: 30000 });
+    log("info", "git", "Push", { projectId, account: account?.name });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });
 
@@ -178,8 +183,10 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
-    const result = await spawn(["git", "pull"], { cwd, timeout: 30000 });
-    log("info", "git", "Pull", { projectId });
+    const account = getMappedGitHubAccount(projectId, subPath ?? "");
+    const authArgs = account ? gitAuthArgs(account.token) : [];
+    const result = await spawn(["git", ...authArgs, "pull"], { cwd, timeout: 30000 });
+    log("info", "git", "Pull", { projectId, account: account?.name });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });
 

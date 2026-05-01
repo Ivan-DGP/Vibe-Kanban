@@ -4,6 +4,27 @@ import { encrypt, decrypt } from "../lib/crypto";
 import { spawn } from "../lib/spawn";
 import type { CIStatus, CICheckResult } from "@vibe-kanban/shared";
 
+async function fetchGitHubIdentity(token: string): Promise<{ username: string; email: string } | null> {
+  try {
+    const res = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { id: number; login: string; email: string | null };
+    return {
+      username: data.login,
+      email: data.email ?? `${data.id}+${data.login}@users.noreply.github.com`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 const githubRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
 
@@ -13,6 +34,8 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
       id: r.id,
       name: r.name,
       hasToken: true,
+      username: r.username ?? null,
+      email: r.email ?? null,
       createdAt: r.createdAt,
     }));
   });
@@ -22,33 +45,47 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
     const id = crypto.randomUUID();
     const encryptedToken = encrypt(token);
     const ts = new Date().toISOString();
+    const identity = await fetchGitHubIdentity(token);
 
     db.prepare(
-      "INSERT INTO github_accounts (id, name, token, createdAt) VALUES (?, ?, ?, ?)",
-    ).run(id, name, encryptedToken, ts);
+      "INSERT INTO github_accounts (id, name, token, username, email, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(id, name, encryptedToken, identity?.username ?? null, identity?.email ?? null, ts);
 
-    return { id, name, hasToken: true, createdAt: ts };
+    return { id, name, hasToken: true, username: identity?.username ?? null, email: identity?.email ?? null, createdAt: ts };
   });
 
   fastify.patch("/github-accounts/:id", async (request, reply) => {
     const { id } = request.params as any;
     const { name, token } = request.body as any;
 
-    const existing = db.prepare("SELECT * FROM github_accounts WHERE id = ?").get(id);
+    const existing = db.prepare("SELECT * FROM github_accounts WHERE id = ?").get(id) as any;
     if (!existing) return reply.code(404).send({ error: "Account not found" });
 
     const fields: string[] = [];
     const values: any[] = [];
 
     if (name) { fields.push("name = ?"); values.push(name); }
-    if (token) { fields.push("token = ?"); values.push(encrypt(token)); }
+    if (token) {
+      fields.push("token = ?"); values.push(encrypt(token));
+      const identity = await fetchGitHubIdentity(token);
+      fields.push("username = ?"); values.push(identity?.username ?? null);
+      fields.push("email = ?"); values.push(identity?.email ?? null);
+    }
 
     if (fields.length) {
       values.push(id);
       db.prepare(`UPDATE github_accounts SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     }
 
-    return { id, name: name || (existing as any).name, hasToken: true, createdAt: (existing as any).createdAt };
+    const updated = db.prepare("SELECT * FROM github_accounts WHERE id = ?").get(id) as any;
+    return {
+      id,
+      name: updated.name,
+      hasToken: true,
+      username: updated.username ?? null,
+      email: updated.email ?? null,
+      createdAt: updated.createdAt,
+    };
   });
 
   fastify.delete("/github-accounts/:id", async (request, reply) => {
@@ -78,7 +115,7 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.delete("/projects/:projectId/github-mapping", async (request) => {
     const { projectId } = request.params as any;
-    const { subPath } = request.body as any;
+    const { subPath } = (request.query as any) ?? {};
     db.prepare("DELETE FROM project_github_mappings WHERE projectId = ? AND subPath = ?").run(projectId, subPath || "");
     return { ok: true };
   });
