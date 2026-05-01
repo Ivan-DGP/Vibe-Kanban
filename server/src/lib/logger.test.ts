@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 import { getDb } from "../db";
 import { log } from "./logger";
 
@@ -44,5 +44,30 @@ describe("logger", () => {
 
     expect(row).toBeTruthy();
     expect(row.details).toBeNull();
+  });
+
+  test("log falls back to console.error when DB write fails", () => {
+    // Force the DB prepare to throw by using a bad table name via monkey-patching
+    const db = getDb();
+    const original = db.prepare.bind(db);
+    db.prepare = (...args: any[]) => {
+      // Only intercept the INSERT into system_logs
+      if (typeof args[0] === "string" && args[0].includes("INSERT INTO system_logs")) {
+        throw new Error("simulated DB failure");
+      }
+      return (original as any)(...args);
+    };
+
+    const spy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      log("warn", "server", "fallback test message");
+      expect(spy).toHaveBeenCalled();
+      const [firstArg] = spy.mock.calls[0];
+      expect(firstArg).toContain("[warn][server]");
+      expect(firstArg).toContain("fallback test message");
+    } finally {
+      db.prepare = original;
+      spy.mockRestore();
+    }
   });
 });

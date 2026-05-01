@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { log } from "../lib/logger";
+import { getMappedGitHubAccount, gitAuthArgs, gitCommitIdentityArgs } from "../lib/git-auth";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -17,9 +18,24 @@ export function resolveGitCwd(projectPath: string, subPath?: string): string {
 function getProjectPath(projectId: string): string {
   const db = getDb();
   const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as any;
-  if (!project) throw new Error("Project not found");
+  if (!project) {
+    const err = new Error("Project not found") as Error & { statusCode: number };
+    err.statusCode = 404;
+    throw err;
+  }
+  if (!project.path || !fs.existsSync(project.path)) {
+    const err = new Error("Project path does not exist on disk") as Error & { statusCode: number };
+    err.statusCode = 404;
+    throw err;
+  }
   return project.path;
 }
+
+function isGitRepo(dir: string): boolean {
+  return fs.existsSync(path.join(dir, ".git"));
+}
+
+const EMPTY_STATUS = { branch: "", upstream: null, ahead: 0, behind: 0, staged: [], unstaged: [], untracked: [] };
 
 export function parseStatus(stdout: string) {
   const lines = stdout.split("\n").filter(Boolean);
@@ -69,16 +85,20 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/status", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return EMPTY_STATUS;
     const result = await spawn(["git", "status", "--porcelain=v2", "--branch"], { cwd });
-    if (result.exitCode !== 0) return { branch: "", upstream: null, ahead: 0, behind: 0, staged: [], unstaged: [], untracked: [] };
+    if (result.exitCode !== 0) return EMPTY_STATUS;
     return parseStatus(result.stdout);
   });
 
   fastify.get("/projects/:projectId/git/log", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return [];
     const result = await spawn(
       ["git", "log", "--oneline", "-30", "--format=%H|%h|%an|%aI|%s"],
       { cwd },
@@ -96,7 +116,9 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/branches", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return [];
     const result = await spawn(
       ["git", "branch", "-a", "--format=%(refname:short)|%(HEAD)"],
       { cwd },
@@ -134,8 +156,10 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { message, subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
-    const result = await spawn(["git", "commit", "-m", message], { cwd });
-    log("info", "git", `Commit: ${message}`, { projectId });
+    const account = getMappedGitHubAccount(projectId, subPath ?? "");
+    const identityArgs = account ? gitCommitIdentityArgs(account) : [];
+    const result = await spawn(["git", ...identityArgs, "commit", "-m", message], { cwd });
+    log("info", "git", `Commit: ${message}`, { projectId, account: account?.name });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });
 
@@ -143,13 +167,15 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const account = getMappedGitHubAccount(projectId, subPath ?? "");
+    const authArgs = account ? gitAuthArgs(account.token) : [];
     // Check if current branch has an upstream; if not, push with --set-upstream
     const upstream = await spawn(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd });
-    const args = upstream.exitCode !== 0
-      ? ["git", "push", "--set-upstream", "origin", "HEAD"]
-      : ["git", "push"];
-    const result = await spawn(args, { cwd, timeout: 30000 });
-    log("info", "git", "Push", { projectId });
+    const pushArgs = upstream.exitCode !== 0
+      ? ["push", "--set-upstream", "origin", "HEAD"]
+      : ["push"];
+    const result = await spawn(["git", ...authArgs, ...pushArgs], { cwd, timeout: 30000 });
+    log("info", "git", "Push", { projectId, account: account?.name });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });
 
@@ -157,8 +183,10 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId } = request.params as any;
     const { subPath } = request.body as any;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
-    const result = await spawn(["git", "pull"], { cwd, timeout: 30000 });
-    log("info", "git", "Pull", { projectId });
+    const account = getMappedGitHubAccount(projectId, subPath ?? "");
+    const authArgs = account ? gitAuthArgs(account.token) : [];
+    const result = await spawn(["git", ...authArgs, "pull"], { cwd, timeout: 30000 });
+    log("info", "git", "Pull", { projectId, account: account?.name });
     return { ok: result.exitCode === 0, stdout: result.stdout, stderr: result.stderr };
   });
 
@@ -187,7 +215,9 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/diff", async (request) => {
     const { projectId } = request.params as any;
     const { file, subPath, staged } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return "";
     const args = ["git", "diff"];
     if (staged === "true") args.push("--cached");
     if (file) args.push(file);
@@ -199,7 +229,9 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/git/divergence", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = request.query as any;
-    const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
+    const projectPath = getProjectPath(projectId);
+    const cwd = resolveGitCwd(projectPath, subPath);
+    if (!isGitRepo(cwd) && !isGitRepo(projectPath)) return { mainBranch: null, ahead: 0, behind: 0 };
     // Try main, then master
     for (const main of ["main", "master"]) {
       const check = await spawn(["git", "rev-parse", "--verify", main], { cwd });

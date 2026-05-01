@@ -74,6 +74,7 @@ export interface Task {
   doneAt: string | null;
   approvedAt: string | null;
   archivedAt: string | null;
+  notionPageId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -218,6 +219,8 @@ export interface GitHubAccount {
   id: string;
   name: string;
   hasToken: boolean;
+  username: string | null;
+  email: string | null;
   createdAt: string;
 }
 

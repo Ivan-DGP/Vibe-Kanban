@@ -1,18 +1,35 @@
 import { useState } from "react";
-import { useNotionDatabasePages, useNotionPage } from "@/hooks";
+import { toast } from "sonner";
+import { useNotionDatabasePages, useNotionPage, useImportNotionDatabase } from "@/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, Loader2, Download } from "lucide-react";
 import type { NotionPage } from "@vibe-kanban/shared";
 
 interface NotionPanelProps {
   databaseId: string;
+  projectId: string;
 }
 
-export default function NotionPanel({ databaseId }: NotionPanelProps) {
+export default function NotionPanel({ databaseId, projectId }: NotionPanelProps) {
   const { data, isLoading, error } = useNotionDatabasePages(databaseId);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const importMutation = useImportNotionDatabase();
+
+  const handleImport = () => {
+    importMutation.mutate(projectId, {
+      onSuccess: ({ imported, updated, total }) => {
+        toast.success(
+          `Imported ${imported} new, updated ${updated} of ${total} Notion page${total === 1 ? "" : "s"} as tasks`,
+        );
+      },
+      onError: (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error(`Notion import failed: ${msg}`);
+      },
+    });
+  };
 
   if (isLoading) {
     return (
@@ -50,6 +67,21 @@ export default function NotionPanel({ databaseId }: NotionPanelProps) {
         <FileText className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">Notion Pages</span>
         <span className="text-xs text-muted-foreground">({pages.length})</span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto h-7 text-xs gap-1.5"
+          onClick={handleImport}
+          disabled={importMutation.isPending || pages.length === 0}
+          title="Import all pages as tasks (upsert by Notion page id)"
+        >
+          {importMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Download className="h-3 w-3" />
+          )}
+          Import to Tasks
+        </Button>
       </div>
 
       {pages.length === 0 ? (

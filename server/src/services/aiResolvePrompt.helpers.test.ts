@@ -647,6 +647,35 @@ describe("cached", () => {
 // cachedAsync (async TTL cache helper)
 // ============================================================
 
+describe("cached - evictExpired triggered at MAX_CACHE_SIZE", () => {
+  afterAll(() => {
+    contextCache.clear();
+  });
+
+  test("evicts expired entries when cache reaches MAX_CACHE_SIZE (200)", () => {
+    contextCache.clear();
+    const now = Date.now();
+
+    // Fill cache with 200 already-expired entries
+    for (let i = 0; i < 200; i++) {
+      contextCache.set(`evict-test-${i}`, { value: i, expiry: now - 1000 });
+    }
+    expect(contextCache.size).toBe(200);
+
+    // Adding one more entry should trigger evictExpired inside cached()
+    const result = cached("evict-trigger-key", () => "evicted-and-set");
+    expect(result).toBe("evicted-and-set");
+
+    // After eviction of expired entries, the 200 expired entries should be gone
+    // and only the new entry should remain
+    expect(contextCache.has("evict-trigger-key")).toBe(true);
+    // All expired entries should have been removed
+    for (let i = 0; i < 200; i++) {
+      expect(contextCache.has(`evict-test-${i}`)).toBe(false);
+    }
+  });
+});
+
 describe("cachedAsync", () => {
   beforeAll(() => {
     contextCache.clear();

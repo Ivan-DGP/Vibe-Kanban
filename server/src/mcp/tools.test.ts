@@ -404,9 +404,121 @@ describe("MCP tools - gitDiff (via toolMap)", () => {
     expect(typeof result.diff === "string" || typeof result.stat === "string").toBe(true);
   });
 
+  test("returns { diff } string for a small diff (<=300 lines)", async () => {
+    // Create a temp repo with a tiny change so the diff is well under 300 lines
+    const db = getDb();
+    const { execSync } = await import("node:child_process");
+    const fs = await import("node:fs");
+    const tinyRepoDir = `/tmp/tiny-diff-${Date.now()}`;
+    fs.mkdirSync(tinyRepoDir, { recursive: true });
+    execSync("git init", { cwd: tinyRepoDir });
+    execSync('git config user.email "t@t.com"', { cwd: tinyRepoDir });
+    execSync('git config user.name "T"', { cwd: tinyRepoDir });
+    fs.writeFileSync(`${tinyRepoDir}/hello.txt`, "hello\n");
+    execSync("git add hello.txt", { cwd: tinyRepoDir });
+    execSync('git commit -m "base"', { cwd: tinyRepoDir });
+    // One-line change
+    fs.writeFileSync(`${tinyRepoDir}/hello.txt`, "hello world\n");
+
+    const tinyProjectId = crypto.randomUUID();
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+    ).run(tinyProjectId, `__tiny_diff_${Date.now()}`, tinyRepoDir, "[]", 0);
+
+    try {
+      const handler = toolMap.get("git_diff")!.handler;
+      const result = (await handler({ projectId: tinyProjectId })) as any;
+      expect(typeof result.diff).toBe("string");
+      expect(result.stat).toBeUndefined();
+    } finally {
+      db.query("DELETE FROM projects WHERE id = ?").run(tinyProjectId);
+      fs.rmSync(tinyRepoDir, { recursive: true, force: true });
+    }
+  });
+
   test("returns error for non-existent project", async () => {
     const handler = toolMap.get("git_diff")!.handler;
     const result = (await handler({ projectId: "non-existent-id" })) as any;
     expect(result.error).toBe("Project not found");
+  });
+
+  test("returns stat-only response when diff output exceeds 300 lines", async () => {
+    // Create a temp git repo with enough staged changes to produce >300 diff lines
+    const largeRepoDir = `/tmp/large-diff-test-${Date.now()}`;
+    const { execSync } = await import("node:child_process");
+    const fs = await import("node:fs");
+    fs.mkdirSync(largeRepoDir, { recursive: true });
+    execSync("git init", { cwd: largeRepoDir });
+    execSync('git config user.email "t@t.com"', { cwd: largeRepoDir });
+    execSync('git config user.name "T"', { cwd: largeRepoDir });
+
+    // Commit a base file
+    const baseLines = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
+    fs.writeFileSync(`${largeRepoDir}/big.txt`, baseLines);
+    execSync("git add big.txt", { cwd: largeRepoDir });
+    execSync('git commit -m "base"', { cwd: largeRepoDir });
+
+    // Now replace with 400+ lines so git diff HEAD produces >300 lines
+    const newLines = Array.from({ length: 400 }, (_, i) => `new line ${i}`).join("\n");
+    fs.writeFileSync(`${largeRepoDir}/big.txt`, newLines);
+
+    // Insert a project pointing to this repo
+    const db = getDb();
+    const largeProjectId = crypto.randomUUID();
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+    ).run(largeProjectId, `__large_diff_${Date.now()}`, largeRepoDir, "[]", 0);
+
+    try {
+      const handler = toolMap.get("git_diff")!.handler;
+      const result = (await handler({ projectId: largeProjectId })) as any;
+      // Should return stat-only because diff > 300 lines
+      expect(typeof result.stat).toBe("string");
+      expect(result.note).toContain("showing stat only");
+    } finally {
+      db.query("DELETE FROM projects WHERE id = ?").run(largeProjectId);
+      fs.rmSync(largeRepoDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns error when git diff command fails (non-zero exit)", async () => {
+    // Point a project at a non-git directory so git diff HEAD fails
+    const db = getDb();
+    const badProjectId = crypto.randomUUID();
+    const nonGitDir = `/tmp/non-git-${Date.now()}`;
+    const fs = await import("node:fs");
+    fs.mkdirSync(nonGitDir, { recursive: true });
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+    ).run(badProjectId, `__bad_git_${Date.now()}`, nonGitDir, "[]", 0);
+
+    try {
+      const handler = toolMap.get("git_diff")!.handler;
+      const result = (await handler({ projectId: badProjectId })) as any;
+      // git diff HEAD on a non-git dir will fail with non-zero exit
+      expect(result.error).toBeDefined();
+    } finally {
+      db.query("DELETE FROM projects WHERE id = ?").run(badProjectId);
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns error when spawn throws (catch branch)", async () => {
+    // Point a project at a path that doesn't exist so spawn throws
+    const db = getDb();
+    const throwProjectId = crypto.randomUUID();
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+    ).run(throwProjectId, `__throw_git_${Date.now()}`, "/nonexistent/path/that/cannot/exist/ever", "[]", 0);
+
+    try {
+      const handler = toolMap.get("git_diff")!.handler;
+      const result = (await handler({ projectId: throwProjectId })) as any;
+      // spawn with a bad cwd may either fail with non-zero exit or throw
+      // Either way we get an error field back
+      expect(result.error).toBeDefined();
+    } finally {
+      db.query("DELETE FROM projects WHERE id = ?").run(throwProjectId);
+    }
   });
 });

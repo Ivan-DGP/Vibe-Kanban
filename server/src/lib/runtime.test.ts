@@ -7,6 +7,7 @@ import {
   spawnProcess,
   spawnProcessSync,
   spawnStreaming,
+  spawnPty,
   writeFile,
   openDatabase,
 } from "./runtime";
@@ -126,6 +127,102 @@ describe("spawnStreaming", () => {
     const exitCode = await proc.exited;
     // Killed processes usually have non-zero exit codes
     expect(exitCode).not.toBe(0);
+  });
+
+  test("stdinData is piped into the process", async () => {
+    const proc = spawnStreaming(["cat"], { stdinData: "streamed-stdin-data" });
+    const chunks: string[] = [];
+    proc.onData((chunk) => chunks.push(chunk));
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+    expect(chunks.join("")).toContain("streamed-stdin-data");
+  });
+
+  test("spawnStreaming without opts uses no stdin pipe", async () => {
+    // Calling spawnStreaming without opts exercises the opts?.stdinData === undefined branch.
+    const proc = spawnStreaming(["echo", "no-opts-test"]);
+    const chunks: string[] = [];
+    proc.onData((chunk) => chunks.push(chunk));
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+    expect(chunks.join("")).toContain("no-opts-test");
+  });
+});
+
+// ── spawnPty ─────────────────────────────────────────────────────
+// Tests cover the Bun PTY path (isBun === true in this env).
+// Node.js path (node-pty) is not reachable when running under Bun.
+
+describe("spawnPty", () => {
+  const ptyOpts = { cwd: "/tmp", env: { PATH: process.env.PATH! }, cols: 80, rows: 24 };
+
+  test("delivers output via onData callback", async () => {
+    const pty = spawnPty("echo", ["pty-hello"], ptyOpts);
+    const chunks: string[] = [];
+    pty.onData((d) => chunks.push(d));
+
+    await new Promise<void>((resolve) => {
+      pty.onExit(() => resolve());
+    });
+
+    expect(chunks.join("")).toContain("pty-hello");
+  });
+
+  test("onExit callback receives exit code 0 for a clean process", async () => {
+    const pty = spawnPty("true", [], ptyOpts);
+    const exitCode = await new Promise<number>((resolve) => {
+      pty.onExit((code) => resolve(code));
+    });
+    expect(exitCode).toBe(0);
+  });
+
+  test("kill() terminates PTY process and triggers onExit", async () => {
+    const pty = spawnPty("sleep", ["60"], ptyOpts);
+    setTimeout(() => pty.kill(), 100);
+    const exitCode = await new Promise<number>((resolve) => {
+      pty.onExit((code) => resolve(code));
+    });
+    // SIGKILL / SIGTERM exit codes are non-zero
+    expect(exitCode).not.toBe(0);
+  });
+
+  test("write() sends input to PTY stdin", async () => {
+    const pty = spawnPty("cat", [], { ...ptyOpts, env: { PATH: process.env.PATH!, TERM: "dumb" } });
+    const chunks: string[] = [];
+    pty.onData((d) => chunks.push(d));
+
+    // Give cat a moment to start, then send input and EOF
+    await new Promise((r) => setTimeout(r, 80));
+    pty.write("hello-pty-input\n");
+    await new Promise((r) => setTimeout(r, 80));
+    pty.kill();
+
+    await new Promise<void>((resolve) => {
+      pty.onExit(() => resolve());
+    });
+
+    expect(chunks.join("")).toContain("hello-pty-input");
+  });
+
+  test("resize() does not throw", () => {
+    const pty = spawnPty("sleep", ["10"], ptyOpts);
+    expect(() => pty.resize(120, 40)).not.toThrow();
+    pty.kill();
+  });
+
+  test("multiple onData callbacks all receive data", async () => {
+    const pty = spawnPty("echo", ["multi-cb"], ptyOpts);
+    const a: string[] = [];
+    const b: string[] = [];
+    pty.onData((d) => a.push(d));
+    pty.onData((d) => b.push(d));
+
+    await new Promise<void>((resolve) => {
+      pty.onExit(() => resolve());
+    });
+
+    expect(a.join("")).toContain("multi-cb");
+    expect(b.join("")).toContain("multi-cb");
   });
 });
 

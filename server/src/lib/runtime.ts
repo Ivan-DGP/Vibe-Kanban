@@ -81,7 +81,9 @@ export function spawnProcessSync(
 
 export interface StreamingProc {
   onData: (cb: (chunk: string) => void) => void;
+  onStderr: (cb: (chunk: string) => void) => void;
   kill: () => void;
+  /** Resolves with exit code AFTER stdout and stderr have been fully drained. */
   exited: Promise<number>;
 }
 
@@ -95,20 +97,40 @@ export function spawnStreaming(
       proc.stdin.write(opts.stdinData);
       proc.stdin.end();
     }
+
+    // Always drain both streams; buffer chunks until a callback is registered.
+    const stdoutBuf: string[] = [];
+    const stderrBuf: string[] = [];
+    let stdoutCb: ((chunk: string) => void) | null = null;
+    let stderrCb: ((chunk: string) => void) | null = null;
+
+    const drain = async (stream: ReadableStream<Uint8Array>, getCb: () => ((c: string) => void) | null, buf: string[]) => {
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value);
+        const cb = getCb();
+        if (cb) cb(text);
+        else buf.push(text);
+      }
+    };
+
+    const stdoutDone = drain(proc.stdout, () => stdoutCb, stdoutBuf);
+    const stderrDone = drain(proc.stderr, () => stderrCb, stderrBuf);
+
     return {
       onData: (cb) => {
-        const reader = proc.stdout.getReader();
-        const decoder = new TextDecoder();
-        (async () => {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            cb(decoder.decode(value));
-          }
-        })();
+        stdoutCb = cb;
+        while (stdoutBuf.length > 0) cb(stdoutBuf.shift()!);
+      },
+      onStderr: (cb) => {
+        stderrCb = cb;
+        while (stderrBuf.length > 0) cb(stderrBuf.shift()!);
       },
       kill: () => proc.kill(),
-      exited: proc.exited,
+      exited: Promise.all([proc.exited, stdoutDone, stderrDone]).then(([code]) => code),
     };
   }
 
@@ -119,14 +141,37 @@ export function spawnStreaming(
     proc.stdin.write(opts.stdinData);
     proc.stdin.end();
   }
+
+  const stdoutBuf: string[] = [];
+  const stderrBuf: string[] = [];
+  let stdoutCb: ((chunk: string) => void) | null = null;
+  let stderrCb: ((chunk: string) => void) | null = null;
+
+  proc.stdout!.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    if (stdoutCb) stdoutCb(text);
+    else stdoutBuf.push(text);
+  });
+  proc.stderr!.on("data", (chunk: Buffer) => {
+    const text = chunk.toString();
+    if (stderrCb) stderrCb(text);
+    else stderrBuf.push(text);
+  });
+
   let exitPromiseResolve: (code: number) => void;
   const exited = new Promise<number>((r) => { exitPromiseResolve = r; });
+  // "close" fires after all stdio streams have been flushed and closed.
   proc.on("close", (code: number | null) => exitPromiseResolve(code ?? 1));
   proc.on("error", () => exitPromiseResolve(1));
 
   return {
     onData: (cb) => {
-      proc.stdout!.on("data", (chunk: Buffer) => cb(chunk.toString()));
+      stdoutCb = cb;
+      while (stdoutBuf.length > 0) cb(stdoutBuf.shift()!);
+    },
+    onStderr: (cb) => {
+      stderrCb = cb;
+      while (stderrBuf.length > 0) cb(stderrBuf.shift()!);
     },
     kill: () => proc.kill(),
     exited,

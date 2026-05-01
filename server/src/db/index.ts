@@ -483,6 +483,30 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 18,
+      name: "add-task-notion-page-id",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "notionPageId")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN notionPageId TEXT DEFAULT NULL");
+        }
+        db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_notionPageId ON tasks (projectId, notionPageId)");
+      },
+    },
+    {
+      version: 19,
+      name: "add-github-account-identity",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(github_accounts)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "username")) {
+          db.exec("ALTER TABLE github_accounts ADD COLUMN username TEXT DEFAULT NULL");
+        }
+        if (!cols.some((c) => c.name === "email")) {
+          db.exec("ALTER TABLE github_accounts ADD COLUMN email TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

@@ -33,3 +33,31 @@ export function useDeleteGitHubAccount() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["github-accounts"] }),
   });
 }
+
+export function useGitHubMapping(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["github-mapping", projectId],
+    queryFn: () => api.github.mapping.get(projectId!),
+    enabled: !!projectId,
+  });
+}
+
+export function useSetGitHubMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, githubAccountId, subPath }: { projectId: string; githubAccountId: string; subPath?: string }) =>
+      api.github.mapping.set(projectId, githubAccountId, subPath),
+    onSuccess: (_, { projectId }) =>
+      qc.invalidateQueries({ queryKey: ["github-mapping", projectId] }),
+  });
+}
+
+export function useClearGitHubMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, subPath }: { projectId: string; subPath?: string }) =>
+      api.github.mapping.clear(projectId, subPath),
+    onSuccess: (_, { projectId }) =>
+      qc.invalidateQueries({ queryKey: ["github-mapping", projectId] }),
+  });
+}

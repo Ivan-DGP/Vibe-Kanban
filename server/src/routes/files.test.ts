@@ -627,9 +627,11 @@ describe("Files API - Search", () => {
     expect(body[1].file).toBe("match-too.json");
     expect(body[1].line).toBe(1);
 
-    // Verify spawn was called with grep args
-    expect(spy).toHaveBeenCalledTimes(1);
-    const callArgs = spy.mock.calls[0][0] as string[];
+    // Verify spawn was called with grep args (other calls may exist from background git polling)
+    expect(spy).toHaveBeenCalled();
+    const grepCall = spy.mock.calls.find((c: any) => (c[0] as string[])[0] === "grep");
+    expect(grepCall).toBeTruthy();
+    const callArgs = grepCall![0] as string[];
     expect(callArgs[0]).toBe("grep");
     expect(callArgs).toContain("-i"); // case insensitive by default
 

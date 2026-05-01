@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Uses the command runner to shell out to `bun test`. Scoped to pure lib/services logic. terminalService excluded (runs in split isolated suites), spawn.ts excluded (trivial re-export).",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "bun test src/lib src/services"
+  },
+  "coverageAnalysis": "off",
+  "mutate": [
+    "src/lib/crypto.ts",
+    "src/lib/data-dir.ts",
+    "src/lib/logger.ts",
+    "src/lib/runtime.ts",
+    "src/services/aiResolvePrompt.ts",
+    "src/services/snapshot.ts"
+  ],
+  "reporters": ["clear-text", "html", "progress"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/mutation.html"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 60
+  },
+  "timeoutMS": 30000,
+  "concurrency": 4,
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true,
+  "disableTypeChecks": "src/**/*.{ts,tsx}"
+}

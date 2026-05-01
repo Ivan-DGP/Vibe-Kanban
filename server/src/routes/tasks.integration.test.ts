@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, afterEach, mock } from "bun:test";
 import { buildApp } from "../app";
+import { writeFile as realWriteFile, spawnProcess as realSpawnProcess, isBun as realIsBun } from "../lib/runtime";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let projectId: string;
@@ -893,6 +894,36 @@ describe("Task sort variations", () => {
     }
   });
 
+  test("GET /api/projects/:projectId/tasks?milestoneId=<id> - filter by specific milestone ID", async () => {
+    // Create a milestone
+    const msRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/milestones`,
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Filter Milestone" },
+    });
+    const milestoneId = msRes.json().id;
+
+    // Create a task assigned to this milestone
+    const withMs = await createTask({ title: "Task With Milestone", milestoneId });
+    // Create a task with no milestone
+    await createTask({ title: "Task No Milestone" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/tasks?milestoneId=${milestoneId}&limit=200`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // All returned items should belong to this milestone
+    for (const item of body.items) {
+      expect(item.milestoneId).toBe(milestoneId);
+    }
+    const found = body.items.find((t: any) => t.id === withMs.id);
+    expect(found).toBeDefined();
+  });
+
   test("GET /api/projects/:projectId/tasks?milestoneId=null - filter by null milestone", async () => {
     const task = await createTask({ title: "No Milestone Task" });
 
@@ -1090,6 +1121,259 @@ describe("AI decompose endpoint", () => {
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toBe("Task not found");
   });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - creates subtasks via CLI path", async () => {
+    // Mock spawnProcess so the route uses the CLI path and returns a JSON array.
+    // Keep realWriteFile so snapshot.ts continues to work.
+    const subtaskJson = JSON.stringify([
+      { title: "Subtask Alpha", description: "First subtask", priority: "high" },
+      { title: "Subtask Beta", description: "Second subtask", priority: "medium" },
+    ]);
+
+    mock.module("../lib/runtime", () => ({
+      isBun: realIsBun,
+      spawnProcess: mock(async (cmd: string[]) => {
+        // First call is `which claude` — return exit 0 (CLI available)
+        if (cmd[0] === "which" || cmd[0] === "where") {
+          return { stdout: "/usr/bin/claude", stderr: "", exitCode: 0 };
+        }
+        // Second call is the actual claude invocation — return subtask JSON
+        return { stdout: subtaskJson, stderr: "", exitCode: 0 };
+      }),
+      spawnProcessSync: mock(() => ({ stdout: "/usr/bin/claude", exitCode: 0 })),
+      writeFile: realWriteFile,
+      spawnStreaming: mock(() => ({
+        onData: mock(() => {}),
+        onStderr: mock(() => {}),
+        kill: mock(() => {}),
+        exited: Promise.resolve(0),
+      })),
+      spawnPty: mock(() => ({
+        write: mock(() => {}),
+        resize: mock(() => {}),
+        kill: mock(() => {}),
+        onData: mock(() => {}),
+        onExit: mock(() => {}),
+      })),
+    }));
+
+    const parent = await createTask({
+      title: "Implement full user authentication system",
+      description: "Login, signup, password reset, OAuth integration",
+      priority: "high",
+      status: "todo",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${parent.id}/decompose`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.parentTaskId).toBe(parent.id);
+    expect(Array.isArray(body.subtasks)).toBe(true);
+    expect(body.subtasks.length).toBe(2);
+    expect(body.subtasks[0].title).toBe("Subtask Alpha");
+    expect(body.subtasks[1].title).toBe("Subtask Beta");
+    // Subtasks are linked to the parent
+    for (const subtask of body.subtasks) {
+      expect(subtask.parentTaskId).toBe(parent.id);
+      expect(subtask.projectId).toBe(projectId);
+      expect(subtask.status).toBe("todo");
+    }
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - falls back to API when CLI unavailable", async () => {
+    // Insert a fake API key into settings
+    const { getDb } = await import("../db");
+    const db = getDb();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "claudeApiKey",
+      JSON.stringify("test-api-key"),
+    );
+
+    const subtaskJson = JSON.stringify([
+      { title: "API Subtask One", description: "via API", priority: "medium" },
+    ]);
+
+    // Mock spawnProcess so CLI check fails, triggering the API fallback
+    mock.module("../lib/runtime", () => ({
+      isBun: realIsBun,
+      spawnProcess: mock(async () => {
+        // which claude fails — CLI not available
+        return { stdout: "", stderr: "not found", exitCode: 1 };
+      }),
+      spawnProcessSync: mock(() => ({ stdout: "", exitCode: 1 })),
+      writeFile: realWriteFile,
+      spawnStreaming: mock(() => ({
+        onData: mock(() => {}),
+        onStderr: mock(() => {}),
+        kill: mock(() => {}),
+        exited: Promise.resolve(0),
+      })),
+      spawnPty: mock(() => ({
+        write: mock(() => {}),
+        resize: mock(() => {}),
+        kill: mock(() => {}),
+        onData: mock(() => {}),
+        onExit: mock(() => {}),
+      })),
+    }));
+
+    // Mock the global fetch so the Anthropic API call returns our subtask JSON
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async (_url: string, _opts: any) => ({
+      json: async () => ({
+        content: [{ text: subtaskJson }],
+      }),
+    })) as any;
+
+    const parent = await createTask({
+      title: "Refactor database layer",
+      description: "Move to an ORM and add migrations",
+      priority: "medium",
+      status: "todo",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${parent.id}/decompose`,
+    });
+
+    // Restore fetch
+    globalThis.fetch = originalFetch;
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.parentTaskId).toBe(parent.id);
+    expect(Array.isArray(body.subtasks)).toBe(true);
+    expect(body.subtasks.length).toBe(1);
+    expect(body.subtasks[0].title).toBe("API Subtask One");
+    expect(body.subtasks[0].parentTaskId).toBe(parent.id);
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - returns 500 when AI response has no JSON array", async () => {
+    mock.module("../lib/runtime", () => ({
+      isBun: realIsBun,
+      spawnProcess: mock(async (cmd: string[]) => {
+        if (cmd[0] === "which" || cmd[0] === "where") {
+          return { stdout: "/usr/bin/claude", stderr: "", exitCode: 0 };
+        }
+        // Return non-JSON response
+        return { stdout: "I cannot decompose this task.", stderr: "", exitCode: 0 };
+      }),
+      spawnProcessSync: mock(() => ({ stdout: "/usr/bin/claude", exitCode: 0 })),
+      writeFile: realWriteFile,
+      spawnStreaming: mock(() => ({
+        onData: mock(() => {}),
+        onStderr: mock(() => {}),
+        kill: mock(() => {}),
+        exited: Promise.resolve(0),
+      })),
+      spawnPty: mock(() => ({
+        write: mock(() => {}),
+        resize: mock(() => {}),
+        kill: mock(() => {}),
+        onData: mock(() => {}),
+        onExit: mock(() => {}),
+      })),
+    }));
+
+    const parent = await createTask({ title: "Task With No JSON Response", status: "todo" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${parent.id}/decompose`,
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json().error).toBe("AI did not return valid subtasks");
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - returns 500 when response contains invalid JSON array", async () => {
+    mock.module("../lib/runtime", () => ({
+      isBun: realIsBun,
+      spawnProcess: mock(async (cmd: string[]) => {
+        if (cmd[0] === "which" || cmd[0] === "where") {
+          return { stdout: "/usr/bin/claude", stderr: "", exitCode: 0 };
+        }
+        // Return text that looks like a JSON array (regex matches) but is malformed JSON
+        return { stdout: "Here are subtasks: [invalid json content]", stderr: "", exitCode: 0 };
+      }),
+      spawnProcessSync: mock(() => ({ stdout: "/usr/bin/claude", exitCode: 0 })),
+      writeFile: realWriteFile,
+      spawnStreaming: mock(() => ({
+        onData: mock(() => {}),
+        onStderr: mock(() => {}),
+        kill: mock(() => {}),
+        exited: Promise.resolve(0),
+      })),
+      spawnPty: mock(() => ({
+        write: mock(() => {}),
+        resize: mock(() => {}),
+        kill: mock(() => {}),
+        onData: mock(() => {}),
+        onExit: mock(() => {}),
+      })),
+    }));
+
+    const parent = await createTask({ title: "Task With Malformed JSON", status: "todo" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${parent.id}/decompose`,
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json().error).toBe("Failed to parse AI response as JSON");
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/decompose - returns 500 when CLI unavailable and no API key", async () => {
+    // Ensure no API key in settings
+    const { getDb } = await import("../db");
+    const db = getDb();
+    db.prepare("DELETE FROM settings WHERE key = 'claudeApiKey'").run();
+
+    mock.module("../lib/runtime", () => ({
+      isBun: realIsBun,
+      spawnProcess: mock(async () => ({ stdout: "", stderr: "not found", exitCode: 1 })),
+      spawnProcessSync: mock(() => ({ stdout: "", exitCode: 1 })),
+      writeFile: realWriteFile,
+      spawnStreaming: mock(() => ({
+        onData: mock(() => {}),
+        onStderr: mock(() => {}),
+        kill: mock(() => {}),
+        exited: Promise.resolve(0),
+      })),
+      spawnPty: mock(() => ({
+        write: mock(() => {}),
+        resize: mock(() => {}),
+        kill: mock(() => {}),
+        onData: mock(() => {}),
+        onExit: mock(() => {}),
+      })),
+    }));
+
+    const parent = await createTask({ title: "Task Without AI Backend", status: "todo" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${parent.id}/decompose`,
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json().error).toBe("No AI backend available");
+  });
+
+  afterEach(() => {
+    // Restore the real runtime module after each test that may have mocked it
+    mock.module("../lib/runtime", () => ({
+      isBun: realIsBun,
+      spawnProcess: realSpawnProcess,
+      writeFile: realWriteFile,
+    }));
+  });
 });
 
 describe("AI resolve endpoint", () => {
@@ -1113,6 +1397,27 @@ describe("AI resolve endpoint", () => {
 
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toBe("Task not found");
+  });
+
+  test("POST /api/projects/:projectId/tasks/:taskId/ai-resolve - returns prompt string for existing task", async () => {
+    const task = await createTask({
+      title: "Add dark mode support to the UI",
+      description: "Implement a toggle that switches between light and dark themes using CSS variables",
+      prompt: "Use Tailwind CSS dark: prefix classes",
+      status: "todo",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${task.id}/ai-resolve`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.prompt).toBe("string");
+    expect(body.prompt.length).toBeGreaterThan(0);
+    // The prompt should reference the task title somewhere
+    expect(body.prompt).toContain("dark mode");
   });
 });
 

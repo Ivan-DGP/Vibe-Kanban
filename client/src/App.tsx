@@ -99,6 +99,15 @@ export default function App() {
             </Suspense>
           }
         />
+        <Route
+          path="*"
+          element={
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+              <span className="text-4xl font-bold">404</span>
+              <span className="text-sm">Page not found</span>
+            </div>
+          }
+        />
       </Route>
     </Routes>
     </>

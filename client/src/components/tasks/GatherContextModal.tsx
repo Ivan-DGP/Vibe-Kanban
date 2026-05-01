@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, CheckCircle2, XCircle, FileSearch, Copy, Check } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -172,16 +171,17 @@ export default function GatherContextModal({
           )}
         </div>
 
-        <ScrollArea className="flex-1 min-h-[300px] max-h-[50vh] border rounded-md">
-          <div ref={scrollRef} className="p-3 text-sm font-mono whitespace-pre-wrap break-words">
-            {streamedText || (
-              <span className="text-muted-foreground italic">
-                {phase === "connecting" ? "Analyzing project structure, dependencies, and git history..." : "No output yet"}
-              </span>
-            )}
-            {phase === "streaming" && <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse ml-0.5 align-text-bottom" />}
-          </div>
-        </ScrollArea>
+        <div
+          ref={scrollRef}
+          className="flex-1 min-h-[200px] overflow-y-auto border rounded-md p-3 text-sm font-mono whitespace-pre-wrap break-words"
+        >
+          {streamedText || (
+            <span className="text-muted-foreground italic">
+              {phase === "connecting" ? "Analyzing project structure, dependencies, and git history..." : "No output yet"}
+            </span>
+          )}
+          {phase === "streaming" && <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse ml-0.5 align-text-bottom" />}
+        </div>
 
         {phase === "error" && (
           <div className="text-sm text-red-500 bg-red-500/10 rounded-md px-3 py-2">

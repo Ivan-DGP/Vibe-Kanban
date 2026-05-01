@@ -5,7 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Trash2, Plus, X } from "lucide-react";
-import { useUpdateProject, useDeleteProject, useNotionStatus, useNotionDatabases } from "@/hooks";
+import {
+  useUpdateProject,
+  useDeleteProject,
+  useNotionStatus,
+  useNotionDatabases,
+  useGitHubAccounts,
+  useGitHubMapping,
+  useSetGitHubMapping,
+  useClearGitHubMapping,
+} from "@/hooks";
 import { useConfirm } from "@/hooks/useConfirm";
 import type { Project, ExternalLink } from "@vibe-kanban/shared";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +33,7 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
   const [aiInstructions, setAiInstructions] = useState(project.aiInstructions ?? "");
   const [links, setLinks] = useState<ExternalLink[]>(project.externalLinks);
   const [notionDatabaseId, setNotionDatabaseId] = useState(project.notionDatabaseId ?? "");
+  const [githubAccountId, setGithubAccountId] = useState<string>("");
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const updateProject = useUpdateProject();
@@ -31,6 +41,10 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
   const confirm = useConfirm();
   const { data: notionStatus } = useNotionStatus();
   const { data: notionDbs } = useNotionDatabases(notionStatus?.connected ?? false);
+  const { data: githubAccounts } = useGitHubAccounts();
+  const { data: githubMappings } = useGitHubMapping(open ? project.id : undefined);
+  const setGithubMapping = useSetGitHubMapping();
+  const clearGithubMapping = useClearGitHubMapping();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -43,7 +57,20 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
     setNotionDatabaseId(project.notionDatabaseId ?? "");
   }, [project, open]);
 
-  const handleSave = () => {
+  useEffect(() => {
+    const rootMapping = githubMappings?.find((m) => m.subPath === "");
+    setGithubAccountId(rootMapping?.githubAccountId ?? "");
+  }, [githubMappings]);
+
+  const handleSave = async () => {
+    const currentMappingId = githubMappings?.find((m) => m.subPath === "")?.githubAccountId ?? "";
+    if (githubAccountId !== currentMappingId) {
+      if (githubAccountId) {
+        await setGithubMapping.mutateAsync({ projectId: project.id, githubAccountId });
+      } else {
+        await clearGithubMapping.mutateAsync({ projectId: project.id });
+      }
+    }
     updateProject.mutate(
       {
         id: project.id,
@@ -106,6 +133,27 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">How AI handles git after resolving tasks</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>GitHub Account</Label>
+            <Select
+              value={githubAccountId || "__none__"}
+              onValueChange={(v) => setGithubAccountId(v === "__none__" ? "" : v)}
+            >
+              <SelectTrigger><SelectValue placeholder="Use system git credentials" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None (system git credentials)</SelectItem>
+                {githubAccounts?.map((acct) => (
+                  <SelectItem key={acct.id} value={acct.id}>
+                    {acct.name}{acct.username ? ` — @${acct.username}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              Used for push/pull/commit on this project. Token authenticates HTTPS pushes; SSH remotes still use system keys.
+            </p>
           </div>
 
           <div className="space-y-2">

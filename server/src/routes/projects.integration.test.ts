@@ -626,7 +626,157 @@ describe("POST /api/projects/scan", () => {
   });
 });
 
-// ─── GET /api/browse endpoint ───────────────────────────────────────────────
+// ─── GET /api/projects query filters ────────────────────────────────────────
+
+describe("GET /api/projects — query filters", () => {
+  let favProjectId: string;
+  let catProjectId: string;
+
+  beforeAll(async () => {
+    // Create a favorite project
+    const res1 = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Filter Fav Project ${Date.now()}`, path: `/tmp/filter-fav-${Date.now()}` },
+    });
+    favProjectId = res1.json().id;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${favProjectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { favorite: true },
+    });
+
+    // Create a project with a category
+    const res2 = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Filter Cat Project ${Date.now()}`, path: `/tmp/filter-cat-${Date.now()}` },
+    });
+    catProjectId = res2.json().id;
+    await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${catProjectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { category: "filter-test-category" },
+    });
+  });
+
+  afterAll(async () => {
+    await app.inject({ method: "DELETE", url: `/api/projects/${favProjectId}` });
+    await app.inject({ method: "DELETE", url: `/api/projects/${catProjectId}` });
+  });
+
+  test("?favorite=true returns only favorite projects", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects?favorite=true",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.every((p: any) => p.favorite === true)).toBe(true);
+    expect(body.find((p: any) => p.id === favProjectId)).toBeDefined();
+  });
+
+  test("?favorite=false returns only non-favorite projects", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects?favorite=false",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.every((p: any) => p.favorite === false)).toBe(true);
+  });
+
+  test("?category= returns only projects with that category", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects?category=filter-test-category",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.find((p: any) => p.id === catProjectId)).toBeDefined();
+    expect(body.every((p: any) => p.category === "filter-test-category")).toBe(true);
+  });
+});
+
+// ─── PATCH /api/projects — edge cases ───────────────────────────────────────
+
+describe("PATCH /api/projects — edge cases", () => {
+  let projectId: string;
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Patch Edge Project ${Date.now()}`, path: `/tmp/patch-edge-${Date.now()}` },
+    });
+    projectId = res.json().id;
+  });
+
+  afterAll(async () => {
+    await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
+  });
+
+  test("PATCH with techStack array serializes correctly", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { techStack: ["TypeScript", "React", "Vite"] },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.techStack).toEqual(["TypeScript", "React", "Vite"]);
+  });
+
+  test("PATCH with externalLinks array serializes correctly", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { externalLinks: [{ label: "GitHub", url: "https://github.com/test" }] },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.externalLinks)).toBe(true);
+    expect(body.externalLinks[0].label).toBe("GitHub");
+  });
+
+  test("PATCH with no recognized fields returns existing project unchanged", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { unknownField: "ignored", anotherUnknown: 42 },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.id).toBe(projectId);
+  });
+
+  test("PATCH with aiInstructions and treeDepth", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { aiInstructions: "Use TypeScript strict mode.", treeDepth: 4, aiCommitMode: "none" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.aiInstructions).toBe("Use TypeScript strict mode.");
+    expect(body.treeDepth).toBe(4);
+    expect(body.aiCommitMode).toBe("none");
+  });
+});
+
+// ─── GET /api/browse endpoint ────────────────────────────────────────────────
 
 describe("GET /api/browse", () => {
   let tmpDir: string;

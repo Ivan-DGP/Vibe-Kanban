@@ -119,7 +119,7 @@ export default function ProjectDetail() {
             </SheetTrigger>
             <SheetContent className="w-[380px] sm:w-[420px] p-0">
               <SheetTitle className="sr-only">Notion</SheetTitle>
-              <NotionPanel databaseId={project.notionDatabaseId} />
+              <NotionPanel databaseId={project.notionDatabaseId} projectId={project.id} />
             </SheetContent>
           </Sheet>
         )}

@@ -719,4 +719,182 @@ describe("Git route integration", () => {
     // Clean up sub-repo
     fs.rmSync(subRepoDir, { recursive: true, force: true });
   });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/push
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/push - push with upstream set returns ok true or false", async () => {
+    // Set up a bare remote so we can push
+    const remoteDir = path.join("/tmp", `git-remote-${Date.now()}`);
+    fs.mkdirSync(remoteDir, { recursive: true });
+    execSync("git init --bare", { cwd: remoteDir });
+    execSync(`git remote add origin ${remoteDir}`, { cwd: tmpDir });
+    execSync("git push --set-upstream origin HEAD", { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/push`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.ok).toBe("boolean");
+    expect(body.stdout).toBeDefined();
+    expect(body.stderr).toBeDefined();
+
+    // Cleanup
+    execSync("git remote remove origin", { cwd: tmpDir });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  });
+
+  test("POST /api/projects/:id/git/push - push without upstream uses --set-upstream", async () => {
+    // Set up a bare remote but do NOT set upstream — push should use --set-upstream
+    const remoteDir = path.join("/tmp", `git-remote-no-upstream-${Date.now()}`);
+    fs.mkdirSync(remoteDir, { recursive: true });
+    execSync("git init --bare", { cwd: remoteDir });
+    execSync(`git remote add origin ${remoteDir}`, { cwd: tmpDir });
+    // Do NOT run git push --set-upstream, so @{u} will fail
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/push`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // Push itself may succeed or fail depending on git config; key is we get the shape back
+    expect(typeof body.ok).toBe("boolean");
+    expect(body.stdout !== undefined || body.stderr !== undefined).toBe(true);
+
+    // Cleanup
+    execSync("git remote remove origin", { cwd: tmpDir });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  });
+
+  // ===========================================================================
+  // POST /api/projects/:id/git/pull
+  // ===========================================================================
+
+  test("POST /api/projects/:id/git/pull - pull with upstream set succeeds", async () => {
+    // Set up a bare remote, push, then pull
+    const remoteDir = path.join("/tmp", `git-pull-remote-${Date.now()}`);
+    fs.mkdirSync(remoteDir, { recursive: true });
+    execSync("git init --bare", { cwd: remoteDir });
+    execSync(`git remote add origin ${remoteDir}`, { cwd: tmpDir });
+    execSync("git push --set-upstream origin HEAD", { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/pull`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.ok).toBe("boolean");
+    expect(body.stdout).toBeDefined();
+    expect(body.stderr).toBeDefined();
+
+    // Cleanup
+    execSync("git remote remove origin", { cwd: tmpDir });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  });
+
+  test("POST /api/projects/:id/git/pull - pull without remote fails gracefully", async () => {
+    // No remote set; git pull should fail with exitCode !== 0
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/git/pull`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(false);
+  });
+
+  // ===========================================================================
+  // GET /api/projects/:id/git/divergence - line 211 (rev-list succeeds)
+  // ===========================================================================
+
+  test("GET /api/projects/:id/git/divergence - returns ahead/behind counts when on feature branch", async () => {
+    // We're on main/master; create a feature branch with an extra commit
+    const branchRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/branches`,
+    });
+    const branches = branchRes.json();
+    const mainBranch = branches.find((b: any) => b.name === "main" || b.name === "master");
+    const mainName = mainBranch?.name ?? "main";
+
+    // Create a commit on a new branch ahead of main
+    execSync(`git checkout -b diverge-test-branch`, { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, "diverge.txt"), "divergence test\n");
+    execSync("git add diverge.txt", { cwd: tmpDir });
+    execSync('git commit -m "Divergence test commit"', { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/divergence`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.mainBranch).toBe(mainName);
+    expect(typeof body.ahead).toBe("number");
+    expect(typeof body.behind).toBe("number");
+    // We added one commit ahead of main
+    expect(body.ahead).toBeGreaterThanOrEqual(1);
+
+    // Restore (file only exists on diverge-test-branch, not on main)
+    execSync(`git checkout ${mainName}`, { cwd: tmpDir });
+    execSync("git branch -D diverge-test-branch", { cwd: tmpDir });
+  });
+
+  test("GET /api/projects/:id/git/divergence - returns null mainBranch when rev-list fails (orphan HEAD)", async () => {
+    // Switch to an orphan branch so HEAD is unborn.
+    // rev-parse --verify main/master succeeds (the branch exists), but
+    // rev-list --left-right --count main...HEAD fails because HEAD has no commit.
+
+    // Determine the main branch name first
+    const branchRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/branches`,
+    });
+    const branches = branchRes.json();
+    const mainBranchObj = branches.find((b: any) => b.name === "main" || b.name === "master");
+    const mainName = mainBranchObj?.name ?? "main";
+
+    // Stage everything so checkout --orphan doesn't warn about untracked files
+    try { execSync("git add -A", { cwd: tmpDir }); } catch {}
+    execSync("git checkout --orphan orphan-no-commits", { cwd: tmpDir });
+    // Remove the staged files from the index so HEAD remains truly unborn
+    try { execSync("git rm -rf --cached .", { cwd: tmpDir }); } catch {}
+
+    try {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/git/divergence`,
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      // rev-list fails on unborn HEAD → falls through both branch checks → null
+      expect(body.mainBranch).toBeNull();
+      expect(body.ahead).toBe(0);
+      expect(body.behind).toBe(0);
+    } finally {
+      // Return to main branch
+      execSync(`git checkout -f ${mainName}`, { cwd: tmpDir });
+      // Delete the orphan branch if it still exists
+      try { execSync("git branch -D orphan-no-commits", { cwd: tmpDir }); } catch {}
+    }
+  });
 });

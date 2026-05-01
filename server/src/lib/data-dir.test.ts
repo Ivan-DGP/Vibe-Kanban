@@ -19,6 +19,26 @@ describe("data-dir", () => {
     expect(fs.existsSync(dir)).toBe(true);
   });
 
+  test("getDataDir creates the directory when it does not exist", () => {
+    const dir = getDataDir();
+    const tmpName = dir + "__missing_test__";
+    // Self-heal if a prior crashed run left tmpName behind
+    if (fs.existsSync(tmpName)) {
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      fs.renameSync(tmpName, dir);
+    }
+    fs.renameSync(dir, tmpName);
+    try {
+      expect(fs.existsSync(dir)).toBe(false);
+      const result = getDataDir();
+      expect(result).toBe(dir);
+      expect(fs.existsSync(dir)).toBe(true);
+    } finally {
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      fs.renameSync(tmpName, dir);
+    }
+  });
+
   test("getDbPath returns path ending in vibe-kanban.db", () => {
     const dbPath = getDbPath();
     expect(path.basename(dbPath)).toBe("vibe-kanban.db");
@@ -59,5 +79,28 @@ describe("data-dir", () => {
     expect(dir.startsWith(dataDir)).toBe(true);
     // Clean up
     fs.rmSync(path.resolve(dataDir, "projects", "check-parent"), { recursive: true });
+  });
+
+  test("getTaskSnapshotDir creates directory when it does not exist", () => {
+    const dataDir = getDataDir();
+    const tasksDir = path.join(dataDir, "tasks");
+    const tmpName = tasksDir + "__missing_snap_test__";
+    // Self-heal if a prior crashed run left tmpName behind
+    if (fs.existsSync(tmpName)) {
+      if (fs.existsSync(tasksDir))
+        fs.rmSync(tasksDir, { recursive: true, force: true });
+      fs.renameSync(tmpName, tasksDir);
+    }
+    fs.renameSync(tasksDir, tmpName);
+    try {
+      expect(fs.existsSync(tasksDir)).toBe(false);
+      const result = getTaskSnapshotDir();
+      expect(result).toBe(tasksDir);
+      expect(fs.existsSync(tasksDir)).toBe(true);
+    } finally {
+      if (fs.existsSync(tasksDir))
+        fs.rmSync(tasksDir, { recursive: true, force: true });
+      fs.renameSync(tmpName, tasksDir);
+    }
   });
 });

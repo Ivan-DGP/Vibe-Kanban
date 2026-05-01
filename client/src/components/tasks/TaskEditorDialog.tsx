@@ -5,13 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, FileSearch, Wand2 } from "lucide-react";
+import { Loader2, FileSearch, Wand2, Image as ImageIcon, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { useCreateTask, useUpdateTask, useMilestones } from "@/hooks";
+import { useCreateTask, useUpdateTask, useMilestones, useUploadArtifact, useUpdateArtifact } from "@/hooks";
 import BranchSelector from "@/components/git/BranchSelector";
 import GatherContextModal from "./GatherContextModal";
 import { api } from "@/lib/api";
-import type { Task, TaskStatus, TaskPriority, PromptProfile, CreateTaskInput } from "@vibe-kanban/shared";
+import type { Task, TaskStatus, TaskPriority, PromptProfile, CreateTaskInput, Artifact } from "@vibe-kanban/shared";
+
+function slugifyForFilename(s: string): string {
+  return s.toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 40) || "screenshot";
+}
 
 interface TaskEditorDialogProps {
   open: boolean;
@@ -34,10 +42,13 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
 
   const createTask = useCreateTask(projectId);
   const updateTask = useUpdateTask();
+  const uploadArtifact = useUploadArtifact(projectId);
+  const updateArtifact = useUpdateArtifact(projectId);
   const { data: milestones } = useMilestones(projectId);
   const isEditing = !!task;
   const [aiLoading, setAiLoading] = useState<"context" | "improve" | null>(null);
   const [gatherModalOpen, setGatherModalOpen] = useState(false);
+  const [pastedArtifacts, setPastedArtifacts] = useState<Array<{ id: string; filename: string; renaming: boolean }>>([]);
 
   const streamAI = async (systemPrompt: string): Promise<string> => {
     const controller = new AbortController();
@@ -76,6 +87,63 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
     } finally {
       clearTimeout(timeout);
     }
+  };
+
+  const renameArtifactWithAI = async (artifact: Artifact) => {
+    const ext = (artifact.filename.split(".").pop() || "png").toLowerCase();
+    const parts: string[] = [];
+    if (title.trim()) parts.push(`Task title: ${title}`);
+    if (description.trim()) parts.push(`Description: ${description}`);
+    if (prompt.trim()) parts.push(`Prompt: ${prompt}`);
+    if (parts.length === 0) return;
+    try {
+      const aiPrompt = `Generate a short, descriptive filename for a screenshot attached to this task. Use kebab-case, 3-6 words, no extension, no path. Output ONLY the filename.\n\n${parts.join("\n")}`;
+      const raw = await streamAI(aiPrompt);
+      const cleaned = raw.trim().split("\n")[0].replace(/\.[^.]*$/, "").replace(/[^a-z0-9-]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "").slice(0, 60);
+      if (cleaned.length < 3) return;
+      const newFilename = `${cleaned}.${ext}`;
+      updateArtifact.mutate(
+        { id: artifact.id, input: { filename: newFilename } },
+        {
+          onSuccess: (updated) => {
+            setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { id: updated.id, filename: updated.filename, renaming: false } : a));
+          },
+          onError: () => {
+            setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+          },
+        },
+      );
+    } catch {
+      setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const ext = (blob.type.split("/")[1] || "png").split("+")[0];
+        const baseName = slugifyForFilename(title || "screenshot");
+        const file = new File([blob], `${baseName}-${Date.now()}.${ext}`, { type: blob.type });
+        uploadArtifact.mutate(file, {
+          onSuccess: (artifact) => {
+            setPastedArtifacts((prev) => [...prev, { id: artifact.id, filename: artifact.filename, renaming: true }]);
+            toast.success(`Saved as artifact: ${artifact.filename}`);
+            renameArtifactWithAI(artifact);
+          },
+          onError: (err: any) => toast.error(err?.message || "Failed to upload screenshot"),
+        });
+        return;
+      }
+    }
+  };
+
+  const handleRemovePastedArtifact = (id: string) => {
+    setPastedArtifacts((prev) => prev.filter((a) => a.id !== id));
   };
 
   const handleGatherContext = () => {
@@ -143,6 +211,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setPromptProfile("auto");
     }
     setActiveTab("description");
+    setPastedArtifacts([]);
   }, [task, open]);
 
   const handleSubmit = () => {
@@ -169,7 +238,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" onPaste={handlePaste}>
         <DialogHeader>
           <DialogTitle>{isEditing ? "Edit Task" : "Create Task"}</DialogTitle>
         </DialogHeader>
@@ -228,7 +297,34 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
               {aiLoading === "improve" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
               AI Improve Writing
             </Button>
+            <span className="text-[10px] text-muted-foreground ml-auto">Paste a screenshot to attach</span>
           </div>
+
+          {(uploadArtifact.isPending || pastedArtifacts.length > 0) && (
+            <div className="flex flex-wrap gap-1.5">
+              {pastedArtifacts.map((a) => (
+                <div key={a.id} className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
+                  <ImageIcon className="h-3 w-3 text-muted-foreground" />
+                  <span className="font-mono truncate max-w-[200px]" title={a.filename}>{a.filename}</span>
+                  {a.renaming && <Sparkles className="h-3 w-3 text-blue-500 animate-pulse" />}
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePastedArtifact(a.id)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label="Remove from list"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {uploadArtifact.isPending && (
+                <div className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="text-muted-foreground">Uploading screenshot…</span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
