@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { writeTaskSnapshot } from "../services/snapshot";
 import { buildAiResolvePrompt, buildDecomposePrompt, classifyTaskProfile, estimateComplexity } from "../services/aiResolvePrompt";
+import { maybeSpawnForTask } from "../services/taskSpawner";
 import type { Task, TaskStatus } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -227,7 +228,9 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     log("info", "tasks", `Task created: ${title}`, { projectId });
     writeTaskSnapshot(projectId);
 
-    return rowToTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+    const task = rowToTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+    maybeSpawnForTask(task);
+    return task;
   });
 
   // Update task

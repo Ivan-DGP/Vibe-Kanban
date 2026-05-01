@@ -1,6 +1,8 @@
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { getProjectArtifactsDir } from "../lib/data-dir";
+import { maybeSpawnForTask } from "../services/taskSpawner";
+import { rowToTask } from "../routes/tasks";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -73,6 +75,8 @@ export function createTask(params: Record<string, unknown>): unknown {
     now,
     now,
   );
+  const inserted = db.query("SELECT * FROM tasks WHERE id = ?").get(id);
+  if (inserted) maybeSpawnForTask(rowToTask(inserted));
   return { id, title: params.title };
 }
 
