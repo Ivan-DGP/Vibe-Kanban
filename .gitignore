@@ -14,6 +14,10 @@ Thumbs.db
 server/coverage/
 e2e-results.json
 
+# Mutation testing
+server/.stryker-tmp/
+server/reports/mutation/
+
 # Debug / test artifacts
 debug-browse-dialog.mjs
 debug-browse-dialog2.mjs

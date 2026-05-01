@@ -21,8 +21,12 @@ describe("data-dir", () => {
 
   test("getDataDir creates the directory when it does not exist", () => {
     const dir = getDataDir();
-    // Temporarily rename the directory so it doesn't exist
     const tmpName = dir + "__missing_test__";
+    // Self-heal if a prior crashed run left tmpName behind
+    if (fs.existsSync(tmpName)) {
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      fs.renameSync(tmpName, dir);
+    }
     fs.renameSync(dir, tmpName);
     try {
       expect(fs.existsSync(dir)).toBe(false);
@@ -30,8 +34,7 @@ describe("data-dir", () => {
       expect(result).toBe(dir);
       expect(fs.existsSync(dir)).toBe(true);
     } finally {
-      // Restore: remove the newly-created empty dir and rename original back
-      if (fs.existsSync(dir)) fs.rmdirSync(dir);
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
       fs.renameSync(tmpName, dir);
     }
   });
@@ -81,8 +84,13 @@ describe("data-dir", () => {
   test("getTaskSnapshotDir creates directory when it does not exist", () => {
     const dataDir = getDataDir();
     const tasksDir = path.join(dataDir, "tasks");
-    // Rename away so it doesn't exist
     const tmpName = tasksDir + "__missing_snap_test__";
+    // Self-heal if a prior crashed run left tmpName behind
+    if (fs.existsSync(tmpName)) {
+      if (fs.existsSync(tasksDir))
+        fs.rmSync(tasksDir, { recursive: true, force: true });
+      fs.renameSync(tmpName, tasksDir);
+    }
     fs.renameSync(tasksDir, tmpName);
     try {
       expect(fs.existsSync(tasksDir)).toBe(false);
@@ -90,7 +98,8 @@ describe("data-dir", () => {
       expect(result).toBe(tasksDir);
       expect(fs.existsSync(tasksDir)).toBe(true);
     } finally {
-      if (fs.existsSync(tasksDir)) fs.rmdirSync(tasksDir);
+      if (fs.existsSync(tasksDir))
+        fs.rmSync(tasksDir, { recursive: true, force: true });
       fs.renameSync(tmpName, tasksDir);
     }
   });
