@@ -1144,6 +1144,7 @@ describe("AI decompose endpoint", () => {
       writeFile: realWriteFile,
       spawnStreaming: mock(() => ({
         onData: mock(() => {}),
+        onStderr: mock(() => {}),
         kill: mock(() => {}),
         exited: Promise.resolve(0),
       })),
@@ -1207,6 +1208,7 @@ describe("AI decompose endpoint", () => {
       writeFile: realWriteFile,
       spawnStreaming: mock(() => ({
         onData: mock(() => {}),
+        onStderr: mock(() => {}),
         kill: mock(() => {}),
         exited: Promise.resolve(0),
       })),
@@ -1265,6 +1267,7 @@ describe("AI decompose endpoint", () => {
       writeFile: realWriteFile,
       spawnStreaming: mock(() => ({
         onData: mock(() => {}),
+        onStderr: mock(() => {}),
         kill: mock(() => {}),
         exited: Promise.resolve(0),
       })),
@@ -1302,6 +1305,7 @@ describe("AI decompose endpoint", () => {
       writeFile: realWriteFile,
       spawnStreaming: mock(() => ({
         onData: mock(() => {}),
+        onStderr: mock(() => {}),
         kill: mock(() => {}),
         exited: Promise.resolve(0),
       })),
@@ -1338,6 +1342,7 @@ describe("AI decompose endpoint", () => {
       writeFile: realWriteFile,
       spawnStreaming: mock(() => ({
         onData: mock(() => {}),
+        onStderr: mock(() => {}),
         kill: mock(() => {}),
         exited: Promise.resolve(0),
       })),

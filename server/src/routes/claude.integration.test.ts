@@ -17,6 +17,7 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach, mock } from "b
 // Track what spawnStreaming receives and provide controllable output
 let spawnStreamingCalls: Array<{ cmd: string[]; opts: any }> = [];
 let nextStreamChunks: string[] = ["Hello ", "world!"];
+let nextStreamStderr: string[] = [];
 let nextStreamExitCode = 0;
 let nextStreamError: string | null = null;
 
@@ -30,6 +31,7 @@ const mockSpawnStreaming = mock((cmd: string[], opts?: any) => {
 
   spawnStreamingCalls.push({ cmd, opts });
   let dataCb: ((chunk: string) => void) | null = null;
+  let stderrCb: ((chunk: string) => void) | null = null;
   let resolveExited: ((code: number) => void) | null = null;
 
   const exited = new Promise<number>((resolve) => {
@@ -41,12 +43,18 @@ const mockSpawnStreaming = mock((cmd: string[], opts?: any) => {
     for (const chunk of nextStreamChunks) {
       if (dataCb) dataCb(chunk);
     }
+    for (const chunk of nextStreamStderr) {
+      if (stderrCb) stderrCb(chunk);
+    }
     resolveExited!(nextStreamExitCode);
   });
 
   return {
     onData: (cb: (chunk: string) => void) => {
       dataCb = cb;
+    },
+    onStderr: (cb: (chunk: string) => void) => {
+      stderrCb = cb;
     },
     kill: mock(() => {}),
     exited,
@@ -113,6 +121,7 @@ afterAll(async () => {
 beforeEach(() => {
   spawnStreamingCalls = [];
   nextStreamChunks = ["Hello ", "world!"];
+  nextStreamStderr = [];
   nextStreamExitCode = 0;
   nextStreamError = null;
   nextSpawnResult = { stdout: "/usr/bin/claude\n", stderr: "", exitCode: 0 };
@@ -251,6 +260,49 @@ describe("POST /api/claude/chat — SSE streaming (mocked CLI)", () => {
     const errorEvents = events.filter((e) => e.type === "error");
     expect(errorEvents.length).toBe(1);
     expect(errorEvents[0].message).toContain("No Claude CLI or API key configured");
+  });
+
+  test("emits SSE error (not done) when CLI exits with no stdout", async () => {
+    // Simulate the silent-failure case: CLI exits with empty stdout but writes to stderr.
+    // Without the fix the modal sees only `done` and renders "Context ready"+"No output yet".
+    nextStreamChunks = [];
+    nextStreamStderr = ["Authentication required: please run `claude login`"];
+    nextStreamExitCode = 1;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/chat",
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Anything" },
+    });
+
+    const events = parseSSE(res.body);
+    const deltas = events.filter((e) => e.type === "delta");
+    const doneEvents = events.filter((e) => e.type === "done");
+    const errorEvents = events.filter((e) => e.type === "error");
+
+    expect(deltas.length).toBe(0);
+    expect(doneEvents.length).toBe(0);
+    expect(errorEvents.length).toBe(1);
+    expect(errorEvents[0].message).toContain("Authentication required");
+  });
+
+  test("falls back to a friendly message when CLI exits silently with no stderr", async () => {
+    nextStreamChunks = [];
+    nextStreamStderr = [];
+    nextStreamExitCode = 0;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/chat",
+      headers: { "Content-Type": "application/json" },
+      payload: { message: "Anything" },
+    });
+
+    const events = parseSSE(res.body);
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents.length).toBe(1);
+    expect(errorEvents[0].message).toContain("no output");
   });
 });
 
@@ -446,6 +498,27 @@ describe("POST /api/claude/gather-context — SSE streaming (mocked CLI)", () =>
     const errorEvents = events.filter((e) => e.type === "error");
     expect(errorEvents.length).toBe(1);
     expect(errorEvents[0].message).toContain("No Claude CLI or API key configured");
+  });
+
+  test("emits SSE error (not done) when CLI exits with no stdout", async () => {
+    // Reproduces the bug where the modal showed "Context ready" + "No output yet".
+    nextStreamChunks = [];
+    nextStreamStderr = ["Rate limit exceeded — retry in 30s"];
+    nextStreamExitCode = 1;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/gather-context",
+      headers: { "Content-Type": "application/json" },
+      payload: { taskTitle: "Whatever", projectId: "proj-silent" },
+    });
+
+    const events = parseSSE(res.body);
+    expect(events.filter((e) => e.type === "delta").length).toBe(0);
+    expect(events.filter((e) => e.type === "done").length).toBe(0);
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents.length).toBe(1);
+    expect(errorEvents[0].message).toContain("Rate limit exceeded");
   });
 });
 

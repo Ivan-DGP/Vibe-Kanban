@@ -81,15 +81,25 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
         // Kill process after 30s to prevent hangs
         const timeout = setTimeout(() => proc.kill(), 30_000);
 
-        await new Promise<void>((resolve) => {
-          proc.onData((chunk) => {
-            reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
-          });
-          proc.exited.then(() => {
-            clearTimeout(timeout);
-            resolve();
-          });
+        let deltaCount = 0;
+        let stderrBuf = "";
+        proc.onData((chunk) => {
+          deltaCount++;
+          reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
         });
+        proc.onStderr((chunk) => { stderrBuf += chunk; });
+
+        const exitCode = await proc.exited;
+        clearTimeout(timeout);
+
+        if (deltaCount === 0) {
+          const detail = stderrBuf.trim()
+            || `Claude CLI exited (code ${exitCode}) with no output. Verify the CLI works by running \`claude\` in your terminal — it may require login or hit a rate limit.`;
+          log("error", "claude", "CLI produced no output", { exitCode, stderr: stderrBuf });
+          reply.raw.write(`data: ${JSON.stringify({ type: "error", message: detail })}\n\n`);
+          reply.raw.end();
+          return;
+        }
       } else {
         // Fall back to API
         const apiKey = getApiKey();
@@ -164,15 +174,25 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
         const proc = spawnStreaming(["claude", "-p"], { stdinData: prompt });
         const timeout = setTimeout(() => proc.kill(), 60_000);
 
-        await new Promise<void>((resolve) => {
-          proc.onData((chunk) => {
-            reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
-          });
-          proc.exited.then(() => {
-            clearTimeout(timeout);
-            resolve();
-          });
+        let deltaCount = 0;
+        let stderrBuf = "";
+        proc.onData((chunk) => {
+          deltaCount++;
+          reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
         });
+        proc.onStderr((chunk) => { stderrBuf += chunk; });
+
+        const exitCode = await proc.exited;
+        clearTimeout(timeout);
+
+        if (deltaCount === 0) {
+          const detail = stderrBuf.trim()
+            || `Claude CLI exited (code ${exitCode}) with no output. Verify the CLI works by running \`claude\` in your terminal — it may require login or hit a rate limit.`;
+          log("error", "claude", "CLI produced no output", { exitCode, stderr: stderrBuf });
+          reply.raw.write(`data: ${JSON.stringify({ type: "error", message: detail })}\n\n`);
+          reply.raw.end();
+          return;
+        }
       } else {
         const apiKey = getApiKey();
         if (!apiKey) {

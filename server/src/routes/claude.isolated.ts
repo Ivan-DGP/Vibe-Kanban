@@ -46,6 +46,7 @@ const mockSpawnStreaming = mock((cmd: string[], opts?: any) => {
     onData: (cb: (chunk: string) => void) => {
       dataCb = cb;
     },
+    onStderr: () => {},
     kill: mock(() => {}),
     exited,
   };
