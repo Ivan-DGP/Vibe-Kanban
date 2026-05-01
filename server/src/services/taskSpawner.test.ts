@@ -41,7 +41,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
-function insertProject(autoSpawnEnabled: 0 | 1): string {
+function insertProject(
+  autoSpawnEnabled: 0 | 1,
+  opts: { projectPath?: string } = {},
+): string {
   const id = `proj-${crypto.randomUUID()}`;
   const ts = new Date().toISOString();
   db.prepare(
@@ -50,7 +53,7 @@ function insertProject(autoSpawnEnabled: 0 | 1): string {
   ).run(
     id,
     "spawner-test",
-    `/tmp/${id}`,
+    opts.projectPath ?? `/tmp/${id}`,
     "[]",
     "[]",
     0,
@@ -116,5 +119,12 @@ describe("maybeSpawnForTask", () => {
   test("never throws synchronously", () => {
     expect(() => maybeSpawnForTask(makeTask())).not.toThrow();
     expect(() => maybeSpawnForTask(makeTask({ metadata: { type: "x" } }))).not.toThrow();
+  });
+
+  test("no-op when project.path does not exist on disk", async () => {
+    projectId = insertProject(1, { projectPath: "/tmp/does-not-exist-anywhere-xyz" });
+    maybeSpawnForTask(makeTask({ metadata: { type: "qa-test" } }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(buildPromptCalled).toBe(0);
   });
 });

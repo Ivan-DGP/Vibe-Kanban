@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Task, Project } from "@vibe-kanban/shared";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
@@ -57,6 +58,17 @@ async function runSpawn(task: Task): Promise<void> {
   }
 
   if (!project.autoSpawnEnabled) return;
+
+  // Bun.spawn surfaces a missing cwd as a misleading
+  // `posix_spawn '<cmd>' ENOENT` — gate it cleanly here.
+  if (!project.path || !fs.existsSync(project.path)) {
+    log("warn", "claude", `taskSpawner: project.path missing on disk`, {
+      taskId: task.id,
+      projectId: project.id,
+      path: project.path,
+    });
+    return;
+  }
 
   let mcpConfigPath: string | null = null;
   try {
