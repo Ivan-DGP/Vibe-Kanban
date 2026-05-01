@@ -3,8 +3,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Pencil, Trash2, Sparkles, Loader2, Zap, GitBranch, ClipboardCopy, Split } from "lucide-react";
-import { useState } from "react";
+import { Pencil, Trash2, Sparkles, Loader2, Zap, GitBranch, ClipboardCopy, Split, FileSearch, Image as ImageIcon, X } from "lucide-react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
 import { useAppStore } from "@/stores/appStore";
@@ -12,12 +12,21 @@ import { useConfirm } from "@/hooks/useConfirm";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PriorityBadge from "./PriorityBadge";
+import GatherContextModal from "./GatherContextModal";
 import { STATUS_LABELS } from "@/lib/constants";
-import { useDeleteTask } from "@/hooks";
+import { useDeleteTask, useUpdateTask, useUploadArtifact, useUpdateArtifact } from "@/hooks";
 import { useTasks } from "@/hooks/useTasks";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
-import type { Task, AiPreflightResult } from "@vibe-kanban/shared";
+import type { Task, AiPreflightResult, Artifact } from "@vibe-kanban/shared";
+
+function slugifyForFilename(s: string): string {
+  return s.toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 40) || "screenshot";
+}
 
 interface TaskViewerDialogProps {
   open: boolean;
@@ -28,6 +37,7 @@ interface TaskViewerDialogProps {
 
 export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: TaskViewerDialogProps) {
   const deleteTask = useDeleteTask();
+  const updateTask = useUpdateTask();
   const confirm = useConfirm();
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -35,8 +45,16 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
   const [resolving, setResolving] = useState(false);
   const [copying, setCopying] = useState(false);
   const [decomposing, setDecomposing] = useState(false);
+  const [gatherModalOpen, setGatherModalOpen] = useState(false);
+  const [pastedArtifacts, setPastedArtifacts] = useState<Array<{ id: string; filename: string; renaming: boolean }>>([]);
   const createTermSession = useCreateTerminalSession();
   const { toggleTerminal, terminalVisible } = useAppStore();
+  const uploadArtifact = useUploadArtifact(task?.projectId ?? "");
+  const updateArtifact = useUpdateArtifact(task?.projectId ?? "");
+
+  useEffect(() => {
+    if (!open) setPastedArtifacts([]);
+  }, [open, task?.id]);
 
   if (!task) return null;
 
@@ -68,9 +86,95 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
     deleteTask.mutate(task.id, { onSuccess: () => onOpenChange(false) });
   };
 
+  const renameArtifactWithAI = async (artifact: Artifact) => {
+    const ext = (artifact.filename.split(".").pop() || "png").toLowerCase();
+    const parts: string[] = [`Task title: ${task.title}`];
+    if (task.description) parts.push(`Description: ${task.description}`);
+    if (task.prompt) parts.push(`Prompt: ${task.prompt}`);
+    try {
+      const aiPrompt = `Generate a short, descriptive filename for a screenshot attached to this task. Use kebab-case, 3-6 words, no extension, no path. Output ONLY the filename.\n\n${parts.join("\n")}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      let raw = "";
+      try {
+        const res = await api.claude.chat(aiPrompt, task.projectId, controller.signal);
+        if (!res.ok) throw new Error("AI request failed");
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No stream");
+        let buffer = "";
+        const decoder = new TextDecoder();
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const d = JSON.parse(line.slice(6));
+                if (d.type === "delta" && d.text) raw += d.text;
+                if (d.type === "done") break outer;
+              } catch { /* ignore parse errors mid-chunk */ }
+            }
+          }
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+      const cleaned = raw.trim().split("\n")[0].replace(/\.[^.]*$/, "").replace(/[^a-z0-9-]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "").slice(0, 60);
+      if (cleaned.length < 3) {
+        setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+        return;
+      }
+      const newFilename = `${cleaned}.${ext}`;
+      updateArtifact.mutate(
+        { id: artifact.id, input: { filename: newFilename } },
+        {
+          onSuccess: (updated) => {
+            setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { id: updated.id, filename: updated.filename, renaming: false } : a));
+          },
+          onError: () => {
+            setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+          },
+        },
+      );
+    } catch {
+      setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const ext = (blob.type.split("/")[1] || "png").split("+")[0];
+        const baseName = slugifyForFilename(task.title);
+        const file = new File([blob], `${baseName}-${Date.now()}.${ext}`, { type: blob.type });
+        uploadArtifact.mutate(file, {
+          onSuccess: (artifact) => {
+            setPastedArtifacts((prev) => [...prev, { id: artifact.id, filename: artifact.filename, renaming: true }]);
+            toast.success(`Saved as artifact: ${artifact.filename}`);
+            renameArtifactWithAI(artifact);
+          },
+          onError: (err: any) => toast.error(err?.message || "Failed to upload screenshot"),
+        });
+        return;
+      }
+    }
+  };
+
+  const handleRemovePastedArtifact = (id: string) => {
+    setPastedArtifacts((prev) => prev.filter((a) => a.id !== id));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto" onPaste={handlePaste}>
         <DialogHeader>
           <div className="flex items-start gap-2">
             <DialogTitle className="flex-1">{task.title}</DialogTitle>
@@ -160,6 +264,32 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
           </>
         )}
 
+        {(uploadArtifact.isPending || pastedArtifacts.length > 0) && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {pastedArtifacts.map((a) => (
+              <div key={a.id} className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
+                <ImageIcon className="h-3 w-3 text-muted-foreground" />
+                <span className="font-mono truncate max-w-[200px]" title={a.filename}>{a.filename}</span>
+                {a.renaming && <Sparkles className="h-3 w-3 text-blue-500 animate-pulse" />}
+                <button
+                  type="button"
+                  onClick={() => handleRemovePastedArtifact(a.id)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Remove from list"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {uploadArtifact.isPending && (
+              <div className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span className="text-muted-foreground">Uploading screenshot…</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 pt-2 flex-wrap">
           <Button variant="default" size="sm" disabled={resolving} onClick={async () => {
             setResolving(true);
@@ -239,6 +369,10 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
             {copying ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ClipboardCopy className="h-3.5 w-3.5 mr-1" />}
             Copy Context
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setGatherModalOpen(true)} disabled={gatherModalOpen}>
+            <FileSearch className="h-3.5 w-3.5 mr-1" />
+            Gather Context
+          </Button>
           {onEdit && (
             <Button variant="outline" size="sm" onClick={onEdit}>
               <Pencil className="h-3.5 w-3.5 mr-1" />
@@ -251,6 +385,23 @@ export default function TaskViewerDialog({ open, onOpenChange, task, onEdit }: T
           </Button>
         </div>
       </DialogContent>
+
+      <GatherContextModal
+        open={gatherModalOpen}
+        onOpenChange={setGatherModalOpen}
+        taskTitle={task.title}
+        taskDescription={task.description ?? undefined}
+        projectId={task.projectId}
+        onAccept={(text) => {
+          updateTask.mutate(
+            { id: task.id, input: { prompt: text } },
+            {
+              onSuccess: () => toast.success("Prompt updated from gathered context"),
+              onError: (e: any) => toast.error(e.message || "Failed to update prompt"),
+            },
+          );
+        }}
+      />
     </Dialog>
   );
 }
