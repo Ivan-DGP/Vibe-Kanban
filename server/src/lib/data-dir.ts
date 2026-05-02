@@ -1,13 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
 
-const DATA_DIR = path.resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "..",
-  "data",
-);
+const DATA_DIR = process.env.VK_DATA_DIR
+  ? path.resolve(process.env.VK_DATA_DIR)
+  : path.resolve(import.meta.dir, "..", "..", "..", "data");
 
 export function getDataDir(): string {
   if (!fs.existsSync(DATA_DIR)) {
