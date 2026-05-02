@@ -5,13 +5,14 @@ const SEED_PROJECT_NAME = `E2E-Seed-${Date.now()}`;
 const SEED_PROJECT_PATH = `/tmp/e2e-seed-${Date.now()}`;
 let seedProjectId: string;
 
-/** Delete any leftover E2E-* projects from previous failed runs */
+/** Delete any leftover dashboard-spec projects from previous failed runs.
+ *  Scoped to this spec's own prefixes so it does not race other parallel workers. */
 async function cleanupStaleE2EProjects() {
   try {
     const res = await fetch(`${BASE_API}/projects`);
     const projects: any[] = await res.json();
     for (const p of projects) {
-      if (/^E2E-/.test(p.name)) {
+      if (/^E2E-(Seed|CreateDel)-/.test(p.name)) {
         await fetch(`${BASE_API}/projects/${p.id}`, { method: 'DELETE' });
       }
     }

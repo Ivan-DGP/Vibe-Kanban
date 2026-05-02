@@ -2,13 +2,14 @@ import { test, expect, Page } from "@playwright/test";
 
 const BASE_API = "http://localhost:3001/api";
 
-/** Delete any leftover E2E-* / LogTest-* projects from previous failed runs */
+/** Delete any leftover LogTest-* projects from previous failed runs.
+ *  Scoped to this spec's prefix so it does not race other parallel workers. */
 async function cleanupStaleE2EProjects() {
   try {
     const res = await fetch(`${BASE_API}/projects`);
     const projects: any[] = await res.json();
     for (const p of projects) {
-      if (/^(E2E-|LogTest-)/.test(p.name)) {
+      if (/^LogTest-/.test(p.name)) {
         await fetch(`${BASE_API}/projects/${p.id}`, { method: "DELETE" });
       }
     }
