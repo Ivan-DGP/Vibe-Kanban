@@ -4,13 +4,6 @@ on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - "server/src/lib/**"
-      - "server/src/services/**"
-      - "server/stryker.conf.json"
-      - ".github/workflows/mutation.yml"
 
 jobs:
   mutation:
