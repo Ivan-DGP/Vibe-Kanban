@@ -268,6 +268,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       priority: task.priority,
       status: task.status,
       milestoneId: task.milestoneId ?? undefined,
+      metadata: task.metadata,
     });
   };
 

@@ -37,6 +37,8 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const [milestoneId, setMilestoneId] = useState<string>("none");
   const [branch, setBranch] = useState<string | null>(null);
   const [promptProfile, setPromptProfile] = useState<PromptProfile>("auto");
+  const [spawnType, setSpawnType] = useState<"" | "qa-test" | "dev-fix">("");
+  const [qaTargetUrl, setQaTargetUrl] = useState("");
 
   const [activeTab, setActiveTab] = useState("description");
 
@@ -200,6 +202,10 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setMilestoneId(task.milestoneId ?? "none");
       setBranch(task.branch ?? null);
       setPromptProfile(task.promptProfile ?? "auto");
+      const md = task.metadata ?? {};
+      const t = (md as { type?: unknown }).type;
+      setSpawnType(t === "qa-test" || t === "dev-fix" ? t : "");
+      setQaTargetUrl(typeof (md as { qa_target_url?: unknown }).qa_target_url === "string" ? (md as { qa_target_url: string }).qa_target_url : "");
     } else {
       setTitle("");
       setDescription("");
@@ -209,6 +215,8 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setMilestoneId("none");
       setBranch(null);
       setPromptProfile("auto");
+      setSpawnType("");
+      setQaTargetUrl("");
     }
     setActiveTab("description");
     setPastedArtifacts([]);
@@ -216,6 +224,19 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
 
   const handleSubmit = () => {
     if (!title.trim()) return;
+
+    const metadata: Record<string, unknown> = { ...(task?.metadata ?? {}) };
+    if (spawnType) {
+      metadata.type = spawnType;
+      if (spawnType === "qa-test") {
+        const trimmedUrl = qaTargetUrl.trim();
+        if (trimmedUrl) metadata.qa_target_url = trimmedUrl;
+        else delete metadata.qa_target_url;
+      }
+    } else {
+      delete metadata.type;
+    }
+
     const input: CreateTaskInput = {
       title: title.trim(),
       description: description.trim() || undefined,
@@ -225,6 +246,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       priority,
       status,
       milestoneId: milestoneId === "none" ? null : milestoneId,
+      metadata,
     };
 
     if (isEditing) {
@@ -385,6 +407,34 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="space-y-1">
+              <Label className="text-sm">Auto-spawn type</Label>
+              <Select value={spawnType || "__none__"} onValueChange={(v) => setSpawnType(v === "__none__" ? "" : (v as "qa-test" | "dev-fix"))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None (manual task)</SelectItem>
+                  <SelectItem value="qa-test">qa-test — run browser QA via qa-agent</SelectItem>
+                  <SelectItem value="dev-fix">dev-fix — Claude session writes the code</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Triggers a headless Claude session when the task is created. Project must have auto-spawn enabled.
+              </p>
+            </div>
+            {spawnType === "qa-test" && (
+              <div className="space-y-1 pt-1">
+                <Label className="text-xs">Target URL</Label>
+                <Input
+                  value={qaTargetUrl}
+                  onChange={(e) => setQaTargetUrl(e.target.value)}
+                  placeholder="https://app.example.com/page"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            )}
           </div>
         </div>
 
