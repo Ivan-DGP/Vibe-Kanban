@@ -233,6 +233,7 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   const projectId = params.projectId as string;
   const query = (params.query as string)?.trim();
   const k = Math.min(Math.max(Number(params.k) || 5, 1), 20);
+  const minScore = Number.isFinite(Number(params.minScore)) ? Number(params.minScore) : 0;
   const types = Array.isArray(params.types) ? (params.types as string[]) : null;
   const includeArtifacts = !types || types.includes("artifact");
   const includeTasks = !types || types.includes("task");
@@ -327,7 +328,8 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   }
 
   scored.sort((a, b) => b.score - a.score);
-  return { query, model: EMBEDDING_MODEL, results: scored.slice(0, k) };
+  const filtered = scored.filter((s) => s.score >= minScore).slice(0, k);
+  return { query, model: EMBEDDING_MODEL, results: filtered, totalChunks: scored.length };
 }
 
 export const tools: ToolHandler[] = [
@@ -509,6 +511,10 @@ export const tools: ToolHandler[] = [
           projectId: { type: "string", description: "Project ID" },
           query: { type: "string", description: "Natural-language search query" },
           k: { type: "number", description: "Number of results to return (default 5, max 20)" },
+          minScore: {
+            type: "number",
+            description: "Optional cosine-similarity floor (0–1). Hits below this score are dropped. Default 0.",
+          },
           types: {
             type: "array",
             items: { type: "string", enum: ["artifact", "task", "graph_node"] },
