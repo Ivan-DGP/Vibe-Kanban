@@ -577,6 +577,31 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 23,
+      name: "add-graph-node-embeddings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS graph_node_embeddings (
+            id          TEXT PRIMARY KEY,
+            nodeId      TEXT NOT NULL
+              REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            sourceHash  TEXT NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_graph_node_embeddings_nodeId ON graph_node_embeddings (nodeId);
+          CREATE INDEX IF NOT EXISTS idx_graph_node_embeddings_projectId ON graph_node_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_node_embeddings_node_chunk ON graph_node_embeddings (nodeId, chunkIdx);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

@@ -295,6 +295,33 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
     }
   }
 
+  const includeGraphNodes = !types || types.includes("graph_node");
+  if (includeGraphNodes) {
+    const nodeRows = db.query(
+      `SELECT e.nodeId, e.chunkIdx, e.content, e.vector,
+              n.label, n.type, n.description
+       FROM graph_node_embeddings e
+       JOIN project_graph_nodes n ON n.id = e.nodeId
+       WHERE e.projectId = ?`,
+    ).all(projectId) as any[];
+
+    if (nodeRows.length > 0) {
+      const queryVec = await embed(query);
+      for (const row of nodeRows) {
+        scored.push({
+          kind: "graph_node",
+          nodeId: row.nodeId,
+          label: row.label,
+          nodeType: row.type,
+          description: row.description,
+          chunkIdx: row.chunkIdx,
+          content: row.content,
+          score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
+        });
+      }
+    }
+  }
+
   if (scored.length === 0) {
     return { query, model: EMBEDDING_MODEL, results: [], note: "No embeddings yet — POST to /api/projects/:id/knowledge/backfill" };
   }
@@ -475,7 +502,7 @@ export const tools: ToolHandler[] = [
   {
     definition: {
       name: "search_knowledge",
-      description: "Semantic search across a project's artifacts (docs/specs/diagrams) and tasks (title + description + prompt). Returns ranked chunks. Each result has a 'kind' field ('artifact' or 'task') and the corresponding entity metadata.",
+      description: "Semantic search across a project's artifacts (docs/specs/diagrams), tasks (title + description + prompt), and knowledge graph nodes (label + type + description). Returns ranked chunks. Each result has a 'kind' field ('artifact', 'task', or 'graph_node') and the corresponding entity metadata.",
       inputSchema: {
         type: "object",
         properties: {
@@ -484,8 +511,8 @@ export const tools: ToolHandler[] = [
           k: { type: "number", description: "Number of results to return (default 5, max 20)" },
           types: {
             type: "array",
-            items: { type: "string", enum: ["artifact", "task"] },
-            description: "Optional: restrict search to specific kinds. Default: both.",
+            items: { type: "string", enum: ["artifact", "task", "graph_node"] },
+            description: "Optional: restrict search to specific kinds. Default: all three.",
           },
         },
         required: ["projectId", "query"],
