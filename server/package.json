@@ -6,7 +6,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --isolate src/ && bun test ./src/services/terminalService.isolated.ts && bun test ./src/services/terminalService.coverage.isolated.ts && bun test ./src/routes/claude.isolated.ts",
+    "test": "bash scripts/test.sh",
     "test:mutation": "node ./node_modules/.bin/stryker run"
   },
   "dependencies": {
