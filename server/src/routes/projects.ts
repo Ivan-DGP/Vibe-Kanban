@@ -108,6 +108,7 @@ function rowToProject(row: any): Project {
     favorite: !!row.favorite,
     techStack: JSON.parse(row.techStack || "[]"),
     externalLinks: JSON.parse(row.externalLinks || "[]"),
+    autoSpawnEnabled: !!row.autoSpawnEnabled,
   };
 }
 
@@ -217,7 +218,10 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       } else if (key === "favorite") {
         fields.push("favorite = ?");
         values.push(value ? 1 : 0);
-      } else if (["name", "category", "aiCommitMode", "notionDatabaseId", "treeDepth", "aiInstructions"].includes(key)) {
+      } else if (key === "autoSpawnEnabled") {
+        fields.push("autoSpawnEnabled = ?");
+        values.push(value ? 1 : 0);
+      } else if (["name", "category", "aiCommitMode", "notionDatabaseId", "treeDepth", "aiInstructions", "qaAgentPath", "qaAgentPython"].includes(key)) {
         fields.push(`${key} = ?`);
         values.push(value);
       }

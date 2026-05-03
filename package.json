@@ -20,6 +20,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,json,css,md}\"",
     "test": "bun run --cwd server test",
     "test:e2e": "playwright test",
+    "test:smoke": "bun run server/scripts/smoke/run-smoke.ts",
     "prepare": "husky"
   },
   "devDependencies": {

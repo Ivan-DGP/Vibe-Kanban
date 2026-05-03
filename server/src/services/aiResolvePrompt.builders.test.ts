@@ -208,6 +208,7 @@ describe("buildProfileInstructions", () => {
     approvedAt: null,
     archivedAt: null,
     notionPageId: null,
+    metadata: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } satisfies Task;
@@ -224,6 +225,9 @@ describe("buildProfileInstructions", () => {
     treeDepth: 3,
     aiInstructions: null,
     notionDatabaseId: null,
+    autoSpawnEnabled: false,
+    qaAgentPath: null,
+    qaAgentPython: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

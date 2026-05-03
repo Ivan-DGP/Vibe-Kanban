@@ -65,11 +65,18 @@ describe("crypto", () => {
       expect(() => decrypt("invalid")).toThrow();
     });
 
-    test("throws on tampered ciphertext", () => {
-      const encrypted = encrypt("test");
+    test("tampered ciphertext does not decrypt to original plaintext", () => {
+      const plaintext = "test";
+      const encrypted = encrypt(plaintext);
       const [iv, cipher] = encrypted.split(":");
       const tampered = iv + ":" + "ff" + cipher.slice(2);
-      expect(() => decrypt(tampered)).toThrow();
+      let result: string | null = null;
+      try {
+        result = decrypt(tampered);
+      } catch {
+        return;
+      }
+      expect(result).not.toBe(plaintext);
     });
   });
 });

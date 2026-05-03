@@ -14,6 +14,9 @@ export interface Project {
   treeDepth: number;
   aiInstructions: string | null;
   notionDatabaseId: string | null;
+  autoSpawnEnabled: boolean;
+  qaAgentPath: string | null;
+  qaAgentPython: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -39,6 +42,9 @@ export interface UpdateProjectInput {
   treeDepth?: number;
   aiInstructions?: string | null;
   notionDatabaseId?: string | null;
+  autoSpawnEnabled?: boolean;
+  qaAgentPath?: string | null;
+  qaAgentPython?: string | null;
 }
 
 export interface ScannedProject {
@@ -75,6 +81,7 @@ export interface Task {
   approvedAt: string | null;
   archivedAt: string | null;
   notionPageId: string | null;
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +96,7 @@ export interface CreateTaskInput {
   priority?: TaskPriority;
   milestoneId?: string | null;
   parentTaskId?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateTaskInput {

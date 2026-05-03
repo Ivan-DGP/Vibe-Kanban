@@ -1,6 +1,8 @@
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { getProjectArtifactsDir } from "../lib/data-dir";
+import { maybeSpawnForTask } from "../services/taskSpawner";
+import { rowToTask } from "../routes/tasks";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -55,8 +57,11 @@ export function createTask(params: Record<string, unknown>): unknown {
   const db = getDb();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
+  const metadata = params.metadata && typeof params.metadata === "object"
+    ? JSON.stringify(params.metadata)
+    : "{}";
   db.query(
-    "INSERT INTO tasks (id, projectId, title, description, status, priority, sortOrder, createdAt, updatedAt, inboxAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO tasks (id, projectId, title, description, status, priority, sortOrder, metadata, createdAt, updatedAt, inboxAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     id,
     params.projectId as string,
@@ -65,10 +70,13 @@ export function createTask(params: Record<string, unknown>): unknown {
     (params.status as string) || "backlog",
     (params.priority as string) || "medium",
     Date.now(),
+    metadata,
     now,
     now,
     now,
   );
+  const inserted = db.query("SELECT * FROM tasks WHERE id = ?").get(id);
+  if (inserted) maybeSpawnForTask(rowToTask(inserted));
   return { id, title: params.title };
 }
 
@@ -83,6 +91,14 @@ export function updateTask(params: Record<string, unknown>): unknown {
       sets.push(`${key} = ?`);
       vals.push(params[key]);
     }
+  }
+  if (params.metadata !== undefined) {
+    sets.push("metadata = ?");
+    vals.push(
+      params.metadata && typeof params.metadata === "object"
+        ? JSON.stringify(params.metadata)
+        : "{}",
+    );
   }
   if (sets.length === 0) return { error: "No fields to update" };
 
@@ -233,7 +249,7 @@ export const tools: ToolHandler[] = [
   {
     definition: {
       name: "create_task",
-      description: "Create a new task in a project",
+      description: "Create a new task in a project. The metadata field is a JSON object for orchestration context (e.g. {type: 'qa-test', qa_scenario: '...', bug_report: {...}, parent_task: '<id>'}).",
       inputSchema: {
         type: "object",
         properties: {
@@ -243,6 +259,7 @@ export const tools: ToolHandler[] = [
           status: { type: "string" },
           priority: { type: "string" },
           promptProfile: { type: "string", enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"] },
+          metadata: { type: "object", description: "Arbitrary JSON metadata for orchestration." },
         },
         required: ["projectId", "title"],
       },
@@ -252,7 +269,7 @@ export const tools: ToolHandler[] = [
   {
     definition: {
       name: "update_task",
-      description: "Update an existing task",
+      description: "Update an existing task. Pass metadata to replace the full metadata object.",
       inputSchema: {
         type: "object",
         properties: {
@@ -263,6 +280,7 @@ export const tools: ToolHandler[] = [
           priority: { type: "string" },
           milestoneId: { type: "string" },
           promptProfile: { type: "string", enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"] },
+          metadata: { type: "object", description: "Replaces the full metadata JSON object." },
         },
         required: ["taskId"],
       },

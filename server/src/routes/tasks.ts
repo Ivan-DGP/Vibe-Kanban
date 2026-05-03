@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { writeTaskSnapshot } from "../services/snapshot";
 import { buildAiResolvePrompt, buildDecomposePrompt, classifyTaskProfile, estimateComplexity } from "../services/aiResolvePrompt";
+import { maybeSpawnForTask } from "../services/taskSpawner";
 import type { Task, TaskStatus } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -11,6 +12,14 @@ function uuid(): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+export function rowToTask(row: any): Task {
+  if (!row) return row;
+  return {
+    ...row,
+    metadata: row.metadata ? JSON.parse(row.metadata) : {},
+  };
 }
 
 export function applyTimestampCascade(
@@ -100,7 +109,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     sql += " LIMIT ? OFFSET ?";
     params.push(parseInt(limit), parseInt(offset));
 
-    const items = db.prepare(sql).all(...params);
+    const items = (db.prepare(sql).all(...params) as any[]).map(rowToTask);
     return {
       items,
       total: countResult.total,
@@ -119,11 +128,11 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const where = status ? "WHERE t.status = ?" : "";
     const params: unknown[] = status ? [status] : [];
 
-    const rows = db
+    const rows = (db
       .prepare(
         `SELECT t.*, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
       )
-      .all(...(params as string[]), parseInt(limit), parseInt(offset));
+      .all(...(params as string[]), parseInt(limit), parseInt(offset)) as any[]).map((r) => ({ ...rowToTask(r), projectName: r.projectName }));
 
     const countResult = db
       .prepare(`SELECT COUNT(*) as total FROM tasks t ${where}`)
@@ -136,21 +145,21 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/tasks/search", async (request) => {
     const { q } = request.query as { q?: string };
     if (!q) return [];
-    const rows = db
+    const rows = (db
       .prepare(
         "SELECT t.*, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id WHERE t.title LIKE ? OR t.description LIKE ? ORDER BY t.updatedAt DESC LIMIT 50",
       )
-      .all(`%${q}%`, `%${q}%`);
+      .all(`%${q}%`, `%${q}%`) as any[]).map((r) => ({ ...rowToTask(r), projectName: r.projectName }));
     return rows;
   });
 
   // Working on (in-progress tasks)
   fastify.get("/tasks/working-on", async () => {
-    return db
+    return (db
       .prepare(
         "SELECT t.*, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id WHERE t.status = 'in_progress' ORDER BY t.updatedAt DESC",
       )
-      .all();
+      .all() as any[]).map((r) => ({ ...rowToTask(r), projectName: r.projectName }));
   });
 
   // Get single task
@@ -158,13 +167,13 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params as any;
     const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
     if (!task) return reply.code(404).send({ error: "Task not found" });
-    return task;
+    return rowToTask(task);
   });
 
   // Create task
   fastify.post("/projects/:projectId/tasks", async (request) => {
     const { projectId } = request.params as any;
-    const { title, description, prompt, branch, promptProfile = "auto", status = "backlog", priority = "medium", milestoneId, parentTaskId } =
+    const { title, description, prompt, branch, promptProfile = "auto", status = "backlog", priority = "medium", milestoneId, parentTaskId, metadata } =
       request.body as any;
 
     const id = uuid();
@@ -187,9 +196,11 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     // Apply timestamp cascade
     const cascaded = applyTimestampCascade({}, status as TaskStatus);
 
+    const metadataJson = metadata && typeof metadata === "object" ? JSON.stringify(metadata) : "{}";
+
     db.prepare(
-      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, metadata, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       projectId,
@@ -209,6 +220,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       cascaded.doneAt || null,
       cascaded.approvedAt || null,
       cascaded.archivedAt || null,
+      metadataJson,
       ts,
       ts,
     );
@@ -216,7 +228,9 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     log("info", "tasks", `Task created: ${title}`, { projectId });
     writeTaskSnapshot(projectId);
 
-    return db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+    const task = rowToTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+    maybeSpawnForTask(task);
+    return task;
   });
 
   // Update task
@@ -246,10 +260,13 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       } else if (key === "milestoneId") {
         fields.push("milestoneId = ?");
         values.push(value || null);
+      } else if (key === "metadata") {
+        fields.push("metadata = ?");
+        values.push(value && typeof value === "object" ? JSON.stringify(value) : "{}");
       }
     }
 
-    if (fields.length === 0) return existing;
+    if (fields.length === 0) return rowToTask(existing);
 
     if (!fields.some((f) => f.startsWith("updatedAt"))) {
       fields.push("updatedAt = ?");
@@ -262,7 +279,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     );
 
     writeTaskSnapshot(existing.projectId);
-    return db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+    return rowToTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
   });
 
   // Delete task
@@ -411,7 +428,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Batch-fetch all created tasks outside the transaction
     const selectStmt = db.prepare("SELECT * FROM tasks WHERE id = ?");
-    for (const id of insertedIds) created.push(selectStmt.get(id));
+    for (const id of insertedIds) created.push(rowToTask(selectStmt.get(id)));
 
     log("info", "tasks", `Bulk imported ${created.length} tasks`, { projectId });
     writeTaskSnapshot(projectId);
@@ -553,7 +570,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       insertedSubIds.push(id);
     }
     const selectStmt = db.prepare("SELECT * FROM tasks WHERE id = ?");
-    for (const id of insertedSubIds) createdTasks.push(selectStmt.get(id));
+    for (const id of insertedSubIds) createdTasks.push(rowToTask(selectStmt.get(id)));
 
     log("info", "tasks", `Decomposed task "${task.title}" into ${createdTasks.length} subtasks`, { projectId });
     writeTaskSnapshot(projectId);

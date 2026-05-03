@@ -5,12 +5,16 @@ import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
 import { getDb, closeDb } from "./db";
+import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
 
 export async function buildApp(opts: { bodyLimit?: number } = {}) {
   const app = Fastify({ logger: true, bodyLimit: opts.bodyLimit });
 
   // Initialize database
   getDb();
+
+  // Register multi-session orchestration spawn configs
+  registerSpawnConfigs();
 
   // Plugins
   await app.register(cors, {

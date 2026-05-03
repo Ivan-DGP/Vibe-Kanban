@@ -1,0 +1,21 @@
+#!/usr/bin/env bun
+// Fake `claude` binary used by run-smoke.ts.
+// Records argv + cwd to a fixed JSONL log, then emits a JSON line
+// parseable by headlessClaude.parseClaudeOutput.
+//
+// Path is hardcoded because runtime.spawnProcess only inherits a fixed
+// allowlist of env vars (PATH, HOME, USERPROFILE, SYSTEMROOT) and we
+// don't want to widen the allowlist just for a smoke harness.
+
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
+const LOG = "/tmp/vk-smoke/calls.jsonl";
+mkdirSync(dirname(LOG), { recursive: true });
+
+const argv = process.argv.slice(2);
+const entry = { ts: Date.now(), cwd: process.cwd(), argv };
+appendFileSync(LOG, JSON.stringify(entry) + "\n");
+
+const session = `sm-${Date.now()}`;
+process.stdout.write(JSON.stringify({ session_id: session, result: "smoke-ok" }) + "\n");

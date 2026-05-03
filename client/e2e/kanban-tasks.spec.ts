@@ -6,13 +6,14 @@ const SEED_PROJECT_NAME = `E2E-Kanban-${Date.now()}`;
 const SEED_PROJECT_PATH = `/tmp/e2e-kanban-${Date.now()}`;
 let seedProjectId: string;
 
-/** Delete any leftover E2E-* projects from previous failed runs */
+/** Delete any leftover E2E-Kanban-* projects from previous failed runs.
+ *  Scoped to this spec's prefix so it does not race other parallel workers. */
 async function cleanupStaleE2EProjects() {
   try {
     const res = await fetch(`${BASE_API}/projects`);
     const projects: any[] = await res.json();
     for (const p of projects) {
-      if (/^E2E-/.test(p.name)) {
+      if (/^E2E-Kanban-/.test(p.name)) {
         await fetch(`${BASE_API}/projects/${p.id}`, { method: 'DELETE' });
       }
     }

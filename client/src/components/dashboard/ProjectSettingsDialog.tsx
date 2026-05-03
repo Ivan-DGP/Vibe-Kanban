@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Loader2, Trash2, Plus, X } from "lucide-react";
 import {
   useUpdateProject,
@@ -33,6 +34,9 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
   const [aiInstructions, setAiInstructions] = useState(project.aiInstructions ?? "");
   const [links, setLinks] = useState<ExternalLink[]>(project.externalLinks);
   const [notionDatabaseId, setNotionDatabaseId] = useState(project.notionDatabaseId ?? "");
+  const [autoSpawnEnabled, setAutoSpawnEnabled] = useState(project.autoSpawnEnabled);
+  const [qaAgentPath, setQaAgentPath] = useState(project.qaAgentPath ?? "");
+  const [qaAgentPython, setQaAgentPython] = useState(project.qaAgentPython ?? "");
   const [githubAccountId, setGithubAccountId] = useState<string>("");
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [newLinkUrl, setNewLinkUrl] = useState("");
@@ -55,6 +59,9 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
     setAiInstructions(project.aiInstructions ?? "");
     setLinks(project.externalLinks);
     setNotionDatabaseId(project.notionDatabaseId ?? "");
+    setAutoSpawnEnabled(project.autoSpawnEnabled);
+    setQaAgentPath(project.qaAgentPath ?? "");
+    setQaAgentPython(project.qaAgentPython ?? "");
   }, [project, open]);
 
   useEffect(() => {
@@ -82,6 +89,9 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
           aiInstructions: aiInstructions.trim() || null,
           externalLinks: links,
           notionDatabaseId: notionDatabaseId || null,
+          autoSpawnEnabled,
+          qaAgentPath: qaAgentPath.trim() || null,
+          qaAgentPython: qaAgentPython.trim() || null,
         },
       },
       { onSuccess: () => onOpenChange(false) },
@@ -106,12 +116,12 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Project Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 flex-1 overflow-y-auto pr-1 -mr-1">
           <div className="space-y-2">
             <Label>Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -223,6 +233,44 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               <p className="text-[10px] text-muted-foreground">Link a Notion database to view its pages as project context</p>
             </div>
           )}
+
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm">Auto-spawn Claude sessions</Label>
+                <p className="text-[10px] text-muted-foreground">
+                  When a task is created with <code>metadata.type</code> = <code>qa-test</code> or <code>dev-fix</code>, dispatch a headless Claude session automatically.
+                </p>
+              </div>
+              <Switch checked={autoSpawnEnabled} onCheckedChange={setAutoSpawnEnabled} />
+            </div>
+
+            {autoSpawnEnabled && (
+              <div className="space-y-2 pt-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">qa-agent path</Label>
+                  <Input
+                    value={qaAgentPath}
+                    onChange={(e) => setQaAgentPath(e.target.value)}
+                    placeholder="/abs/path/to/qa-agent"
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">qa-agent python</Label>
+                  <Input
+                    value={qaAgentPython}
+                    onChange={(e) => setQaAgentPython(e.target.value)}
+                    placeholder="/abs/path/to/qa-agent/.venv/bin/python"
+                    className="h-8 text-xs font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Required for <code>qa-test</code> tasks. Leave blank for <code>dev-fix</code>-only flows.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="text-xs text-muted-foreground">
             <span className="font-medium">Path:</span> {project.path}
