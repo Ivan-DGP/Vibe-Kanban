@@ -3,6 +3,7 @@ import { spawn } from "../lib/spawn";
 import { getProjectArtifactsDir } from "../lib/data-dir";
 import { maybeSpawnForTask } from "../services/taskSpawner";
 import { rowToTask } from "../routes/tasks";
+import { embed, cosineSimilarity, vectorFromBlob, EMBEDDING_MODEL } from "../services/embeddings";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -198,6 +199,41 @@ export function listGraphNodes(params: Record<string, unknown>): unknown {
   return { nodes, edges };
 }
 
+export async function searchKnowledge(params: Record<string, unknown>): Promise<unknown> {
+  const projectId = params.projectId as string;
+  const query = (params.query as string)?.trim();
+  const k = Math.min(Math.max(Number(params.k) || 5, 1), 20);
+
+  if (!projectId || !query) return { error: "projectId and query required" };
+
+  const db = getDb();
+  const rows = db.query(
+    `SELECT e.artifactId, e.chunkIdx, e.content, e.vector,
+            a.filename, a.type, a.description
+     FROM artifact_embeddings e
+     JOIN project_artifacts a ON a.id = e.artifactId
+     WHERE e.projectId = ?`,
+  ).all(projectId) as any[];
+
+  if (rows.length === 0) {
+    return { query, model: EMBEDDING_MODEL, results: [], note: "No embeddings yet — run /api/projects/:id/knowledge/backfill" };
+  }
+
+  const queryVec = await embed(query);
+  const scored = rows.map((row) => ({
+    artifactId: row.artifactId,
+    filename: row.filename,
+    type: row.type,
+    description: row.description,
+    chunkIdx: row.chunkIdx,
+    content: row.content,
+    score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
+  }));
+
+  scored.sort((a, b) => b.score - a.score);
+  return { query, model: EMBEDDING_MODEL, results: scored.slice(0, k) };
+}
+
 export const tools: ToolHandler[] = [
   {
     definition: {
@@ -366,6 +402,22 @@ export const tools: ToolHandler[] = [
       },
     },
     handler: listGraphNodes,
+  },
+  {
+    definition: {
+      name: "search_knowledge",
+      description: "Semantic search over a project's knowledge artifacts. Returns ranked chunks of artifact content most relevant to the query.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "Project ID" },
+          query: { type: "string", description: "Natural-language search query" },
+          k: { type: "number", description: "Number of results to return (default 5, max 20)" },
+        },
+        required: ["projectId", "query"],
+      },
+    },
+    handler: searchKnowledge,
   },
 ];
 

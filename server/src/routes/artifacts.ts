@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { getProjectArtifactsDir } from "../lib/data-dir";
+import { embedArtifactInBackground } from "../services/artifactEmbedder";
+import { isEmbeddableMimeType } from "../lib/chunking";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -90,6 +92,10 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(id, projectId, filename, type, description || null, JSON.stringify(tags), contentBuffer.length, mimeType, now, now);
 
+    if (isEmbeddableMimeType(mimeType) && content) {
+      embedArtifactInBackground({ projectId, artifactId: id, content, mimeType });
+    }
+
     return parseArtifactRow(
       db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any
     );
@@ -139,6 +145,13 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
       db.prepare(`UPDATE project_artifacts SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     }
 
+    if (body.content !== undefined) {
+      const updatedMime = body.filename ? getMimeType(body.filename) : existing.mimeType;
+      if (isEmbeddableMimeType(updatedMime)) {
+        embedArtifactInBackground({ projectId, artifactId: id, content: body.content, mimeType: updatedMime });
+      }
+    }
+
     return parseArtifactRow(
       db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any
     );
@@ -177,6 +190,10 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
       `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(id, projectId, originalFilename, type, null, "[]", buffer.length, mimeType, now, now);
+
+    if (isEmbeddableMimeType(mimeType)) {
+      embedArtifactInBackground({ projectId, artifactId: id, content: buffer.toString("utf-8"), mimeType });
+    }
 
     return parseArtifactRow(
       db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any

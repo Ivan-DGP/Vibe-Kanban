@@ -528,6 +528,30 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 21,
+      name: "add-artifact-embeddings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS artifact_embeddings (
+            id          TEXT PRIMARY KEY,
+            artifactId  TEXT NOT NULL
+              REFERENCES project_artifacts(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_artifact_embeddings_artifactId ON artifact_embeddings (artifactId);
+          CREATE INDEX IF NOT EXISTS idx_artifact_embeddings_projectId ON artifact_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_embeddings_artifact_chunk ON artifact_embeddings (artifactId, chunkIdx);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

@@ -531,6 +531,42 @@ export interface UpdateArtifactInput {
 }
 
 // ============================================================
+// Knowledge Search (Vector Embeddings)
+// ============================================================
+
+export interface KnowledgeSearchHit {
+  id: string;
+  artifactId: string;
+  chunkIdx: number;
+  content: string;
+  score: number;
+  artifact: {
+    id: string;
+    filename: string;
+    type: ArtifactType;
+    description: string | null;
+    tags: string[];
+    mimeType: string;
+    updatedAt: string;
+  };
+}
+
+export interface KnowledgeSearchResponse {
+  query: string;
+  model: string;
+  results: KnowledgeSearchHit[];
+  totalChunks: number;
+}
+
+export interface KnowledgeStats {
+  model: string;
+  artifactCount: number;
+  embeddedArtifacts: number;
+  chunkCount: number;
+  pending: number;
+}
+
+// ============================================================
 // Knowledge Graph
 // ============================================================
 
