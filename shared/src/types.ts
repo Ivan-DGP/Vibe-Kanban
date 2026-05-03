@@ -570,7 +570,26 @@ export interface KnowledgeTaskHit {
   };
 }
 
-export type KnowledgeSearchHit = KnowledgeArtifactHit | KnowledgeTaskHit;
+export interface KnowledgeGraphNodeHit {
+  kind: "graph_node";
+  id: string;
+  entityId: string;
+  chunkIdx: number;
+  content: string;
+  score: number;
+  graphNode: {
+    id: string;
+    label: string;
+    type: GraphNodeType;
+    description: string | null;
+    updatedAt: string;
+  };
+}
+
+export type KnowledgeSearchHit =
+  | KnowledgeArtifactHit
+  | KnowledgeTaskHit
+  | KnowledgeGraphNodeHit;
 
 export interface KnowledgeSearchResponse {
   query: string;
@@ -589,6 +608,10 @@ export interface KnowledgeStats {
   embeddedTasks: number;
   taskChunkCount: number;
   pendingTasks: number;
+  graphNodeCount: number;
+  embeddedGraphNodes: number;
+  graphNodeChunkCount: number;
+  pendingGraphNodes: number;
 }
 
 // ============================================================

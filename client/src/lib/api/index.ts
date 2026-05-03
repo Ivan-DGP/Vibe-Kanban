@@ -387,7 +387,7 @@ export const api = {
         query: string;
         k?: number;
         minScore?: number;
-        types?: ("artifact" | "task")[];
+        types?: ("artifact" | "task" | "graph_node")[];
       },
     ) => post<KnowledgeSearchResponse>(`/projects/${projectId}/knowledge/search`, body),
     stats: (projectId: string) =>

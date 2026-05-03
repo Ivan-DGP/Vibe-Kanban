@@ -35,7 +35,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 22 on a blank database", () => {
+  test("runs all migrations from version 1 to 23 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -46,9 +46,9 @@ describe("fresh database: real runMigrations", () => {
     // Call the REAL runMigrations from db/index.ts
     _runMigrations(db);
 
-    // Verify all 22 migrations recorded
+    // Verify all 23 migrations recorded
     const rows = db.prepare("SELECT version, name FROM _migrations ORDER BY version").all() as { version: number; name: string }[];
-    expect(rows.length).toBe(22);
+    expect(rows.length).toBe(23);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
@@ -173,8 +173,8 @@ describe("runMigrations idempotency", () => {
     _runMigrations(db);
     const countAfterSecond = (db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }).c;
 
-    expect(countAfterFirst).toBe(22);
-    expect(countAfterSecond).toBe(22);
+    expect(countAfterFirst).toBe(23);
+    expect(countAfterSecond).toBe(23);
   });
 });
 
@@ -198,7 +198,7 @@ describe("migration from completely empty database", () => {
     _runMigrations(db);
 
     const finalVersion = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(finalVersion).toBe(22);
+    expect(finalVersion).toBe(23);
   });
 });
 
@@ -238,7 +238,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(22);
+    expect(max).toBe(23);
   });
 });
 
@@ -263,7 +263,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(22);
+    expect(max).toBe(23);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -653,7 +653,7 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(22);
+    expect(max).toBe(23);
   });
 });
 

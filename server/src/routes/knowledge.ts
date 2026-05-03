@@ -6,6 +6,7 @@ import { getProjectArtifactsDir } from "../lib/data-dir";
 import { embed, cosineSimilarity, vectorFromBlob, EMBEDDING_MODEL } from "../services/embeddings";
 import { embedArtifact } from "../services/artifactEmbedder";
 import { embedTask } from "../services/taskEmbedder";
+import { embedGraphNode } from "../services/graphNodeEmbedder";
 import { isEmbeddableMimeType } from "../lib/chunking";
 import { log } from "../lib/logger";
 
@@ -18,7 +19,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       query?: string;
       k?: number;
       minScore?: number;
-      types?: ("artifact" | "task")[];
+      types?: ("artifact" | "task" | "graph_node")[];
     };
 
     if (!query || typeof query !== "string" || query.trim().length === 0) {
@@ -28,6 +29,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
     const limit = Math.min(Math.max(parseInt(String(k)) || 10, 1), 50);
     const includeArtifacts = !types || types.includes("artifact");
     const includeTasks = !types || types.includes("task");
+    const includeGraphNodes = !types || types.includes("graph_node");
 
     const queryVec = await embed(query.trim());
     const scored: any[] = [];
@@ -94,6 +96,35 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    if (includeGraphNodes) {
+      const nodeRows = db.prepare(
+        `SELECT e.id, e.nodeId, e.chunkIdx, e.content, e.vector,
+                n.label, n.type, n.description, n.updatedAt
+         FROM graph_node_embeddings e
+         JOIN project_graph_nodes n ON n.id = e.nodeId
+         WHERE e.projectId = ?`,
+      ).all(projectId) as any[];
+
+      for (const row of nodeRows) {
+        const score = cosineSimilarity(queryVec, vectorFromBlob(row.vector));
+        scored.push({
+          kind: "graph_node" as const,
+          id: row.id,
+          entityId: row.nodeId,
+          chunkIdx: row.chunkIdx,
+          content: row.content,
+          score,
+          graphNode: {
+            id: row.nodeId,
+            label: row.label,
+            type: row.type,
+            description: row.description,
+            updatedAt: row.updatedAt,
+          },
+        });
+      }
+    }
+
     scored.sort((a, b) => b.score - a.score);
     const filtered = scored.filter((s) => s.score >= minScore).slice(0, limit);
 
@@ -127,6 +158,18 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       "SELECT COUNT(*) as n FROM task_embeddings WHERE projectId = ?",
     ).get(projectId) as any).n as number;
 
+    const graphNodeCount = (db.prepare(
+      "SELECT COUNT(*) as n FROM project_graph_nodes WHERE projectId = ?",
+    ).get(projectId) as any).n as number;
+
+    const embeddedGraphNodes = (db.prepare(
+      "SELECT COUNT(DISTINCT nodeId) as n FROM graph_node_embeddings WHERE projectId = ?",
+    ).get(projectId) as any).n as number;
+
+    const graphNodeChunkCount = (db.prepare(
+      "SELECT COUNT(*) as n FROM graph_node_embeddings WHERE projectId = ?",
+    ).get(projectId) as any).n as number;
+
     return {
       model: EMBEDDING_MODEL,
       artifactCount,
@@ -137,6 +180,10 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       embeddedTasks,
       taskChunkCount,
       pendingTasks: Math.max(0, taskCount - embeddedTasks),
+      graphNodeCount,
+      embeddedGraphNodes,
+      graphNodeChunkCount,
+      pendingGraphNodes: Math.max(0, graphNodeCount - embeddedGraphNodes),
     };
   });
 
@@ -152,7 +199,11 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       "SELECT id, title, description, prompt, status FROM tasks WHERE projectId = ? AND status != 'archived'",
     ).all(projectId) as any[];
 
-    if (artifacts.length === 0 && tasks.length === 0) {
+    const graphNodes = db.prepare(
+      "SELECT id, label, type, description FROM project_graph_nodes WHERE projectId = ?",
+    ).all(projectId) as any[];
+
+    if (artifacts.length === 0 && tasks.length === 0 && graphNodes.length === 0) {
       return { embedded: 0, skipped: 0, errors: 0, total: 0 };
     }
 
@@ -218,10 +269,35 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      for (const n of graphNodes) {
+        if (!force) {
+          const has = (db.prepare(
+            "SELECT COUNT(*) as n FROM graph_node_embeddings WHERE nodeId = ?",
+          ).get(n.id) as any).n as number;
+          if (has > 0) {
+            skipped++;
+            continue;
+          }
+        }
+        try {
+          await embedGraphNode({
+            projectId,
+            nodeId: n.id,
+            label: n.label,
+            type: n.type,
+            description: n.description,
+          });
+          embedded++;
+        } catch (err: any) {
+          log("error", "server", `Backfill failed for graph node ${n.id}: ${err?.message ?? err}`);
+          errors++;
+        }
+      }
+
       log("info", "server", `Backfill done for project ${projectId}: embedded=${embedded} skipped=${skipped} errors=${errors}`);
     })();
 
-    return reply.send({ started: true, total: artifacts.length + tasks.length });
+    return reply.send({ started: true, total: artifacts.length + tasks.length + graphNodes.length });
   });
 };
 

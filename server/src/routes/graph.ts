@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
+import { embedGraphNodeInBackground } from "../services/graphNodeEmbedder";
 
 const graphRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
@@ -30,6 +31,8 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
       `INSERT INTO project_graph_nodes (id, projectId, label, type, description, x, y, metadata, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(id, projectId, label, type, description || null, x ?? null, y ?? null, JSON.stringify(metadata), now, now);
+
+    embedGraphNodeInBackground({ projectId, nodeId: id, label, type, description });
 
     return parseNodeRow(
       db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as any
@@ -62,9 +65,23 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
       db.prepare(`UPDATE project_graph_nodes SET ${fields.join(", ")} WHERE id = ?`).run(...values);
     }
 
-    return parseNodeRow(
-      db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as any
-    );
+    const updated = db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as any;
+
+    if (
+      body.label !== undefined ||
+      body.type !== undefined ||
+      body.description !== undefined
+    ) {
+      embedGraphNodeInBackground({
+        projectId: updated.projectId,
+        nodeId: id,
+        label: updated.label,
+        type: updated.type,
+        description: updated.description,
+      });
+    }
+
+    return parseNodeRow(updated);
   });
 
   // Delete node (cascades to edges)
