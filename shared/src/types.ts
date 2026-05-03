@@ -531,6 +531,90 @@ export interface UpdateArtifactInput {
 }
 
 // ============================================================
+// Knowledge Search (Vector Embeddings)
+// ============================================================
+
+export interface KnowledgeArtifactHit {
+  kind: "artifact";
+  id: string;
+  entityId: string;
+  chunkIdx: number;
+  content: string;
+  score: number;
+  artifact: {
+    id: string;
+    filename: string;
+    type: ArtifactType;
+    description: string | null;
+    tags: string[];
+    mimeType: string;
+    updatedAt: string;
+  };
+}
+
+export interface KnowledgeTaskHit {
+  kind: "task";
+  id: string;
+  entityId: string;
+  chunkIdx: number;
+  content: string;
+  score: number;
+  task: {
+    id: string;
+    title: string;
+    status: TaskStatus;
+    priority: TaskPriority;
+    taskNumber: number;
+    milestoneId: string | null;
+    updatedAt: string;
+  };
+}
+
+export interface KnowledgeGraphNodeHit {
+  kind: "graph_node";
+  id: string;
+  entityId: string;
+  chunkIdx: number;
+  content: string;
+  score: number;
+  graphNode: {
+    id: string;
+    label: string;
+    type: GraphNodeType;
+    description: string | null;
+    updatedAt: string;
+  };
+}
+
+export type KnowledgeSearchHit =
+  | KnowledgeArtifactHit
+  | KnowledgeTaskHit
+  | KnowledgeGraphNodeHit;
+
+export interface KnowledgeSearchResponse {
+  query: string;
+  model: string;
+  results: KnowledgeSearchHit[];
+  totalChunks: number;
+}
+
+export interface KnowledgeStats {
+  model: string;
+  artifactCount: number;
+  embeddedArtifacts: number;
+  chunkCount: number;
+  pending: number;
+  taskCount: number;
+  embeddedTasks: number;
+  taskChunkCount: number;
+  pendingTasks: number;
+  graphNodeCount: number;
+  embeddedGraphNodes: number;
+  graphNodeChunkCount: number;
+  pendingGraphNodes: number;
+}
+
+// ============================================================
 // Knowledge Graph
 // ============================================================
 

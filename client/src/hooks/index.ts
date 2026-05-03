@@ -16,3 +16,4 @@ export * from "./useApiClient";
 export * from "./useArtifacts";
 export * from "./useRoadmap";
 export * from "./useGraph";
+export * from "./useKnowledge";

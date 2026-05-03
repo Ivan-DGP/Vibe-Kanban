@@ -528,6 +528,80 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 21,
+      name: "add-artifact-embeddings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS artifact_embeddings (
+            id          TEXT PRIMARY KEY,
+            artifactId  TEXT NOT NULL
+              REFERENCES project_artifacts(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_artifact_embeddings_artifactId ON artifact_embeddings (artifactId);
+          CREATE INDEX IF NOT EXISTS idx_artifact_embeddings_projectId ON artifact_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_embeddings_artifact_chunk ON artifact_embeddings (artifactId, chunkIdx);
+        `);
+      },
+    },
+    {
+      version: 22,
+      name: "add-task-embeddings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_embeddings (
+            id          TEXT PRIMARY KEY,
+            taskId      TEXT NOT NULL
+              REFERENCES tasks(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            sourceHash  TEXT NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_embeddings_taskId ON task_embeddings (taskId);
+          CREATE INDEX IF NOT EXISTS idx_task_embeddings_projectId ON task_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_task_embeddings_task_chunk ON task_embeddings (taskId, chunkIdx);
+        `);
+      },
+    },
+    {
+      version: 23,
+      name: "add-graph-node-embeddings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS graph_node_embeddings (
+            id          TEXT PRIMARY KEY,
+            nodeId      TEXT NOT NULL
+              REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            sourceHash  TEXT NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_graph_node_embeddings_nodeId ON graph_node_embeddings (nodeId);
+          CREATE INDEX IF NOT EXISTS idx_graph_node_embeddings_projectId ON graph_node_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_node_embeddings_node_chunk ON graph_node_embeddings (nodeId, chunkIdx);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

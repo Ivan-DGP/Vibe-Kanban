@@ -46,6 +46,8 @@ import type {
   ApiRequestExecuteInput,
   ApiRequestExecuteResult,
   Artifact,
+  KnowledgeSearchResponse,
+  KnowledgeStats,
   CreateArtifactInput,
   UpdateArtifactInput,
   RoadmapItem,
@@ -376,6 +378,22 @@ export const api = {
     update: (id: string, input: UpdateRoadmapItemInput) =>
       patch<RoadmapItem>(`/roadmap/${id}`, input),
     delete: (id: string) => del(`/roadmap/${id}`),
+  },
+
+  knowledge: {
+    search: (
+      projectId: string,
+      body: {
+        query: string;
+        k?: number;
+        minScore?: number;
+        types?: ("artifact" | "task" | "graph_node")[];
+      },
+    ) => post<KnowledgeSearchResponse>(`/projects/${projectId}/knowledge/search`, body),
+    stats: (projectId: string) =>
+      get<KnowledgeStats>(`/projects/${projectId}/knowledge/stats`),
+    backfill: (projectId: string, force?: boolean) =>
+      post<{ started: boolean; total: number }>(`/projects/${projectId}/knowledge/backfill`, { force: !!force }),
   },
 
   graph: {
