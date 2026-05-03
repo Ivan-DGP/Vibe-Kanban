@@ -552,6 +552,31 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 22,
+      name: "add-task-embeddings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_embeddings (
+            id          TEXT PRIMARY KEY,
+            taskId      TEXT NOT NULL
+              REFERENCES tasks(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            sourceHash  TEXT NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_embeddings_taskId ON task_embeddings (taskId);
+          CREATE INDEX IF NOT EXISTS idx_task_embeddings_projectId ON task_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_task_embeddings_task_chunk ON task_embeddings (taskId, chunkIdx);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

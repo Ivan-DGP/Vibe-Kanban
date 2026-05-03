@@ -381,8 +381,15 @@ export const api = {
   },
 
   knowledge: {
-    search: (projectId: string, body: { query: string; k?: number; minScore?: number }) =>
-      post<KnowledgeSearchResponse>(`/projects/${projectId}/knowledge/search`, body),
+    search: (
+      projectId: string,
+      body: {
+        query: string;
+        k?: number;
+        minScore?: number;
+        types?: ("artifact" | "task")[];
+      },
+    ) => post<KnowledgeSearchResponse>(`/projects/${projectId}/knowledge/search`, body),
     stats: (projectId: string) =>
       get<KnowledgeStats>(`/projects/${projectId}/knowledge/stats`),
     backfill: (projectId: string, force?: boolean) =>

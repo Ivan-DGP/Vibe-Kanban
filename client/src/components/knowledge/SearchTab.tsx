@@ -4,15 +4,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Sparkles, RefreshCw, FileText } from "lucide-react";
-import type { KnowledgeSearchHit } from "@vibe-kanban/shared";
+import { Search, Sparkles, RefreshCw, FileText, ListChecks } from "lucide-react";
+import type {
+  KnowledgeSearchHit,
+  KnowledgeArtifactHit,
+  KnowledgeTaskHit,
+} from "@vibe-kanban/shared";
 
 interface SearchTabProps {
   projectId: string;
 }
 
+type FilterMode = "all" | "artifact" | "task";
+
 export default function SearchTab({ projectId }: SearchTabProps) {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<FilterMode>("all");
   const search = useKnowledgeSearch(projectId);
   const stats = useKnowledgeStats(projectId);
   const backfill = useKnowledgeBackfill(projectId);
@@ -21,12 +28,15 @@ export default function SearchTab({ projectId }: SearchTabProps) {
     e?.preventDefault();
     const q = query.trim();
     if (!q) return;
-    search.mutate({ query: q, k: 10 });
+    const types =
+      filter === "all" ? undefined : ([filter] as ("artifact" | "task")[]);
+    search.mutate({ query: q, k: 10, types });
   };
 
   const results = search.data?.results ?? [];
   const s = stats.data;
-  const indexing = (s?.pending ?? 0) > 0 || backfill.isPending;
+  const totalPending = (s?.pending ?? 0) + (s?.pendingTasks ?? 0);
+  const indexing = totalPending > 0 || backfill.isPending;
 
   return (
     <div className="space-y-4 p-1">
@@ -36,7 +46,7 @@ export default function SearchTab({ projectId }: SearchTabProps) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search artifact content semantically…"
+            placeholder="Search artifacts and tasks semantically…"
             className="pl-9"
           />
         </div>
@@ -45,14 +55,35 @@ export default function SearchTab({ projectId }: SearchTabProps) {
         </Button>
       </form>
 
+      <div className="flex items-center gap-1">
+        {(["all", "artifact", "task"] as FilterMode[]).map((m) => (
+          <Button
+            key={m}
+            variant={filter === m ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setFilter(m)}
+            className="h-7 text-xs capitalize"
+          >
+            {m === "all" ? "All" : `${m}s`}
+          </Button>
+        ))}
+      </div>
+
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Sparkles className="h-3.5 w-3.5" />
           {s ? (
-            <span>
-              {s.embeddedArtifacts}/{s.artifactCount} artifacts indexed · {s.chunkCount} chunks
-              {s.pending > 0 && <span className="text-amber-500"> · {s.pending} pending</span>}
-            </span>
+            <>
+              <span>
+                {s.embeddedArtifacts}/{s.artifactCount} artifacts · {s.chunkCount} chunks
+              </span>
+              <span>
+                · {s.embeddedTasks}/{s.taskCount} tasks · {s.taskChunkCount} chunks
+              </span>
+              {totalPending > 0 && (
+                <span className="text-amber-500">· {totalPending} pending</span>
+              )}
+            </>
           ) : (
             <span>Loading stats…</span>
           )}
@@ -75,7 +106,9 @@ export default function SearchTab({ projectId }: SearchTabProps) {
 
       {search.data && results.length === 0 && (
         <div className="text-sm text-muted-foreground p-4 text-center">
-          No results. {(s?.embeddedArtifacts ?? 0) === 0 && "Try indexing artifacts first."}
+          No results.{" "}
+          {(s?.embeddedArtifacts ?? 0) === 0 && (s?.embeddedTasks ?? 0) === 0 &&
+            "Try indexing first."}
         </div>
       )}
 
@@ -91,6 +124,11 @@ export default function SearchTab({ projectId }: SearchTabProps) {
 }
 
 function ResultCard({ hit }: { hit: KnowledgeSearchHit }) {
+  if (hit.kind === "artifact") return <ArtifactCard hit={hit} />;
+  return <TaskCard hit={hit} />;
+}
+
+function ArtifactCard({ hit }: { hit: KnowledgeArtifactHit }) {
   const scorePct = (hit.score * 100).toFixed(1);
   return (
     <Card className="p-3 space-y-2 hover:border-primary/40 transition-colors">
@@ -99,6 +137,30 @@ function ResultCard({ hit }: { hit: KnowledgeSearchHit }) {
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-sm font-medium truncate">{hit.artifact.filename}</span>
           <Badge variant="outline" className="shrink-0 text-[10px]">{hit.artifact.type}</Badge>
+          <Badge variant="secondary" className="shrink-0 text-[10px]">artifact</Badge>
+        </div>
+        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{scorePct}%</span>
+      </div>
+      <p className="text-xs text-muted-foreground line-clamp-4 whitespace-pre-wrap">
+        {hit.content}
+      </p>
+      <div className="text-[10px] text-muted-foreground/70">chunk #{hit.chunkIdx}</div>
+    </Card>
+  );
+}
+
+function TaskCard({ hit }: { hit: KnowledgeTaskHit }) {
+  const scorePct = (hit.score * 100).toFixed(1);
+  return (
+    <Card className="p-3 space-y-2 hover:border-primary/40 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <ListChecks className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="text-sm font-medium truncate">
+            #{hit.task.taskNumber} · {hit.task.title}
+          </span>
+          <Badge variant="outline" className="shrink-0 text-[10px]">{hit.task.status}</Badge>
+          <Badge variant="secondary" className="shrink-0 text-[10px]">task</Badge>
         </div>
         <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{scorePct}%</span>
       </div>

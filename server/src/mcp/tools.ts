@@ -4,6 +4,7 @@ import { getProjectArtifactsDir } from "../lib/data-dir";
 import { maybeSpawnForTask } from "../services/taskSpawner";
 import { rowToTask } from "../routes/tasks";
 import { embed, cosineSimilarity, vectorFromBlob, EMBEDDING_MODEL } from "../services/embeddings";
+import { embedTaskInBackground } from "../services/taskEmbedder";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -76,8 +77,18 @@ export function createTask(params: Record<string, unknown>): unknown {
     now,
     now,
   );
-  const inserted = db.query("SELECT * FROM tasks WHERE id = ?").get(id);
-  if (inserted) maybeSpawnForTask(rowToTask(inserted));
+  const inserted = db.query("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+  if (inserted) {
+    maybeSpawnForTask(rowToTask(inserted));
+    embedTaskInBackground({
+      projectId: inserted.projectId,
+      taskId: inserted.id,
+      title: inserted.title,
+      description: inserted.description,
+      prompt: inserted.prompt,
+      status: inserted.status,
+    });
+  }
   return { id, title: params.title };
 }
 
@@ -108,6 +119,25 @@ export function updateTask(params: Record<string, unknown>): unknown {
   vals.push(params.taskId as string);
 
   db.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...(vals as [string, ...string[]]));
+
+  if (
+    params.title !== undefined ||
+    params.description !== undefined ||
+    params.status !== undefined
+  ) {
+    const updated = db.query("SELECT * FROM tasks WHERE id = ?").get(params.taskId as string) as any;
+    if (updated) {
+      embedTaskInBackground({
+        projectId: updated.projectId,
+        taskId: updated.id,
+        title: updated.title,
+        description: updated.description,
+        prompt: updated.prompt,
+        status: updated.status,
+      });
+    }
+  }
+
   return { updated: true };
 }
 
@@ -203,32 +233,71 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   const projectId = params.projectId as string;
   const query = (params.query as string)?.trim();
   const k = Math.min(Math.max(Number(params.k) || 5, 1), 20);
+  const types = Array.isArray(params.types) ? (params.types as string[]) : null;
+  const includeArtifacts = !types || types.includes("artifact");
+  const includeTasks = !types || types.includes("task");
 
   if (!projectId || !query) return { error: "projectId and query required" };
 
   const db = getDb();
-  const rows = db.query(
-    `SELECT e.artifactId, e.chunkIdx, e.content, e.vector,
-            a.filename, a.type, a.description
-     FROM artifact_embeddings e
-     JOIN project_artifacts a ON a.id = e.artifactId
-     WHERE e.projectId = ?`,
-  ).all(projectId) as any[];
+  const scored: any[] = [];
 
-  if (rows.length === 0) {
-    return { query, model: EMBEDDING_MODEL, results: [], note: "No embeddings yet — run /api/projects/:id/knowledge/backfill" };
+  if (includeArtifacts) {
+    const artifactRows = db.query(
+      `SELECT e.artifactId, e.chunkIdx, e.content, e.vector,
+              a.filename, a.type, a.description
+       FROM artifact_embeddings e
+       JOIN project_artifacts a ON a.id = e.artifactId
+       WHERE e.projectId = ?`,
+    ).all(projectId) as any[];
+
+    if (artifactRows.length > 0) {
+      const queryVec = await embed(query);
+      for (const row of artifactRows) {
+        scored.push({
+          kind: "artifact",
+          artifactId: row.artifactId,
+          filename: row.filename,
+          type: row.type,
+          description: row.description,
+          chunkIdx: row.chunkIdx,
+          content: row.content,
+          score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
+        });
+      }
+    }
   }
 
-  const queryVec = await embed(query);
-  const scored = rows.map((row) => ({
-    artifactId: row.artifactId,
-    filename: row.filename,
-    type: row.type,
-    description: row.description,
-    chunkIdx: row.chunkIdx,
-    content: row.content,
-    score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
-  }));
+  if (includeTasks) {
+    const taskRows = db.query(
+      `SELECT e.taskId, e.chunkIdx, e.content, e.vector,
+              t.title, t.status, t.priority, t.taskNumber
+       FROM task_embeddings e
+       JOIN tasks t ON t.id = e.taskId
+       WHERE e.projectId = ?`,
+    ).all(projectId) as any[];
+
+    if (taskRows.length > 0) {
+      const queryVec = await embed(query);
+      for (const row of taskRows) {
+        scored.push({
+          kind: "task",
+          taskId: row.taskId,
+          title: row.title,
+          status: row.status,
+          priority: row.priority,
+          taskNumber: row.taskNumber,
+          chunkIdx: row.chunkIdx,
+          content: row.content,
+          score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
+        });
+      }
+    }
+  }
+
+  if (scored.length === 0) {
+    return { query, model: EMBEDDING_MODEL, results: [], note: "No embeddings yet — POST to /api/projects/:id/knowledge/backfill" };
+  }
 
   scored.sort((a, b) => b.score - a.score);
   return { query, model: EMBEDDING_MODEL, results: scored.slice(0, k) };
@@ -406,13 +475,18 @@ export const tools: ToolHandler[] = [
   {
     definition: {
       name: "search_knowledge",
-      description: "Semantic search over a project's knowledge artifacts. Returns ranked chunks of artifact content most relevant to the query.",
+      description: "Semantic search across a project's artifacts (docs/specs/diagrams) and tasks (title + description + prompt). Returns ranked chunks. Each result has a 'kind' field ('artifact' or 'task') and the corresponding entity metadata.",
       inputSchema: {
         type: "object",
         properties: {
           projectId: { type: "string", description: "Project ID" },
           query: { type: "string", description: "Natural-language search query" },
           k: { type: "number", description: "Number of results to return (default 5, max 20)" },
+          types: {
+            type: "array",
+            items: { type: "string", enum: ["artifact", "task"] },
+            description: "Optional: restrict search to specific kinds. Default: both.",
+          },
         },
         required: ["projectId", "query"],
       },

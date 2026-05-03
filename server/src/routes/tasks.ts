@@ -4,6 +4,7 @@ import { log } from "../lib/logger";
 import { writeTaskSnapshot } from "../services/snapshot";
 import { buildAiResolvePrompt, buildDecomposePrompt, classifyTaskProfile, estimateComplexity } from "../services/aiResolvePrompt";
 import { maybeSpawnForTask } from "../services/taskSpawner";
+import { embedTaskInBackground } from "../services/taskEmbedder";
 import type { Task, TaskStatus } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -229,6 +230,14 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     writeTaskSnapshot(projectId);
 
     const task = rowToTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+    embedTaskInBackground({
+      projectId,
+      taskId: id,
+      title,
+      description: description || null,
+      prompt: prompt || null,
+      status,
+    });
     maybeSpawnForTask(task);
     return task;
   });
@@ -279,7 +288,23 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     );
 
     writeTaskSnapshot(existing.projectId);
-    return rowToTask(db.prepare("SELECT * FROM tasks WHERE id = ?").get(id));
+    const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
+    if (
+      updates.title !== undefined ||
+      updates.description !== undefined ||
+      updates.prompt !== undefined ||
+      updates.status !== undefined
+    ) {
+      embedTaskInBackground({
+        projectId: updated.projectId,
+        taskId: id,
+        title: updated.title,
+        description: updated.description,
+        prompt: updated.prompt,
+        status: updated.status,
+      });
+    }
+    return rowToTask(updated);
   });
 
   // Delete task
@@ -432,6 +457,16 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
     log("info", "tasks", `Bulk imported ${created.length} tasks`, { projectId });
     writeTaskSnapshot(projectId);
+    for (const t of created) {
+      embedTaskInBackground({
+        projectId,
+        taskId: t.id,
+        title: t.title,
+        description: t.description,
+        prompt: t.prompt,
+        status: t.status,
+      });
+    }
     return created;
   });
 
@@ -574,6 +609,17 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
 
     log("info", "tasks", `Decomposed task "${task.title}" into ${createdTasks.length} subtasks`, { projectId });
     writeTaskSnapshot(projectId);
+
+    for (const t of createdTasks) {
+      embedTaskInBackground({
+        projectId,
+        taskId: t.id,
+        title: t.title,
+        description: t.description,
+        prompt: t.prompt,
+        status: t.status,
+      });
+    }
 
     return { parentTaskId: taskId, subtasks: createdTasks };
   });
