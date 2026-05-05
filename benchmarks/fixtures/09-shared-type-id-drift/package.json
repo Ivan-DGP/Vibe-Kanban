@@ -1,0 +1,6 @@
+{
+  "name": "bench-fixture-09-shared-type-id-drift",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

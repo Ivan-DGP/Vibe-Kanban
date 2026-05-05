@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import { getDataDir } from "../lib/data-dir";
 import type { Project } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -248,6 +249,13 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.code(404).send({ error: "Project not found" });
 
     db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+
+    const dataDir = getDataDir();
+    const artifactsDir = path.join(dataDir, "projects", id);
+    const snapshotFile = path.join(dataDir, "tasks", `${id}.json`);
+    fs.rmSync(artifactsDir, { recursive: true, force: true });
+    fs.rmSync(snapshotFile, { force: true });
+
     log("info", "server", `Project deleted: ${(existing as any).name}`);
     return reply.code(204).send();
   });

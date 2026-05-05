@@ -1,0 +1,18 @@
+{
+  "id": "05-timeout-recovery",
+  "title": "Timeout recovery — fake-claude hangs, harness must kill cleanly",
+  "category": "stress",
+  "difficulty": "easy",
+  "prompt": "Pipeline-only fixture used to verify the headless-claude timeout machinery and slot-release semantics. fake-claude is configured to hang via mockHangMs; production should kill it once spec.timeoutMs elapses, record a non-zero exit, and release its slot. The target test will fail (no fix applied), and that's expected.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/calc.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 2000,
+  "pipelineMode": "codebase",
+  "mockHangMs": 30000,
+  "excludeFromCalibration": true,
+  "mockFix": {
+    "src/calc.ts": "export function add(a: number, b: number): number {\n  return a + b;\n}\n\nexport function multiply(a: number, b: number): number {\n  return a * b;\n}\n"
+  }
+}

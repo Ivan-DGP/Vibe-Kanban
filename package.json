@@ -21,6 +21,9 @@
     "test": "bun run --cwd server test",
     "test:e2e": "playwright test",
     "test:smoke": "bun run server/scripts/smoke/run-smoke.ts",
+    "bench": "bun run benchmarks/harness/run.ts",
+    "bench:dry": "bun run benchmarks/harness/run.ts --dry-run",
+    "bench:calibrate": "bun run benchmarks/harness/run.ts calibrate",
     "prepare": "husky"
   },
   "devDependencies": {

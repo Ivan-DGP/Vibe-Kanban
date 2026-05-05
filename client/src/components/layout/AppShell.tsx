@@ -20,6 +20,7 @@ import {
   Star,
   CheckSquare,
   Send,
+  Beaker,
 } from "lucide-react";
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
   { to: "/todos", icon: CheckSquare, label: "Todo" },
   { to: "/api-client", icon: Send, label: "API Client" },
   { to: "/reports", icon: BarChart3, label: "Reports" },
+  { to: "/benchmarks", icon: Beaker, label: "Benchmarks" },
   { to: "/logs", icon: ScrollText, label: "Logs" },
   { to: "/settings", icon: Settings, label: "Settings" },
   { to: "/help", icon: HelpCircle, label: "Help" },

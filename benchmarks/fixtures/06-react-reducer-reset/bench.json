@@ -1,0 +1,15 @@
+{
+  "id": "06-react-reducer-reset",
+  "title": "Counter reducer RESET broken",
+  "category": "frontend-state",
+  "difficulty": "easy",
+  "prompt": "There is a bug in src/counterReducer.ts. The RESET action does NOT actually reset state — it returns state unchanged. The action should reset count to 0 and clear history to [].\n\nFix the RESET case so the failing tests in tests/target.test.ts pass. The tests in tests/regression.test.ts must continue to pass — INC/DEC/SET must keep working exactly as today.\n\nDo not modify the tests. Do not add new files. Keep the change minimal — only the RESET case needs to change.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/counterReducer.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/counterReducer.ts": "export interface CounterState {\n  count: number;\n  history: number[];\n}\n\nexport type CounterAction =\n  | { type: \"INC\" }\n  | { type: \"DEC\" }\n  | { type: \"SET\"; value: number }\n  | { type: \"RESET\" };\n\nexport const initialState: CounterState = { count: 0, history: [] };\n\nexport function counterReducer(state: CounterState, action: CounterAction): CounterState {\n  switch (action.type) {\n    case \"INC\":\n      return { count: state.count + 1, history: [...state.history, state.count + 1] };\n    case \"DEC\":\n      return { count: state.count - 1, history: [...state.history, state.count - 1] };\n    case \"SET\":\n      return { count: action.value, history: [...state.history, action.value] };\n    case \"RESET\":\n      return { count: 0, history: [] };\n    default:\n      return state;\n  }\n}\n"
+  }
+}

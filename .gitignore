@@ -33,3 +33,8 @@ verify_*.mjs
 
 # System packages downloaded for Playwright deps
 *.deb
+
+# Benchmark transient state
+benchmarks/.runs/
+benchmarks/.tmpdata/
+benchmarks/results/

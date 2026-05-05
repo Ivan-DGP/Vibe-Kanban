@@ -27,6 +27,7 @@ function hashSource(text: string): string {
 }
 
 export async function embedTask(input: EmbedTaskInput): Promise<number> {
+  if (process.env.VK_DISABLE_EMBEDDINGS === "1") return 0;
   const text = composeTaskText(input);
   const sourceHash = hashSource(text);
 

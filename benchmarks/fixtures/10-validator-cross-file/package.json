@@ -1,0 +1,6 @@
+{
+  "name": "bench-fixture-10-validator-cross-file",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

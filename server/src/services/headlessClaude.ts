@@ -20,7 +20,10 @@ export interface HeadlessClaudeResult {
   runId: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = (() => {
+  const fromEnv = Number(process.env.VK_HEADLESS_CLAUDE_TIMEOUT_MS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 15 * 60 * 1000;
+})();
 const CONCURRENCY_CAP = (() => {
   const fromEnv = Number(process.env.VK_HEADLESS_CLAUDE_CONCURRENCY);
   return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 3;

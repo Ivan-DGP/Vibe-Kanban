@@ -1,0 +1,15 @@
+{
+  "id": "11-hard-token-bucket",
+  "title": "Token bucket missing capacity clamp on refill",
+  "category": "algorithm",
+  "difficulty": "medium",
+  "prompt": "src/tokenBucket.ts is a leaky-bucket rate limiter. tests/regression.test.ts captures the contract you must preserve. tests/target.test.ts adds new assertions that currently fail. Make those pass without breaking regression.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/tokenBucket.ts"],
+  "maxDiffLines": 15,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/tokenBucket.ts": "export interface TokenBucketState {\n  tokens: number;\n  lastRefillMs: number;\n}\n\nexport interface TokenBucketConfig {\n  capacity: number;\n  refillPerSecond: number;\n}\n\nexport function createBucket(cfg: TokenBucketConfig, nowMs: number): TokenBucketState {\n  return { tokens: cfg.capacity, lastRefillMs: nowMs };\n}\n\nexport function tryConsume(\n  state: TokenBucketState,\n  cfg: TokenBucketConfig,\n  nowMs: number,\n  cost: number,\n): { allowed: boolean; state: TokenBucketState } {\n  const elapsedMs = nowMs - state.lastRefillMs;\n  const refillAmount = (elapsedMs / 1000) * cfg.refillPerSecond;\n  const tokens = Math.min(cfg.capacity, state.tokens + refillAmount);\n  if (tokens < cost) {\n    return { allowed: false, state: { tokens, lastRefillMs: nowMs } };\n  }\n  return { allowed: true, state: { tokens: tokens - cost, lastRefillMs: nowMs } };\n}\n"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "08-async-debounce",
+  "title": "debounce() fires N times instead of once",
+  "category": "frontend-async",
+  "difficulty": "medium",
+  "prompt": "src/debounce.ts schedules a timer on every call but never cancels prior timers. Rapid calls fire the wrapped function once per call instead of once at the end.\n\nFix debounce() so that within a quiet window of waitMs, only the LAST call's args reach the wrapped function. After waitMs of silence, a fresh call should be schedulable again.\n\nThe failing tests in tests/target.test.ts must pass. tests/regression.test.ts (single-call firing, args pass-through, pre-fire timing) must continue to pass.\n\nDo not modify the tests. Do not add new files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/debounce.ts"],
+  "maxDiffLines": 25,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/debounce.ts": "export function debounce<A extends unknown[]>(fn: (...args: A) => void, waitMs: number): (...args: A) => void {\n  let timer: ReturnType<typeof setTimeout> | null = null;\n  return (...args: A) => {\n    if (timer !== null) clearTimeout(timer);\n    timer = setTimeout(() => {\n      timer = null;\n      fn(...args);\n    }, waitMs);\n  };\n}\n"
+  }
+}

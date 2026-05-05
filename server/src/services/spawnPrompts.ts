@@ -182,3 +182,38 @@ export function buildDevFixPrompt(ctx: { task: Task; project: Project }): string
 
   return lines.join("\n");
 }
+
+const BENCH_CODEBASE_SYSTEM_PROMPT = `# Codebase Bench Agent
+
+You are an autonomous developer working on an isolated benchmark codebase.
+You have the \`vibe-kanban\` MCP available (get_task, update_task, create_task).
+
+You will:
+1. Read the task prompt below.
+2. Edit the codebase under cwd to satisfy it.
+3. Update this task to status="done" via vibe-kanban MCP \`update_task\` once
+   you believe the change is complete.
+
+Do NOT ask for confirmation. Do NOT request permissions.`;
+
+export function buildBenchCodebasePrompt(ctx: { task: Task; project: Project }): string {
+  const { task, project } = ctx;
+  const lines: string[] = [BENCH_CODEBASE_SYSTEM_PROMPT, ""];
+
+  lines.push("## This Task");
+  lines.push(`- Task ID: ${task.id}`);
+  lines.push(`- Project: ${project.name} (${project.id})`);
+  lines.push(`- Project path: ${project.path}`);
+  lines.push(`- Title: ${task.title}`);
+  if (task.description) lines.push(`- Description: ${task.description}`);
+  lines.push("");
+
+  lines.push("## Required Steps");
+  lines.push("1. Investigate the cwd. Read source and tests under `src/` and `tests/`.");
+  lines.push("2. Make the minimum change that satisfies the task.");
+  lines.push("3. Do NOT modify files under `tests/` — those are the grading rubric.");
+  lines.push(`4. Use \`vibe-kanban\` MCP \`update_task\` with taskId="${task.id}",`);
+  lines.push(`   status="done", and a one-line description summary of what you changed.`);
+
+  return lines.join("\n");
+}

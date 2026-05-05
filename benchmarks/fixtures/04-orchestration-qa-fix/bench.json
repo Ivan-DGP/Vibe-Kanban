@@ -1,0 +1,36 @@
+{
+  "id": "04-orchestration-qa-fix",
+  "title": "QA finds login bug, dev-fix child resolves it",
+  "category": "orchestration",
+  "difficulty": "medium",
+  "prompt": "Pipeline-mode only. Root task is qa-test scenario 'login validation'. Expected behavior: empty password should be rejected with reason='password required'. Current behavior: empty password reports 'password too short'. The qa-test agent must spawn a dev-fix child task; the dev-fix child fixes src/login.ts.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/login.ts"],
+  "maxDiffLines": 15,
+  "timeoutMs": 60000,
+  "pipelineMode": "qa-test",
+  "expectedChainDepth": 2,
+  "mockChain": [
+    {
+      "whenType": "qa-test",
+      "createChildType": "dev-fix",
+      "createChildTitle": "Fix: empty password reports wrong reason",
+      "createChildMetadata": {
+        "bug_report": {
+          "summary": "validateLogin returns 'password too short' when password is empty; should return 'password required'",
+          "expected": "{ ok: false, reason: 'password required' } when password is empty",
+          "actual": "{ ok: false, reason: 'password too short' }",
+          "severity": "medium",
+          "affected_files": ["src/login.ts"]
+        }
+      }
+    },
+    {
+      "whenType": "dev-fix",
+      "applyFix": {
+        "src/login.ts": "export function validateLogin(username: string, password: string): { ok: boolean; reason?: string } {\n  if (!username) return { ok: false, reason: \"missing username\" };\n  if (password.length === 0) return { ok: false, reason: \"password required\" };\n  if (password.length < 8) return { ok: false, reason: \"password too short\" };\n  return { ok: true };\n}\n"
+      }
+    }
+  ]
+}

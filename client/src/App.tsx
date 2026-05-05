@@ -9,6 +9,7 @@ const Tasks = lazy(() => import("@/routes/Tasks"));
 const Todos = lazy(() => import("@/routes/Todos"));
 const Settings = lazy(() => import("@/routes/Settings"));
 const Reports = lazy(() => import("@/routes/Reports"));
+const Benchmarks = lazy(() => import("@/routes/Benchmarks"));
 const Logs = lazy(() => import("@/routes/Logs"));
 const Help = lazy(() => import("@/routes/Help"));
 const ApiClient = lazy(() => import("@/routes/ApiClient"));
@@ -72,6 +73,14 @@ export default function App() {
           element={
             <Suspense fallback={<Loading />}>
               <Reports />
+            </Suspense>
+          }
+        />
+        <Route
+          path="benchmarks"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Benchmarks />
             </Suspense>
           }
         />

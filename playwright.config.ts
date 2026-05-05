@@ -1,6 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const isCI = !!process.env.CI;
+
+// Isolate the dev server's data dir so E2E runs never touch data/vibe-kanban.db.
+const E2E_DATA_DIR = path.join(mkdtempSync(path.join(tmpdir(), 'vk-e2e-')), 'data');
 
 export default defineConfig({
   testDir: './client/e2e',
@@ -28,7 +34,8 @@ export default defineConfig({
   webServer: {
     command: 'bun run dev',
     url: 'http://localhost:5173',
-    reuseExistingServer: !isCI,
+    reuseExistingServer: false,
     timeout: 30000,
+    env: { VK_DATA_DIR: E2E_DATA_DIR },
   },
 });
