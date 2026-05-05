@@ -4,10 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { buildReport, writeReports, parseNumstat } from "./score";
+import { verifyMultiFile } from "./multiFile";
 import {
   aggregate,
+  compareAgainstBaseline,
   compareReports,
   formatAggregateMd,
+  formatBaselineMd,
   formatCompareMd,
   loadAllReports,
   loadFixtureSpecs,
@@ -16,7 +19,7 @@ import {
   writeCompare,
 } from "./aggregate";
 import { calibrate, formatCalibrationMd, formatCalibrationText } from "./calibrate";
-import type { BenchSpec, BenchResult, BenchStatus } from "./types";
+import type { BenchAggregateReport, BenchSpec, BenchResult, BenchStatus } from "./types";
 
 const HARNESS_DIR = path.resolve(import.meta.dir);
 const BENCH_ROOT = path.resolve(HARNESS_DIR, "..");
@@ -36,6 +39,9 @@ interface CliOpts {
   mode: Mode;
   mockClaude: boolean;
   parallel: number;
+  ci: boolean;
+  baseline: string | null;
+  commentOut: string | null;
 }
 
 function parseArgs(argv: string[]): CliOpts {
@@ -49,6 +55,9 @@ function parseArgs(argv: string[]): CliOpts {
     mode: "harness",
     mockClaude: false,
     parallel: 1,
+    ci: false,
+    baseline: null,
+    commentOut: null,
   };
   for (const a of argv) {
     if (a === "--dry-run") opts.dryRun = true;
@@ -56,6 +65,9 @@ function parseArgs(argv: string[]): CliOpts {
     else if (a === "--lenient") opts.lenient = true;
     else if (a === "--keep") opts.keepWorkdir = true;
     else if (a === "--mock-claude") opts.mockClaude = true;
+    else if (a === "--ci") opts.ci = true;
+    else if (a.startsWith("--baseline=")) opts.baseline = path.resolve(a.slice("--baseline=".length));
+    else if (a.startsWith("--comment-out=")) opts.commentOut = path.resolve(a.slice("--comment-out=".length));
     else if (a.startsWith("--parallel=")) {
       const n = Number(a.slice("--parallel=".length));
       if (!Number.isFinite(n) || n < 1) {
@@ -102,6 +114,9 @@ flags (default subcommand):
   --keep           keep the work dir after the run (default: delete)
   --parallel=<n>   run up to N fixtures concurrently (default: 1)
   --out=<dir>      write results here (default: benchmarks/results)
+  --ci             single-line summary; exit 1 if any fixture regressed vs --baseline
+  --baseline=<p>   baseline aggregate-*.json to compare against (used with --ci)
+  --comment-out=<p>  write PR-comment markdown delta table to <p> (used with --baseline)
   -h, --help       this message
 
 each fixture is benchmarks/fixtures/<id>/ with:
@@ -252,6 +267,7 @@ export function evaluateStatus(r: BenchResult, lenient: boolean): BenchStatus {
   const t = r.tests;
   if (t.targetPassed && t.regressionsHeld) {
     if (!lenient && (!r.diff.withinBudget || !r.diff.expectedFilesOnly)) return "SPRAWL";
+    if (!lenient && r.multiFile.checked && !r.multiFile.allTouched) return "INSUFFICIENT-FILES";
     return "SOLVED";
   }
   if (r.concurrency.timedOut && !t.targetPassed) return "TIMEOUT";
@@ -352,6 +368,13 @@ function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, w
       embeddings: { rowCount: 0, skipped: false },
       allGreen: false,
     },
+    multiFile: {
+      checked: false,
+      required: spec.requireFiles ?? [],
+      missing: [],
+      trivial: [],
+      allTouched: true,
+    },
     status: "ERROR",
     solved: false,
     error: null,
@@ -447,6 +470,17 @@ async function runOne(spec: BenchSpec, opts: CliOpts): Promise<BenchResult> {
         result.diff.expectedFilesOnly = parsedDiff.filesChanged.length > 0 && parsedDiff.filesChanged.every((f) => expected.has(f));
       } else {
         result.diff.expectedFilesOnly = true;
+      }
+
+      if (spec.requireFiles && spec.requireFiles.length > 0) {
+        const mf = await verifyMultiFile(workDir, spec.requireFiles);
+        result.multiFile.checked = true;
+        result.multiFile.missing = mf.missing;
+        result.multiFile.trivial = mf.trivial;
+        result.multiFile.allTouched = mf.allTouched;
+        if (!mf.allTouched && opts.lenient) {
+          console.warn(`[lenient] ${spec.id}: requireFiles not fully satisfied (missing=[${mf.missing.join(",")}] trivial=[${mf.trivial.join(",")}])`);
+        }
       }
     }
 
@@ -725,6 +759,42 @@ async function main(): Promise<void> {
 
   const report = buildReport(results, startedAt, finishedAt);
   const { jsonPath, mdPath } = writeReports(report, opts.outDir);
+
+  if (opts.baseline) {
+    if (!fs.existsSync(opts.baseline)) {
+      console.error(`baseline not found: ${opts.baseline}`);
+      process.exit(2);
+    }
+    const baseline = JSON.parse(fs.readFileSync(opts.baseline, "utf-8")) as BenchAggregateReport;
+    const cmp = compareAgainstBaseline([report], baseline);
+    if (opts.commentOut) {
+      fs.mkdirSync(path.dirname(opts.commentOut), { recursive: true });
+      fs.writeFileSync(opts.commentOut, formatBaselineMd(cmp));
+    }
+    if (opts.ci) {
+      const summary = `bench-ci · solved ${report.solvedCount}/${report.count} · regressed=${cmp.regressions.length} improved=${cmp.improvements.length} added=${cmp.added.length} removed=${cmp.removed.length} costΔ=$${cmp.costDelta.toFixed(4)}`;
+      console.log(summary);
+      if (cmp.regressions.length > 0) {
+        console.error(`regressed fixtures: ${cmp.regressions.join(", ")}`);
+        process.exit(1);
+      }
+      return;
+    }
+    console.log("");
+    console.log(`solved ${report.solvedCount}/${report.count}`);
+    console.log(`vs baseline: regressed=${cmp.regressions.length} improved=${cmp.improvements.length} added=${cmp.added.length} removed=${cmp.removed.length} costΔ=$${cmp.costDelta.toFixed(4)}`);
+    console.log(`report: ${path.relative(process.cwd(), mdPath)}`);
+    console.log(`json:   ${path.relative(process.cwd(), jsonPath)}`);
+    return;
+  }
+
+  if (opts.ci) {
+    const failed = report.results.filter((r) => !r.solved).map((r) => r.fixtureId);
+    console.log(`bench-ci · solved ${report.solvedCount}/${report.count} · failed=${failed.length}${failed.length ? ` [${failed.join(", ")}]` : ""}`);
+    if (failed.length > 0) process.exit(1);
+    return;
+  }
+
   console.log("");
   console.log(`solved ${report.solvedCount}/${report.count}`);
   console.log(`report: ${path.relative(process.cwd(), mdPath)}`);

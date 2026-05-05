@@ -6,14 +6,16 @@ import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
 import { getDb, closeDb } from "./db";
 import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
+import { markOrphans as markOrphanBenchRuns } from "./services/benchRunsRepo";
 
 export async function buildApp(opts: { bodyLimit?: number } = {}) {
   const app = Fastify({ logger: true, bodyLimit: opts.bodyLimit });
 
-  // Initialize database
   getDb();
 
-  // Register multi-session orchestration spawn configs
+  // bench_runs left 'running' across boot were killed mid-flight; mark failed before serving.
+  markOrphanBenchRuns();
+
   registerSpawnConfigs();
 
   // Plugins

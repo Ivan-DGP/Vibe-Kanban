@@ -4,9 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import {
   aggregate,
+  compareAgainstBaseline,
   compareReports,
   computeOverBudget,
   formatAggregateMd,
+  formatBaselineMd,
   formatCompareMd,
   groupByFixture,
   groupByModel,
@@ -235,6 +237,110 @@ describe("compareReports", () => {
     expect(cmp.totalCostAfterUsd).toBeCloseTo(0.30, 4);
     expect(cmp.costDeltaUsd).toBeCloseTo(0.20, 4);
     expect(cmp.fixtures[0].costDeltaUsd).toBeCloseTo(0.20, 4);
+  });
+});
+
+describe("compareAgainstBaseline", () => {
+  test("flags regression when baseline always solved but current failed", () => {
+    const baseline = aggregate(
+      [makeReport([makeResult({ fixtureId: "a", solved: true })])],
+      new Map(),
+    );
+    const current = makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.regressions).toEqual(["a"]);
+    expect(cmp.improvements).toEqual([]);
+  });
+
+  test("flags improvement when baseline never solved but current solved", () => {
+    const baseline = aggregate(
+      [makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })])],
+      new Map(),
+    );
+    const current = makeReport([makeResult({ fixtureId: "a", solved: true })]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.improvements).toEqual(["a"]);
+    expect(cmp.regressions).toEqual([]);
+  });
+
+  test("partial baseline solveRate (e.g. 0.5) does NOT count as regression on first failure", () => {
+    const baseline = aggregate(
+      [
+        makeReport([makeResult({ fixtureId: "a", solved: true })]),
+        makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })]),
+      ],
+      new Map(),
+    );
+    const current = makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.regressions).toEqual([]);
+  });
+
+  test("added: fixture in current but not baseline", () => {
+    const baseline = aggregate([makeReport([makeResult({ fixtureId: "a" })])], new Map());
+    const current = makeReport([makeResult({ fixtureId: "newone" })]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.added).toEqual(["newone"]);
+  });
+
+  test("removed: fixture in baseline but not current", () => {
+    const baseline = aggregate(
+      [makeReport([makeResult({ fixtureId: "a" }), makeResult({ fixtureId: "b" })])],
+      new Map(),
+    );
+    const current = makeReport([makeResult({ fixtureId: "a" })]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.removed).toEqual(["b"]);
+  });
+
+  test("costDelta = current total cost - baseline total cost", () => {
+    const baseline = aggregate(
+      [makeReport([makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.1 } })])],
+      new Map(),
+    );
+    const current = makeReport([makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.3 } })]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.costDelta).toBeCloseTo(0.2, 4);
+  });
+
+  test("returns sorted lists", () => {
+    const baseline = aggregate(
+      [makeReport([
+        makeResult({ fixtureId: "z", solved: true }),
+        makeResult({ fixtureId: "a", solved: true }),
+      ])],
+      new Map(),
+    );
+    const current = makeReport([
+      makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" }),
+      makeResult({ fixtureId: "z", solved: false, status: "TARGET-FAIL" }),
+    ]);
+    const cmp = compareAgainstBaseline([current], baseline);
+    expect(cmp.regressions).toEqual(["a", "z"]);
+  });
+});
+
+describe("formatBaselineMd", () => {
+  test("renders sections + cost", () => {
+    const md = formatBaselineMd({
+      regressions: ["a"],
+      improvements: [],
+      added: ["b"],
+      removed: [],
+      costDelta: 1.234,
+    });
+    expect(md).toContain("Bench delta vs main");
+    expect(md).toContain("Regressed");
+    expect(md).toContain("Improved");
+    expect(md).toContain("Added");
+    expect(md).toContain("Removed");
+    expect(md).toContain("$1.2340");
+    expect(md).toContain("a");
+    expect(md).toContain("b");
+  });
+  test("empty lists render as em-dash", () => {
+    const md = formatBaselineMd({ regressions: [], improvements: [], added: [], removed: [], costDelta: 0 });
+    expect(md).toContain("—");
   });
 });
 

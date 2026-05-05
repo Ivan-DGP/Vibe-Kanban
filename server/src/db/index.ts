@@ -602,6 +602,28 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 24,
+      name: "add-bench-runs",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS bench_runs (
+            id            TEXT PRIMARY KEY,
+            started_at    TEXT NOT NULL,
+            finished_at   TEXT DEFAULT NULL,
+            fixtures_csv  TEXT NOT NULL,
+            mode          TEXT NOT NULL,
+            mock          INTEGER NOT NULL DEFAULT 0,
+            parallel      INTEGER NOT NULL DEFAULT 1,
+            result_file   TEXT DEFAULT NULL,
+            status        TEXT NOT NULL DEFAULT 'running'
+              CHECK (status IN ('running', 'succeeded', 'failed'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_bench_runs_started_at ON bench_runs (started_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_bench_runs_status ON bench_runs (status);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

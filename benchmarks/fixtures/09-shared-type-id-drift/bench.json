@@ -7,6 +7,7 @@
   "targetTestPath": "tests/target.test.ts",
   "regressionTestPath": "tests/regression.test.ts",
   "expectedFilesChanged": ["src/types.ts", "src/service.ts", "src/repo.ts"],
+  "requireFiles": ["src/types.ts", "src/service.ts", "src/repo.ts"],
   "maxDiffLines": 30,
   "timeoutMs": 300000,
   "mockFix": {

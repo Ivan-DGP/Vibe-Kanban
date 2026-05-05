@@ -7,6 +7,7 @@
   "targetTestPath": "tests/target.test.ts",
   "regressionTestPath": "tests/regression.test.ts",
   "expectedFilesChanged": ["src/validator.ts", "src/service.ts"],
+  "requireFiles": ["src/validator.ts", "src/service.ts"],
   "maxDiffLines": 25,
   "timeoutMs": 300000,
   "mockFix": {

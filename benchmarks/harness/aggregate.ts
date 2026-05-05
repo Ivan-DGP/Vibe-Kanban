@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import type {
   AggregateBucket,
+  BaselineComparison,
   BenchAggregateReport,
   BenchCompareReport,
   BenchReport,
@@ -315,6 +316,67 @@ export function formatCompareMd(c: BenchCompareReport): string {
     const afterBit = f.after.status ? `${f.after.status}` : "—";
     lines.push(`| ${deltaIcon(f.delta)} | ${f.fixtureId} | ${beforeBit} | ${afterBit} | ${dCost} | ${dDur} |`);
   }
+  lines.push("");
+  return lines.join("\n");
+}
+
+export function compareAgainstBaseline(
+  currentReports: BenchReport[],
+  baseline: BenchAggregateReport,
+): BaselineComparison {
+  const currentByFixture = new Map<string, BenchResult>();
+  let currentCost = 0;
+  for (const rep of currentReports) {
+    for (const r of rep.results) {
+      if (!currentByFixture.has(r.fixtureId)) currentByFixture.set(r.fixtureId, r);
+      const c = r.ai?.totalCostUsd;
+      if (typeof c === "number") currentCost += c;
+    }
+  }
+  const baselineByFixture = new Map<string, AggregateBucket>();
+  let baselineCost = 0;
+  for (const b of baseline.byFixture) {
+    baselineByFixture.set(b.key, b);
+    baselineCost += b.totalCostUsd;
+  }
+  const regressions: string[] = [];
+  const improvements: string[] = [];
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const [id, r] of currentByFixture) {
+    const base = baselineByFixture.get(id);
+    if (!base) {
+      added.push(id);
+      continue;
+    }
+    if (base.solveRate >= 1.0 && !r.solved) regressions.push(id);
+    else if (base.solveRate <= 0 && r.solved) improvements.push(id);
+  }
+  for (const id of baselineByFixture.keys()) {
+    if (!currentByFixture.has(id)) removed.push(id);
+  }
+  return {
+    regressions: regressions.sort(),
+    improvements: improvements.sort(),
+    added: added.sort(),
+    removed: removed.sort(),
+    costDelta: currentCost - baselineCost,
+  };
+}
+
+export function formatBaselineMd(c: BaselineComparison): string {
+  const fmt = (n: number) => `$${n.toFixed(4)}`;
+  const lines: string[] = [];
+  lines.push("## Bench delta vs main");
+  lines.push("");
+  lines.push("| | count | fixtures |");
+  lines.push("| --- | --- | --- |");
+  lines.push(`| Regressed | ${c.regressions.length} | ${c.regressions.join(", ") || "—"} |`);
+  lines.push(`| Improved  | ${c.improvements.length} | ${c.improvements.join(", ") || "—"} |`);
+  lines.push(`| Added     | ${c.added.length} | ${c.added.join(", ") || "—"} |`);
+  lines.push(`| Removed   | ${c.removed.length} | ${c.removed.join(", ") || "—"} |`);
+  lines.push("");
+  lines.push(`**Cost delta:** ${fmt(c.costDelta)}`);
   lines.push("");
   return lines.join("\n");
 }

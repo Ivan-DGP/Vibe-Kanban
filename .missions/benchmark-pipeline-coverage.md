@@ -249,7 +249,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes pipeline gap 18. Highest setup cost but highest fidelity to actual user workload.
 
 ### Phase M: multi-file enforcement
-- **Status:** pending
+- **Status:** completed
 - **Dependencies:** Phase A
 - **Files:**
   - `benchmarks/harness/score.ts` (new `verifyMultiFile`)
@@ -274,7 +274,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes the Phase H acknowledged limitation.
 
 ### Phase O: persistent active-runs registry
-- **Status:** pending
+- **Status:** completed
 - **Dependencies:** Phase H
 - **Files:**
   - `server/src/db/migrations/00X_bench_runs.sql` (new)
@@ -287,7 +287,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes the Phase H acknowledged limitation.
 
 ### Phase P: bench-CI gate
-- **Status:** pending
+- **Status:** completed
 - **Dependencies:** Phase F
 - **Files:**
   - `.github/workflows/bench.yml` (new)

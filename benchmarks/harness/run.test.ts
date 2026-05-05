@@ -223,6 +223,13 @@ function baseResult(overrides: Partial<BenchResult> = {}): BenchResult {
       embeddings: { rowCount: 0, skipped: false },
       allGreen: false,
     },
+    multiFile: {
+      checked: false,
+      required: [],
+      missing: [],
+      trivial: [],
+      allTouched: true,
+    },
     status: "ERROR",
     solved: false,
     error: null,
@@ -259,6 +266,47 @@ describe("evaluateStatus", () => {
       },
       false,
       "SOLVED",
+    ],
+    [
+      "target+reg pass, strict, requireFiles missing → INSUFFICIENT-FILES",
+      {
+        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: ["src/b.ts"], trivial: [], allTouched: false },
+      },
+      false,
+      "INSUFFICIENT-FILES",
+    ],
+    [
+      "target+reg pass, strict, requireFiles trivial → INSUFFICIENT-FILES",
+      {
+        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: [], trivial: ["src/b.ts"], allTouched: false },
+      },
+      false,
+      "INSUFFICIENT-FILES",
+    ],
+    [
+      "target+reg pass, lenient, requireFiles missing → SOLVED",
+      {
+        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: ["src/b.ts"], trivial: [], allTouched: false },
+      },
+      true,
+      "SOLVED",
+    ],
+    [
+      "target+reg pass, strict, requireFiles allTouched → SOLVED",
+      {
+        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: [], trivial: [], allTouched: true },
+      },
+      false,
+      "SOLVED",
+    ],
+    [
+      "target fail + requireFiles missing → TARGET-FAIL (multiFile only checked when target+reg pass)",
+      {
+        tests: { targetPassed: false, regressionsHeld: true, targetExitCode: 1, regressionExitCode: 0, targetOutput: "", regressionOutput: "" },
+        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: ["src/b.ts"], trivial: [], allTouched: false },
+      },
+      false,
+      "TARGET-FAIL",
     ],
   ];
 
@@ -343,5 +391,88 @@ describe("parseClaudeJson", () => {
     expect(r.totalCostUsd).toBeNull();
     expect(r.models).toEqual([]);
     expect(r.permissionDenials).toBeNull();
+  });
+});
+
+describe("--ci flag end-to-end (subprocess)", () => {
+  const REPO_ROOT = path.resolve(import.meta.dir, "../..");
+  const RUN_SCRIPT = path.resolve(import.meta.dir, "run.ts");
+
+  async function runHarness(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    const proc = Bun.spawn([process.execPath, RUN_SCRIPT, ...args], {
+      cwd: REPO_ROOT,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { exitCode, stdout, stderr };
+  }
+
+  test("--ci no baseline: exits 0 when all solved", async () => {
+    const res = await runHarness(["--mock", "--ci", "--fixture=01-bug-fix-arithmetic"]);
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain("bench-ci");
+    expect(res.stdout).toMatch(/solved 1\/1/);
+  });
+
+  test("--ci no baseline: exits 1 when any failed", async () => {
+    const res = await runHarness(["--dry-run", "--ci", "--fixture=01-bug-fix-arithmetic"]);
+    expect(res.exitCode).toBe(1);
+    expect(res.stdout).toContain("bench-ci");
+    expect(res.stdout).toMatch(/failed=1/);
+  });
+
+  test("--ci with baseline (regression): exits 1 + names regressed fixtures", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bench-ci-"));
+    const baseline = path.join(tmp, "baseline.json");
+    fs.writeFileSync(baseline, JSON.stringify({
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      reportsScanned: 1,
+      resultsScanned: 1,
+      byFixture: [{ key: "01-bug-fix-arithmetic", total: 1, solved: 1, solveRate: 1.0, totalCostUsd: 0, totalDurationMs: 0 }],
+      byModel: [],
+      byWeek: [],
+      totalCostUsd: 0,
+      overBudgetFixtures: [],
+    }));
+    const res = await runHarness(["--dry-run", "--ci", `--baseline=${baseline}`, "--fixture=01-bug-fix-arithmetic"]);
+    expect(res.exitCode).toBe(1);
+    expect(res.stdout).toContain("regressed=1");
+    expect(res.stderr).toContain("01-bug-fix-arithmetic");
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }, 30_000);
+
+  test("--ci --comment-out writes baseline delta markdown", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bench-ci-"));
+    const baseline = path.join(tmp, "baseline.json");
+    const commentPath = path.join(tmp, "comment.md");
+    fs.writeFileSync(baseline, JSON.stringify({
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      reportsScanned: 1,
+      resultsScanned: 1,
+      byFixture: [{ key: "01-bug-fix-arithmetic", total: 1, solved: 1, solveRate: 1.0, totalCostUsd: 0, totalDurationMs: 0 }],
+      byModel: [],
+      byWeek: [],
+      totalCostUsd: 0,
+      overBudgetFixtures: [],
+    }));
+    const res = await runHarness(["--mock", "--ci", `--baseline=${baseline}`, `--comment-out=${commentPath}`, "--fixture=01-bug-fix-arithmetic"]);
+    expect(res.exitCode).toBe(0);
+    expect(fs.existsSync(commentPath)).toBe(true);
+    const md = fs.readFileSync(commentPath, "utf-8");
+    expect(md).toContain("Bench delta vs main");
+    expect(md).toContain("Regressed");
+    expect(md).toContain("Cost delta");
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }, 30_000);
+
+  test("--baseline missing: exits 2", async () => {
+    const res = await runHarness(["--mock", "--ci", "--baseline=/tmp/nonexistent-bench-baseline-xyz.json", "--fixture=01-bug-fix-arithmetic"]);
+    expect(res.exitCode).toBe(2);
+    expect(res.stderr).toContain("baseline not found");
   });
 });

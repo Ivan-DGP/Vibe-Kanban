@@ -20,6 +20,8 @@ export interface BenchSpec {
   targetTestPath: string;
   regressionTestPath: string;
   expectedFilesChanged?: string[];
+  /** Strict multi-file enforcement: every listed path must have a non-trivial change (not just whitespace/comments). */
+  requireFiles?: string[];
   maxDiffLines: number;
   timeoutMs: number;
   /** Optional reference fix used by --mock to validate scoring without burning tokens. Map of relative path → full file content. */
@@ -47,6 +49,7 @@ export type BenchStatus =
   | "TAMPERED"
   | "MIS-FIXTURE"
   | "TIMEOUT"
+  | "INSUFFICIENT-FILES"
   | "ERROR";
 
 export interface BenchResult {
@@ -150,6 +153,14 @@ export interface BenchResult {
     allGreen: boolean;
   };
 
+  multiFile: {
+    checked: boolean;
+    required: string[];
+    missing: string[];
+    trivial: string[];
+    allTouched: boolean;
+  };
+
   status: BenchStatus;
   solved: boolean;
   error: string | null;
@@ -207,4 +218,12 @@ export interface BenchCompareReport {
   totalCostBeforeUsd: number;
   totalCostAfterUsd: number;
   costDeltaUsd: number;
+}
+
+export interface BaselineComparison {
+  regressions: string[];
+  improvements: string[];
+  added: string[];
+  removed: string[];
+  costDelta: number;
 }
