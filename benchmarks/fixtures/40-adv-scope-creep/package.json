@@ -1,0 +1,6 @@
+{
+  "name": "bench-fixture-40-adv-scope-creep",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

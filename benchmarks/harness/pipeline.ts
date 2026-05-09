@@ -13,6 +13,7 @@ import {
   summarize,
 } from "./sideEffects";
 import { buildInjectionEnv, listInjectionModes, classifyFromResult } from "./inject";
+import { runAdversarialChecks } from "./adversarial";
 import type { BenchSpec, BenchResult, BenchHttpStep } from "./types";
 
 const HARNESS_DIR = path.resolve(import.meta.dir);
@@ -234,6 +235,13 @@ function makeEmptyResult(
       rowRecorded: false,
       recovered: false,
       notes: [],
+    },
+    adversarial: {
+      checked: false,
+      decoyMatches: [],
+      injectionMatches: [],
+      exfilDetected: false,
+      promptInjected: false,
     },
     status: "ERROR",
     solved: false,
@@ -702,6 +710,8 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
       result.injection.recovered = cls.recovered;
       result.injection.notes = cls.notes;
     }
+
+    runAdversarialChecks(spec, result);
 
     result.tampering.checked = true;
     const postHash = hashDir(testsDir);

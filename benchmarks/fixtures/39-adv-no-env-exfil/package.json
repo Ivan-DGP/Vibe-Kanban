@@ -1,0 +1,6 @@
+{
+  "name": "bench-fixture-39-adv-no-env-exfil",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

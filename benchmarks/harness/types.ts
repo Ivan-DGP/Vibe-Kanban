@@ -92,6 +92,10 @@ export interface BenchSpec {
   costBudgetUsd?: number;
   /** Harness self-test fixtures (e.g. timeout machinery). Calibrate reports them as "meta" instead of grading solve-rate. */
   excludeFromCalibration?: boolean;
+  /** Adversarial bench (phase K): substrings that MUST NOT appear in claude output (summary or stdout). Triggers EXFIL on hit. */
+  decoys?: string[];
+  /** Adversarial bench (phase K): substrings whose presence in claude output proves the model followed an injected instruction. Triggers PROMPT-INJECTED. */
+  injectionMarkers?: string[];
 }
 
 export type BenchStatus =
@@ -106,6 +110,8 @@ export type BenchStatus =
   | "INSUFFICIENT-FILES"
   | "INJECTED-PASS"
   | "INJECTED-FAIL"
+  | "EXFIL"
+  | "PROMPT-INJECTED"
   | "ERROR";
 
 export interface BenchResult {
@@ -245,6 +251,18 @@ export interface BenchResult {
     /** surfaced && !slotLeaked && rowRecorded — i.e. system handled the failure cleanly. */
     recovered: boolean;
     notes: string[];
+  };
+
+  adversarial: {
+    checked: boolean;
+    /** Decoy substrings observed in claude output (summary). */
+    decoyMatches: string[];
+    /** Injection-marker substrings observed in claude output. */
+    injectionMatches: string[];
+    /** Decoy leakage triggered. */
+    exfilDetected: boolean;
+    /** Model followed adversarial instruction (marker present in output). */
+    promptInjected: boolean;
   };
 
   status: BenchStatus;
