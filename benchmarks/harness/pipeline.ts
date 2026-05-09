@@ -12,6 +12,7 @@ import {
   verifyEmbeddings,
   summarize,
 } from "./sideEffects";
+import { buildInjectionEnv, listInjectionModes, classifyFromResult } from "./inject";
 import type { BenchSpec, BenchResult, BenchHttpStep } from "./types";
 
 const HARNESS_DIR = path.resolve(import.meta.dir);
@@ -67,11 +68,21 @@ export async function findFreePort(): Promise<number> {
   });
 }
 
-export function setupShim(shimDir: string, fakeClaudePath: string, apiUrl?: string): void {
+export function setupShim(
+  shimDir: string,
+  fakeClaudePath: string,
+  apiUrl?: string,
+  extraEnv?: Record<string, string>,
+): void {
   fs.mkdirSync(shimDir, { recursive: true });
   const claudePath = path.join(shimDir, "claude");
-  const exportLine = apiUrl ? `export VK_BENCH_API_URL=${JSON.stringify(apiUrl)}\n` : "";
-  const wrapper = `#!/usr/bin/env bash\n${exportLine}exec bun ${JSON.stringify(fakeClaudePath)} "$@"\n`;
+  const exports: string[] = [];
+  if (apiUrl) exports.push(`export VK_BENCH_API_URL=${JSON.stringify(apiUrl)}`);
+  for (const [k, v] of Object.entries(extraEnv ?? {})) {
+    exports.push(`export ${k}=${JSON.stringify(v)}`);
+  }
+  const exportBlock = exports.length > 0 ? exports.join("\n") + "\n" : "";
+  const wrapper = `#!/usr/bin/env bash\n${exportBlock}exec bun ${JSON.stringify(fakeClaudePath)} "$@"\n`;
   fs.writeFileSync(claudePath, wrapper);
   fs.chmodSync(claudePath, 0o755);
 }
@@ -213,6 +224,16 @@ function makeEmptyResult(
       ran: false,
       steps: [],
       allPassed: false,
+    },
+    injection: {
+      requested: false,
+      modes: [],
+      mcp500Count: 0,
+      surfaced: false,
+      slotLeaked: false,
+      rowRecorded: false,
+      recovered: false,
+      notes: [],
     },
     status: "ERROR",
     solved: false,
@@ -486,24 +507,55 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
     const port = await findFreePort();
 
     const fakeClaudeScript = path.join(HARNESS_DIR, "fake-claude.ts");
-    setupShim(shimDir, fakeClaudeScript, `http://127.0.0.1:${port}`);
+    const injectClaudeNotFound = spec.injection?.claudeNotFound === true;
+    // Phase I: propagate fixture-level injection to fake-claude via env.
+    // spawnProcess in server/src/lib/runtime.ts whitelists env to
+    // PATH/HOME/USERPROFILE/SYSTEMROOT, so VK_INJECT_* must ride through the
+    // bash shim itself rather than process.env.
+    const injectionEnv = buildInjectionEnv(spec.injection);
+    if (!injectClaudeNotFound) {
+      setupShim(shimDir, fakeClaudeScript, `http://127.0.0.1:${port}`, injectionEnv);
+    }
 
     process.env.VK_DATA_DIR = dataDir;
     process.env.PORT = String(port);
     process.env.VK_BENCH_API_URL = `http://127.0.0.1:${port}`;
     process.env.VK_HEADLESS_CLAUDE_TIMEOUT_MS = String(spec.timeoutMs);
+    for (const [k, v] of Object.entries(injectionEnv)) process.env[k] = v;
     if (opts.mockClaude) {
       originalPath = process.env.PATH;
-      process.env.PATH = `${shimDir}:${process.env.PATH ?? ""}`;
+      // Even when claudeNotFound is set we still drop the shim dir from PATH —
+      // we want spawnProcess to fail with ENOENT, not find a system claude.
+      if (injectClaudeNotFound) {
+        process.env.PATH = process.env.PATH ?? "";
+      } else {
+        process.env.PATH = `${shimDir}:${process.env.PATH ?? ""}`;
+      }
     }
 
     const appModule = await import("../../server/src/app");
     dbModule = await import("../../server/src/db");
     const headlessModule = await import("../../server/src/services/headlessClaude");
     app = await appModule.buildApp();
+    // Phase I MCP-500 injection: install BEFORE listen so the route hook is in place.
+    if (
+      spec.injection?.mcp500Rate !== undefined &&
+      spec.injection.mcp500Rate !== null &&
+      spec.injection.mcp500Rate > 0
+    ) {
+      const rate = Math.min(1, Math.max(0, spec.injection.mcp500Rate));
+      app.addHook("onRequest", async (req: any, reply: any) => {
+        if (typeof req.url === "string" && req.url.startsWith("/mcp") && Math.random() < rate) {
+          result.injection.mcp500Count = (result.injection.mcp500Count ?? 0) + 1;
+          return reply.code(500).send({ error: "injected MCP 500" });
+        }
+      });
+    }
     appAddress = await app.listen({ port, host: "127.0.0.1" });
     result.concurrency.checked = true;
     result.concurrency.statsBefore = headlessModule.getHeadlessClaudeStats();
+    result.injection.requested = !!spec.injection;
+    result.injection.modes = listInjectionModes(spec.injection);
 
     const projectRes = await app.inject({
       method: "POST",
@@ -642,6 +694,15 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
     result.sideEffects.embeddings = seSummary.embeddings;
     result.sideEffects.allGreen = seSummary.allGreen;
 
+    if (spec.injection) {
+      result.injection.rowRecorded = result.sideEffects.taskAiRun.found;
+      result.injection.slotLeaked = result.concurrency.slotLeak;
+      const cls = classifyFromResult(spec.injection, result);
+      result.injection.surfaced = cls.surfaced;
+      result.injection.recovered = cls.recovered;
+      result.injection.notes = cls.notes;
+    }
+
     result.tampering.checked = true;
     const postHash = hashDir(testsDir);
     const changed = compareDirHashes(preHash, postHash);
@@ -710,6 +771,10 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
     delete process.env.VK_DATA_DIR;
     delete process.env.VK_BENCH_API_URL;
     delete process.env.VK_HEADLESS_CLAUDE_TIMEOUT_MS;
+    delete process.env.VK_INJECT_OUTPUT_FORMAT_BROKEN;
+    delete process.env.VK_INJECT_KILL_AFTER_MS;
+    delete process.env.VK_INJECT_MCP_500_RATE;
+    delete process.env.VK_INJECT_CLAUDE_NOT_FOUND;
     if (!opts.keepWorkdir) {
       for (const dir of [workDir, dataDir, shimDir]) {
         if (fs.existsSync(dir)) {

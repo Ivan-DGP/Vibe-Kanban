@@ -1,0 +1,20 @@
+{
+  "id": "36-fail-mcp-500",
+  "title": "Failure injection — MCP endpoint returns 500",
+  "category": "failure-injection",
+  "difficulty": "infra",
+  "prompt": "Fix sum() in src/sum.ts. (Validates MCP-failure surfacing — model fix runs after the probe.)",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/sum.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 60000,
+  "pipelineMode": "codebase",
+  "mockFix": {
+    "src/sum.ts": "export function sum(a: number, b: number): number {\n  return a + b;\n}\n"
+  },
+  "injection": {
+    "mcp500Rate": 1.0
+  },
+  "excludeFromCalibration": true
+}

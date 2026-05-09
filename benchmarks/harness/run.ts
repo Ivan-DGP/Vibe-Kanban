@@ -294,6 +294,12 @@ export function evaluateStatus(r: BenchResult, lenient: boolean): BenchStatus {
   if (r.error) return "ERROR";
   if (r.preflight.misFixture) return "MIS-FIXTURE";
   if (r.tampering.detected) return "TAMPERED";
+  // Failure-injection fixtures grade on "did the system surface the failure cleanly"
+  // rather than target/regression. A model "recovering" silently is INJECTED-FAIL —
+  // we want explicit non-zero exits, recorded rows, and released slots.
+  if (r.injection?.requested) {
+    return r.injection.recovered ? "INJECTED-PASS" : "INJECTED-FAIL";
+  }
   const t = r.tests;
   if (t.targetPassed && t.regressionsHeld) {
     if (!lenient && (!r.diff.withinBudget || !r.diff.expectedFilesOnly)) return "SPRAWL";
@@ -437,6 +443,16 @@ function makeEmptyResult(
       ran: false,
       steps: [],
       allPassed: false,
+    },
+    injection: {
+      requested: false,
+      modes: [],
+      mcp500Count: 0,
+      surfaced: false,
+      slotLeaked: false,
+      rowRecorded: false,
+      recovered: false,
+      notes: [],
     },
     status: "ERROR",
     solved: false,
@@ -610,6 +626,9 @@ async function runOnePipeline(
   // is pure overhead and exposes the @xenova/transformers cold-cache race
   // (ENOENT on the onnxruntime-web blob worker). Skip it.
   if (spec.pipelineMode === "server-integration") env.VK_DISABLE_EMBEDDINGS = "1";
+  // Failure-injection fixtures often kill the subprocess mid-run, which can
+  // race with embeddings-worker bootstrap. We don't grade embeddings here.
+  if (spec.injection) env.VK_DISABLE_EMBEDDINGS = "1";
   const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", env });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),

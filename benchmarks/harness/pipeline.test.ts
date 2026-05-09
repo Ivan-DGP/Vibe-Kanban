@@ -78,6 +78,34 @@ describe("setupShim", () => {
     expect(exitCode).toBe(0);
     expect(JSON.parse(out)).toEqual({ args: ["-p", "hello world"] });
   });
+
+  test("propagates extraEnv through the bash wrapper into the spawned process", async () => {
+    const shimDir = path.join(tmpRoot, "shim");
+    const fakeClaude = path.join(tmpRoot, "fake.ts");
+    fs.writeFileSync(
+      fakeClaude,
+      "#!/usr/bin/env bun\nprocess.stdout.write(JSON.stringify({\n  rate: process.env.VK_INJECT_MCP_500_RATE ?? null,\n  api: process.env.VK_BENCH_API_URL ?? null,\n}));\n",
+    );
+
+    setupShim(shimDir, fakeClaude, "http://127.0.0.1:9999", {
+      VK_INJECT_MCP_500_RATE: "0.42",
+    });
+
+    const proc = Bun.spawn([path.join(shimDir, "claude")], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, , exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(out)).toEqual({
+      rate: "0.42",
+      api: "http://127.0.0.1:9999",
+    });
+  });
 });
 
 describe("substituteVars", () => {

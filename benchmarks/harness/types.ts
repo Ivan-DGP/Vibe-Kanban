@@ -39,6 +39,28 @@ export interface BenchHttpStep {
   expect?: BenchHttpExpect;
 }
 
+/**
+ * Failure-injection bench (phase I). Each flag exercises a different production
+ * resilience path. INJECTED-PASS = system surfaced the failure cleanly (non-zero
+ * exit recorded, slot released, row written). INJECTED-FAIL = system silently
+ * absorbed it. The expected*` knobs let a fixture pin a specific surface so a
+ * "model recovered" pass-through doesn't pretend the system handled the failure.
+ */
+export interface InjectionSpec {
+  /** Have fake-claude emit malformed JSON. Tests parseClaudeOutput streaming-JSON fallback (server/src/services/headlessClaude.ts:67-83). */
+  outputFormatBroken?: boolean;
+  /** Have fake-claude exit non-zero after this many ms without writing a result envelope. Simulates SIGKILL / OOM mid-run. */
+  killAfterMs?: number;
+  /** Install a Fastify onRequest hook on `/mcp*` that returns 500 with this probability [0..1]. Tests MCP failure surfacing. */
+  mcp500Rate?: number;
+  /** Skip installing the fake-claude PATH shim. spawnProcess fails with ENOENT — tests "missing CLI" surfaces, not silent SOLVED. */
+  claudeNotFound?: boolean;
+  /** Pin the expected exit code so we don't grade "model recovered cleanly" as INJECTED-PASS when it should be INJECTED-FAIL. */
+  expectExitNonZero?: boolean;
+  /** Pin that summary should be empty/garbage (parser fallback path). */
+  expectSummaryEmpty?: boolean;
+}
+
 export interface BenchSpec {
   id: string;
   title: string;
@@ -60,6 +82,8 @@ export interface BenchSpec {
   mockChain?: BenchMockChainStep[];
   /** server-integration mode: ordered HTTP script. AI is never invoked; coverage of real route handlers is the point. */
   httpScript?: BenchHttpStep[];
+  /** failure-injection bench (phase I): see InjectionSpec. When set, target/regression scoring is replaced with INJECTED-PASS / INJECTED-FAIL. */
+  injection?: InjectionSpec;
   /** Expected final chain depth (root=1, +1 per child). Used to gate Phase C scoring. */
   expectedChainDepth?: number;
   /** Force fake-claude to sleep this many ms before exiting. Used for timeout-recovery tests. */
@@ -80,6 +104,8 @@ export type BenchStatus =
   | "MIS-FIXTURE"
   | "TIMEOUT"
   | "INSUFFICIENT-FILES"
+  | "INJECTED-PASS"
+  | "INJECTED-FAIL"
   | "ERROR";
 
 export interface BenchResult {
@@ -202,6 +228,23 @@ export interface BenchResult {
       error: string | null;
     }[];
     allPassed: boolean;
+  };
+
+  injection: {
+    requested: boolean;
+    /** Active failure modes, e.g. ["outputFormatBroken"], ["killAfterMs", "mcp500Rate"]. */
+    modes: string[];
+    /** Number of MCP requests answered 5xx by the injection hook (0 if mcp500Rate not set). */
+    mcp500Count: number;
+    /** Did the system exit non-zero / record an error / produce empty summary as appropriate? */
+    surfaced: boolean;
+    /** Did the headless claude concurrency slot leak? */
+    slotLeaked: boolean;
+    /** Was a task_ai_runs row written despite the injection? */
+    rowRecorded: boolean;
+    /** surfaced && !slotLeaked && rowRecorded — i.e. system handled the failure cleanly. */
+    recovered: boolean;
+    notes: string[];
   };
 
   status: BenchStatus;

@@ -1,0 +1,6 @@
+{
+  "name": "bench-fixture-34-fail-streaming-json",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

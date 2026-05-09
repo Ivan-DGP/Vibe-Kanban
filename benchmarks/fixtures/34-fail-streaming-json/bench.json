@@ -1,0 +1,18 @@
+{
+  "id": "34-fail-streaming-json",
+  "title": "Failure injection — malformed streaming JSON envelope",
+  "category": "failure-injection",
+  "difficulty": "infra",
+  "prompt": "Fix sum() in src/sum.ts. (This fixture grades on infra resilience, not the model's fix.)",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/sum.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 60000,
+  "pipelineMode": "codebase",
+  "injection": {
+    "outputFormatBroken": true,
+    "expectSummaryEmpty": true
+  },
+  "excludeFromCalibration": true
+}

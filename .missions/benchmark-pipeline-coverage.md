@@ -190,25 +190,18 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 
 ### Phase I: failure-injection bench
 
-- **Status:** pending
+- **Status:** done (2026-05-09)
 - **Dependencies:** Phase B
-- **Files:**
-  - `benchmarks/harness/inject.ts` (new — flag parsing, env propagation)
-  - `benchmarks/harness/pipeline.ts` (wire injection points before/around claude spawn)
-  - `benchmarks/harness/types.ts` (`BenchSpec.injection?: InjectionSpec`)
-  - `benchmarks/harness/fake-claude.ts` (honor `VK_INJECT_*` env to misbehave)
-  - `benchmarks/fixtures/15-fail-claude-killed/` (new)
-  - `benchmarks/fixtures/16-fail-mcp-500/` (new)
-  - `benchmarks/fixtures/17-fail-streaming-json/` (new)
-  - `benchmarks/harness/inject.test.ts` (new)
-- **Work items:**
-  - [ ] I1: `--inject=<csv>` flag: `claude-kill-after=<ms>`, `mcp-500-rate=<0..1>`, `mcp-timeout`, `output-format-broken`, `claude-not-found` (forces CLI→API fallback)
-  - [ ] I2: `output-format-broken` shim emits malformed JSON → exercises `headlessClaude.parseClaudeOutput` streaming-JSON fallback path (lines 67–83)
-  - [ ] I3: MCP error injection — Fastify hook returns 500 on configurable rate; verify spawnHeadlessClaude surfaces error not silent SOLVED
-  - [ ] I4: Score: terminal state matches expectation (`task_ai_runs.exitCode != 0`, no orphan PIDs, no slot leak via `getHeadlessClaudeStats()`); new status `INJECTED-PASS` (model recovered) vs `INJECTED-FAIL` (system bug surfaced)
-  - [ ] I5: 3 fixtures + harness tests
-  - [ ] I6: Verify CLI→API fallback path triggers when `claude` binary missing (drop PATH shim mid-run)
-- **Notes:** Closes risk "Streaming-JSON edge cases" + "MCP `update_task` auth"; closes pipeline gaps 11–13.
+- **Shipped:**
+  - `benchmarks/harness/inject.ts` — env construction + classification (`classifyInjection`, `classifyFromResult`)
+  - `benchmarks/harness/pipeline.ts` — propagates `VK_INJECT_*` through the bash shim (production `spawnProcess` whitelists env, so process.env didn't carry through); installs MCP-500 onRequest hook before `app.listen()`; gates shim install on `claudeNotFound`
+  - `benchmarks/harness/types.ts` — `InjectionSpec`, `BenchSpec.injection`, `INJECTED-PASS` / `INJECTED-FAIL` statuses, `BenchResult.injection` block
+  - `benchmarks/harness/fake-claude.ts` — `VK_INJECT_KILL_AFTER_MS` (sleep + exit 137), `VK_INJECT_OUTPUT_FORMAT_BROKEN` (truncated JSON + exit 0), MCP probe gated on `VK_INJECT_MCP_500_RATE`
+  - `benchmarks/harness/run.ts` — `evaluateStatus` short-circuits to `INJECTED-PASS`/`INJECTED-FAIL` when `r.injection.requested`; auto-disables embeddings for injection runs (avoids cold-cache race)
+  - `benchmarks/fixtures/34-fail-streaming-json/`, `benchmarks/fixtures/35-fail-claude-killed/`, `benchmarks/fixtures/36-fail-mcp-500/`
+  - `benchmarks/harness/inject.test.ts` (25 tests) + `pipeline.test.ts` extraEnv case
+- **Smoke result:** 3/3 INJECTED-PASS in mock mode (`bun run bench --mode=pipeline --mock-claude --fixture=34-fail-streaming-json --fixture=35-fail-claude-killed --fixture=36-fail-mcp-500`).
+- **Notes:** Closes risk "Streaming-JSON edge cases" + "MCP `update_task` auth"; closes pipeline gaps 11–13. `claudeNotFound` mode wired but not yet exercised by a fixture (deferred — current 3 cover the live failure modes worth gating on).
 
 ### Phase J: E2E task-flow UI bench (Playwright)
 

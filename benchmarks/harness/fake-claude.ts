@@ -47,9 +47,40 @@ if (fs.existsSync(hangPath)) {
   }
 }
 
+// Phase I — failure injection. Honored as env so the harness can wire spec.injection
+// without writing additional files (parallel-run-safe).
+const injectKillAfterMs = Number(process.env.VK_INJECT_KILL_AFTER_MS ?? "");
+if (Number.isFinite(injectKillAfterMs) && injectKillAfterMs > 0) {
+  await new Promise((r) => setTimeout(r, injectKillAfterMs));
+  // Exit non-zero with no JSON envelope. Mirrors a SIGKILL/OOM mid-run: production
+  // headlessClaude finally-block should still record the row + release the slot.
+  process.stderr.write(`[fake-claude] injected kill after ${injectKillAfterMs}ms\n`);
+  process.exit(137);
+}
+if (process.env.VK_INJECT_OUTPUT_FORMAT_BROKEN === "1") {
+  // Emit truncated/garbage output. parseClaudeOutput's streaming-JSON fallback
+  // (server/src/services/headlessClaude.ts:67-83) should land summary=tail, sessionId=null.
+  process.stdout.write('{"type":"result","subtype":"success","is_err');
+  process.exit(0);
+}
+
 const taskIdMatch = prompt.match(/Task ID:\s*([a-zA-Z0-9-]+)/);
 const taskId = taskIdMatch?.[1] ?? null;
 const apiUrl = process.env.VK_BENCH_API_URL ?? null;
+
+// Phase I — when MCP-500 injection is on, probe /mcp so the hook has something
+// to intercept. Mirrors a real claude CLI calling tools/list at session start.
+if (apiUrl && process.env.VK_INJECT_MCP_500_RATE) {
+  try {
+    await fetch(`${apiUrl}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+  } catch {
+    // best-effort
+  }
+}
 
 let taskType: string | null = null;
 let projectId: string | null = null;
