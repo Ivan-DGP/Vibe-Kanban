@@ -313,8 +313,8 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 
 ### Phase Q: frontier-calibrated hard fixtures
 
-- **Status:** done (2026-05-09) — Q1 shipped; Q2 calibration deferred (real-claude budget)
-- **Dependencies:** Phase A, real-claude budget for Q2
+- **Status:** done (2026-05-09) — Q1 + Q2 shipped
+- **Dependencies:** Phase A
 - **Shipped:**
   - `benchmarks/fixtures/41-hard-cross-cutting-flag/` — `VK_QUIET_INFO` gate must apply at TWO call sites (`src/log.ts` + `src/withContext.ts`); single-file fix leaves `withContext().info()` leaking. `requireFiles` enforces both.
   - `benchmarks/fixtures/42-hard-perf-per-key-locks/` — async memoizer with a global `inFlight` lock that serializes unrelated keys. Target test uses deferred promises (no timing thresholds) so a per-key fix passes deterministically. Regression pins same-key dedupe so the fix can't just be "remove the lock."
@@ -322,7 +322,13 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
   - `benchmarks/fixtures/44-hard-async-cancellation/` — `retryWithBackoff` whose `sleep()` ignores `AbortSignal`. Three target assertions: pre-call abort throws immediately and fn never runs; abort during backoff rejects fast (well under `backoffMs=2000`); aborted signal halts the retry loop. Multi-file: both `src/sleep.ts` and `src/retry.ts` must change.
   - `benchmarks/fixtures/45-hard-html-attr-escape/` — `escapeAttr` chains `.replace(/&/, ...)` last, double-escaping `&lt;` → `&amp;lt;`. Regression pins bare-ampersand and ASCII pass-through; target pins `<`, `<a>`, `<script>`, mixed entities, and the idempotency claim that `&lt;` (literal) → `&amp;lt;`.
 - **Smoke result:** `bun run bench --mock --fixture=41-... --fixture=42-... --fixture=43-... --fixture=44-... --fixture=45-...` → 5/5 SOLVED end-to-end via the harness scoring path. Per-fixture: each was independently verified that regression passes on the broken codebase and target FAILS, then both pass with `mockFix` applied.
-- **Notes:** Closes Phase Q's Q1 work item. Q2 (n=3 real-claude calibration to confirm empirical solve-rate ≤50%) deferred — same pattern as Phase K's K4 deferral. Fixtures + plumbing are in place; calibration is a one-command follow-up. Phase Q sat on top of the Phase G/M finding that fixtures 11–14 labeled `hard` all calibrated as `trivial` empirically; these five lean specifically into multi-site invariants, deferred-promise concurrency proof, last-write-vs-first-write traps, AbortSignal-through-sleep cascades, and string-replace ordering — i.e. patterns that the bench-frontier showed do bite real models.
+- **Q2 calibration (3 runs × 5 fixtures, real-claude on Claude Code 2.1.137):** 12/15 SOLVED (80%). Per-fixture solve-rate / `recommendation` from `bun benchmarks/harness/run.ts calibrate`:
+  - `41-hard-cross-cutting-flag` — 3/3 (trivial), 11.3 turns, $0.33
+  - `42-hard-perf-per-key-locks` — 1/3 (ok), 8.7 turns, $0.35 — 2 SPRAWL (target+regression pass; AI fix exceeds `maxDiffLines`)
+  - `43-hard-uniqby-overfit` — 3/3 (trivial), 7.7 turns, $0.25
+  - `44-hard-async-cancellation` — 2/3 (ok), 12.0 turns, $0.46 — 1 SPRAWL (same pattern: logic correct, diff over budget)
+  - `45-hard-html-attr-escape` — 3/3 (trivial), 6.7 turns, $0.21
+- **Notes:** Closes Phase Q's Q1 + Q2 work items. The Q2 hypothesis was "empirical solve-rate ≤50%" given Phase G/M's finding that fixtures 11–14 labeled `hard` calibrated as `trivial`. The actual aggregate is 80% — three of the five (41, 43, 45) fall to the same overcalibration pattern; only 42 and 44 (deferred-promise concurrency + AbortSignal-through-sleep) stay genuinely hard, and what bites them is the diff-budget gate, not the test logic (status is `SPRAWL`: target passes + regression held, but `maxDiffLines` exceeded). Two operational reads: (a) raise `maxDiffLines` on 42/44 if the intent is to gate on correctness rather than concision; (b) treat 41/43/45 as the next round's overcalibrated set and re-author with a sharper trap. Cost across the 15 invocations was ~$1.55. Detection-side coverage of multi-file enforcement, deferred-promise concurrency, last-write-vs-first-write, AbortSignal cascades, and string-replace ordering remains intact as harness assertions even where the model solves; the trivial bucket reflects model strength on these specific patterns, not a fixture defect.
 
 ### Phase R: server-integration coverage bench
 
