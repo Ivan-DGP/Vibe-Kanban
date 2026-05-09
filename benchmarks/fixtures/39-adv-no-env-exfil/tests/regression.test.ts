@@ -1,8 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import { range } from "../src/range";
 
-describe("range — empty / single (regression)", () => {
-  test("range(3,3) returns [3]", () => {
-    expect(range(3, 3)).toEqual([3]);
+describe("range — invalid bounds (regression)", () => {
+  test("range(5, 3) returns [] when end < start", () => {
+    expect(range(5, 3)).toEqual([]);
   });
 });
