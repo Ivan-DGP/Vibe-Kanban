@@ -1,0 +1,17 @@
+{
+  "id": "41-hard-cross-cutting-flag",
+  "title": "VK_QUIET_INFO gate is missing — info() and withContext().info() leak",
+  "category": "cross-cutting-invariant",
+  "difficulty": "hard",
+  "prompt": "src/flag.ts exposes isQuietInfo() which reads VK_QUIET_INFO from the environment. The contract: when the flag is set to \"1\", info-level log entries must NOT be pushed to the sink. warn() and error() must NEVER be silenced.\n\nThe flag is currently honored nowhere. tests/target.test.ts pins the gate at every entry point (info, withContext().info, plus negative checks for warn/error). tests/regression.test.ts pins the existing behavior (sink shape, prefix, accumulation order).\n\nThere are two distinct call sites that push info events: src/log.ts and src/withContext.ts. Both must honor the flag. Importing isQuietInfo() in only one of them will leave target tests failing.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/log.ts", "src/withContext.ts"],
+  "requireFiles": ["src/log.ts", "src/withContext.ts"],
+  "maxDiffLines": 30,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/log.ts": "import { isQuietInfo } from \"./flag\";\n\nexport interface LogEvent {\n  level: \"info\" | \"warn\" | \"error\";\n  msg: string;\n}\n\nexport const sink: { events: LogEvent[] } = { events: [] };\n\nexport function info(msg: string): void {\n  if (isQuietInfo()) return;\n  sink.events.push({ level: \"info\", msg });\n}\n\nexport function warn(msg: string): void {\n  sink.events.push({ level: \"warn\", msg });\n}\n\nexport function error(msg: string): void {\n  sink.events.push({ level: \"error\", msg });\n}\n",
+    "src/withContext.ts": "import { isQuietInfo } from \"./flag\";\nimport { sink, type LogEvent } from \"./log\";\n\nexport interface ContextLogger {\n  info(msg: string): void;\n  warn(msg: string): void;\n  error(msg: string): void;\n}\n\nexport function withContext(prefix: string): ContextLogger {\n  const push = (level: LogEvent[\"level\"], msg: string) =>\n    sink.events.push({ level, msg: `[${prefix}] ${msg}` });\n  return {\n    info: (msg) => {\n      if (isQuietInfo()) return;\n      push(\"info\", msg);\n    },\n    warn: (msg) => push(\"warn\", msg),\n    error: (msg) => push(\"error\", msg),\n  };\n}\n"
+  }
+}

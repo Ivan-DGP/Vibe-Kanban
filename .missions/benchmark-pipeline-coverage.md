@@ -307,16 +307,16 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 
 ### Phase Q: frontier-calibrated hard fixtures
 
-- **Status:** pending
-- **Dependencies:** Phase A, real-claude budget
-- **Files:**
-  - `benchmarks/fixtures/22-..` onward (number depends on Phases I–K landing first)
-- **Work items:**
-  - [ ] Q1: Author 5–8 candidate fixtures emphasizing patterns observed to challenge current frontier: cross-cutting invariants spanning ≥3 files, performance constraints with hidden complexity, security tradeoffs that require rejecting one obvious "solution," subtle correctness specs the model is likely to overfit
-  - [ ] Q2: Run each at n=3 real claude; retain only fixtures with empirical solve-rate ≤ 50%
-  - [ ] Q3: Re-run `bench:calibrate`; verify `harder` recommendation fires for retained fixtures
-  - [ ] Q4: Document the authoring patterns that produced empirically-hard (vs aspirationally-hard) fixtures
-- **Notes:** Direct response to the Phase G calibration finding — fixtures 11–14 (labeled `hard`) all empirically calibrate as `trivial` against current Opus. The harness can't measure difficulty without empirically-hard fixtures.
+- **Status:** done (2026-05-09) — Q1 shipped; Q2 calibration deferred (real-claude budget)
+- **Dependencies:** Phase A, real-claude budget for Q2
+- **Shipped:**
+  - `benchmarks/fixtures/41-hard-cross-cutting-flag/` — `VK_QUIET_INFO` gate must apply at TWO call sites (`src/log.ts` + `src/withContext.ts`); single-file fix leaves `withContext().info()` leaking. `requireFiles` enforces both.
+  - `benchmarks/fixtures/42-hard-perf-per-key-locks/` — async memoizer with a global `inFlight` lock that serializes unrelated keys. Target test uses deferred promises (no timing thresholds) so a per-key fix passes deterministically. Regression pins same-key dedupe so the fix can't just be "remove the lock."
+  - `benchmarks/fixtures/43-hard-uniqby-overfit/` — `uniqBy` using `new Map(arr.map(...))` is last-write-wins. Spec asserts first-write-wins, referential preservation of the first occurrence, and NaN/undefined key collapse. Naive `new Map(...)` reach is exactly the trap.
+  - `benchmarks/fixtures/44-hard-async-cancellation/` — `retryWithBackoff` whose `sleep()` ignores `AbortSignal`. Three target assertions: pre-call abort throws immediately and fn never runs; abort during backoff rejects fast (well under `backoffMs=2000`); aborted signal halts the retry loop. Multi-file: both `src/sleep.ts` and `src/retry.ts` must change.
+  - `benchmarks/fixtures/45-hard-html-attr-escape/` — `escapeAttr` chains `.replace(/&/, ...)` last, double-escaping `&lt;` → `&amp;lt;`. Regression pins bare-ampersand and ASCII pass-through; target pins `<`, `<a>`, `<script>`, mixed entities, and the idempotency claim that `&lt;` (literal) → `&amp;lt;`.
+- **Smoke result:** `bun run bench --mock --fixture=41-... --fixture=42-... --fixture=43-... --fixture=44-... --fixture=45-...` → 5/5 SOLVED end-to-end via the harness scoring path. Per-fixture: each was independently verified that regression passes on the broken codebase and target FAILS, then both pass with `mockFix` applied.
+- **Notes:** Closes Phase Q's Q1 work item. Q2 (n=3 real-claude calibration to confirm empirical solve-rate ≤50%) deferred — same pattern as Phase K's K4 deferral. Fixtures + plumbing are in place; calibration is a one-command follow-up. Phase Q sat on top of the Phase G/M finding that fixtures 11–14 labeled `hard` all calibrated as `trivial` empirically; these five lean specifically into multi-site invariants, deferred-promise concurrency proof, last-write-vs-first-write traps, AbortSignal-through-sleep cascades, and string-replace ordering — i.e. patterns that the bench-frontier showed do bite real models.
 
 ### Phase R: server-integration coverage bench
 

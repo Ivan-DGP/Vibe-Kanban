@@ -1,0 +1,17 @@
+{
+  "id": "44-hard-async-cancellation",
+  "title": "retryWithBackoff backoff sleep ignores AbortSignal",
+  "category": "async-cancellation",
+  "difficulty": "hard",
+  "prompt": "src/retry.ts retries a fn with linear backoff using src/sleep.ts. tests/regression.test.ts pins the success/retry/exhaustion contract.\n\ntests/target.test.ts pins three abort-cascade properties:\n  1. abort BEFORE the call throws AbortError immediately and fn never runs\n  2. abort DURING the backoff sleep rejects fast — well under backoffMs (the sleep must be cancellable)\n  3. an aborted signal halts the retry loop — no additional fn invocations\n\nThe current sleep() ignores any signal. To make abort fast during backoff you need to (a) make sleep accept an AbortSignal and clear its timeout when aborted, and (b) pass the signal through from retryWithBackoff. Both files have to change — fixing only one is not enough.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/sleep.ts", "src/retry.ts"],
+  "requireFiles": ["src/sleep.ts", "src/retry.ts"],
+  "maxDiffLines": 40,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/sleep.ts": "export function sleep(ms: number, signal?: AbortSignal): Promise<void> {\n  return new Promise((resolve, reject) => {\n    if (signal?.aborted) {\n      reject(new Error(\"aborted\"));\n      return;\n    }\n    const t = setTimeout(() => {\n      signal?.removeEventListener(\"abort\", onAbort);\n      resolve();\n    }, ms);\n    const onAbort = () => {\n      clearTimeout(t);\n      reject(new Error(\"aborted\"));\n    };\n    signal?.addEventListener(\"abort\", onAbort, { once: true });\n  });\n}\n",
+    "src/retry.ts": "import { sleep } from \"./sleep\";\n\nexport interface RetryInit {\n  signal?: AbortSignal;\n  retries?: number;\n  backoffMs?: number;\n}\n\nexport class AbortError extends Error {\n  constructor() {\n    super(\"aborted\");\n    this.name = \"AbortError\";\n  }\n}\n\nexport async function retryWithBackoff<T>(\n  fn: (signal?: AbortSignal) => Promise<T>,\n  init: RetryInit = {},\n): Promise<T> {\n  const retries = init.retries ?? 3;\n  const backoff = init.backoffMs ?? 100;\n  let lastErr: unknown;\n  for (let attempt = 0; attempt <= retries; attempt++) {\n    if (init.signal?.aborted) throw new AbortError();\n    try {\n      return await fn(init.signal);\n    } catch (e) {\n      lastErr = e;\n      if (e instanceof AbortError) throw e;\n      if (init.signal?.aborted) throw new AbortError();\n      if (attempt === retries) throw e;\n      try {\n        await sleep(backoff, init.signal);\n      } catch {\n        if (init.signal?.aborted) throw new AbortError();\n        throw e;\n      }\n    }\n  }\n  throw lastErr;\n}\n"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "43-hard-uniqby-overfit",
+  "title": "uniqBy uses Map(arr.map(...)) — last-write-wins instead of first-write-wins",
+  "category": "subtle-correctness",
+  "difficulty": "hard",
+  "prompt": "src/uniqBy.ts deduplicates items by a key function. tests/regression.test.ts pins the contract on the easy cases (distinct keys, simple primitives, dedup count).\n\ntests/target.test.ts pins the *contract* you must preserve when keys collide:\n  - the FIRST occurrence is kept (not the last)\n  - the returned items are referentially the same objects as in the input (not copies)\n  - NaN-keyed and undefined-keyed entries collapse to one (first wins)\n\nThe current implementation `new Map(arr.map(x => [keyFn(x), x]))` is last-write-wins because each Map.set overrides. Don't reach for fancy constructs — a single forward pass with explicit \"already seen\" tracking is enough.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/uniqBy.ts"],
+  "maxDiffLines": 15,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/uniqBy.ts": "export function uniqBy<T, K>(arr: readonly T[], keyFn: (x: T) => K): T[] {\n  const seen = new Set<K>();\n  const out: T[] = [];\n  for (const x of arr) {\n    const k = keyFn(x);\n    if (seen.has(k)) continue;\n    seen.add(k);\n    out.push(x);\n  }\n  return out;\n}\n"
+  }
+}
