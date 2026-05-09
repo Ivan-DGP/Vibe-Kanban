@@ -236,19 +236,21 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 
 ### Phase L: replay bench
 
-- **Status:** pending
+- **Status:** done (2026-05-09) — L1–L3 + smoke shipped; L4 calibration-drift integration deferred
 - **Dependencies:** Phase B + capture infra
-- **Files:**
-  - `server/src/services/taskAiCapture.ts` (new — opt-in anonymizer + persister)
-  - `benchmarks/replays/.gitignore` (committed; payloads themselves stay out of git)
-  - `benchmarks/harness/replay.ts` (new — load + run captured payload via Pipeline-bench)
-  - `benchmarks/harness/run.ts` (`bench replay --since=<date>` subcommand)
-- **Work items:**
-  - [ ] L1: Capture service (env-gated `VK_BENCH_CAPTURE=1`): on every prod task completion, snapshot `(project_meta_anon, task_meta_anon, work_dir_tar, outcome)` to `benchmarks/replays/<id>.json`; scrub absolute paths, names, secrets
-  - [ ] L2: Replay runner reconstructs work dir from the tarball and reissues the task via Pipeline-bench
-  - [ ] L3: Comparison report — captured-time solve vs replay-time solve; tracks model regressions on real workload distribution
-  - [ ] L4: Calibration drift integration — replay results feed into `bench:calibrate`
-- **Notes:** Closes pipeline gap 18. Highest setup cost but highest fidelity to actual user workload.
+- **Shipped:**
+  - `server/src/services/taskAiCaptureAnonymize.ts` — pure anonymizer module: `scrubPath` (longest-prefix strip, `<absolute>` fallback), `redactSecrets` (env-style KEY=VAL, postgres/mysql/mongodb/redis URLs, Bearer/Token, sk-/pk- keys, emails, UUIDs), `hashIdentifier` (sha256 → 12 hex), `anonymizePayload` (cwd + projectPath → `<workdir>`), `truncate`, `SCHEMA_VERSION=1`
+  - `server/src/services/taskAiCapture.ts` — env-gated capture service: `isCaptureEnabled()` (`VK_BENCH_CAPTURE=1`), `getReplayDir()` (defaults to `benchmarks/replays/`, override `VK_BENCH_REPLAY_DIR`), `captureTaskAiRun()` reads project + task rows, anonymizes, spawns `tar -czf` (excludes node_modules/.git/.env\*/dist/build/logs/.DS_Store), writes JSON sidecar; failures swallowed
+  - `server/src/services/headlessClaude.ts` — single `void captureTaskAiRun(...)` after the `task_ai_runs` insert; replay payload follows the run side-effect, never blocks it
+  - `benchmarks/harness/replay.ts` — `loadReplaySidecar` (validates schemaVersion + identifiers + workdirArchive), `listReplaySidecars` (filter by runId substring or `since=YYYY-MM-DD`), `expandWorkdirPlaceholders`, `runReplay` (extracts tarball into temp dir, boots `buildApp()` with `VK_BENCH_CAPTURE=0` to prevent self-feed, posts project/task, polls `task_ai_runs`, restores env on exit), `compareOutcomes`, `summarizeReplays`, `renderReplayMarkdown`
+  - `benchmarks/harness/run.ts` — `replay` subcommand: `--dir=`, `--id=`, `--since=`, `--mock-claude`/`--real-claude`, `--timeout=`, `--limit=`, `--keep`, `--write` (json + md report under `.runs/replay-<stamp>/`)
+  - `benchmarks/replays/{.gitignore, README.md}` — directory committed empty (gitignored payloads); README documents env vars + replay command
+  - Tests:
+    - `server/src/services/taskAiCaptureAnonymize.test.ts` — 27 cases (scrubPath edge cases, every secret pattern, hash stability, full-payload scrubbing+redaction)
+    - `server/src/services/taskAiCapture.test.ts` — 7 cases (env gating off-by-default + only-on-`1`, `getReplayDir` with override, with deep-nested override, default repo path)
+    - `benchmarks/harness/replay.test.ts` — 16 cases (placeholder expansion, `compareOutcomes` matrix, `summarizeReplays` counts, markdown render, sidecar load + 3 validation rejections, listSidecars id/since/missing-dir)
+  - Smoke (no real Claude needed): synthesized a sidecar + tarball into `benchmarks/replays/`, exercised `loadReplaySidecar` + `listReplaySidecars` + `summarizeReplays` + `renderReplayMarkdown` end-to-end; CLI `bun benchmarks/harness/run.ts replay --id=nonexistent` exits cleanly with "no replay sidecars found"
+- **Notes:** Closes pipeline gap 18. L4 (replay-results-feed-`bench:calibrate`) deferred — calibration consumes `BenchResult`-shaped reports, while replay produces a smaller `ReplayResult`; one-shot adapter is the follow-up. Capture is off by default — set `VK_BENCH_CAPTURE=1` to start collecting; the replay runner unconditionally sets `VK_BENCH_CAPTURE=0` for the duration of replay so a replayed task never self-captures.
 
 ### Phase M: multi-file enforcement
 

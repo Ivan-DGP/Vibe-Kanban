@@ -20,6 +20,13 @@ import {
   writeCompare,
 } from "./aggregate";
 import { calibrate, formatCalibrationMd, formatCalibrationText } from "./calibrate";
+import {
+  listReplaySidecars,
+  renderReplayMarkdown,
+  runReplay,
+  summarizeReplays,
+  type ReplayResult,
+} from "./replay";
 import type {
   BenchAggregateReport,
   BenchE2EResult,
@@ -920,12 +927,92 @@ export function parsePlaywrightJsonReport(
   return { total, passed, failed, skipped, annotations };
 }
 
+async function runReplaySubcommand(args: string[]): Promise<void> {
+  let dir = path.join(BENCH_ROOT, "replays");
+  let outDir: string | null = null;
+  let runId: string | null = null;
+  let since: string | null = null;
+  let mockClaude = true;
+  let timeoutMs = 5 * 60 * 1000;
+  let keep = false;
+  let writeFiles = false;
+  let limit = 0;
+  for (const a of args) {
+    if (a.startsWith("--dir=")) dir = path.resolve(a.slice("--dir=".length));
+    else if (a.startsWith("--out=")) outDir = path.resolve(a.slice("--out=".length));
+    else if (a.startsWith("--id=")) runId = a.slice("--id=".length);
+    else if (a.startsWith("--since=")) since = a.slice("--since=".length);
+    else if (a === "--real-claude") mockClaude = false;
+    else if (a === "--mock-claude") mockClaude = true;
+    else if (a === "--keep") keep = true;
+    else if (a === "--write") writeFiles = true;
+    else if (a.startsWith("--timeout=")) {
+      const n = Number(a.slice("--timeout=".length));
+      if (!Number.isFinite(n) || n <= 0) {
+        console.error(`--timeout must be a positive number of ms, got: ${a}`);
+        process.exit(2);
+      }
+      timeoutMs = n;
+    } else if (a.startsWith("--limit=")) {
+      const n = Number(a.slice("--limit=".length));
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+        console.error(`--limit must be a non-negative integer, got: ${a}`);
+        process.exit(2);
+      }
+      limit = n;
+    } else if (a.startsWith("--")) {
+      console.error(`unknown flag: ${a}`);
+      process.exit(2);
+    }
+  }
+  let sidecars = listReplaySidecars(dir, { runId, since });
+  if (limit > 0) sidecars = sidecars.slice(-limit);
+  if (sidecars.length === 0) {
+    console.error(`no replay sidecars found in ${dir}`);
+    process.exit(1);
+  }
+  console.log(`replaying ${sidecars.length} captured run(s) from ${dir}`);
+  const results: ReplayResult[] = [];
+  for (const sc of sidecars) {
+    console.log(`→ ${path.basename(sc)}`);
+    try {
+      const r = await runReplay(sc, { mockClaude, timeoutMs, keepWorkdir: keep });
+      results.push(r);
+      console.log(
+        `  captured exit=${r.captured.exitCode}  replay exit=${r.replay.exitCode ?? "—"}  match=${
+          r.comparison.exitCodeMatches ? "yes" : "no"
+        }${r.error ? `  error=${r.error}` : ""}`,
+      );
+    } catch (e) {
+      console.log(`  failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  const summary = summarizeReplays(results);
+  console.log("");
+  console.log(
+    `summary: total=${summary.total}  matched=${summary.matched}  drifted=${summary.drifted}  errored=${summary.errored}`,
+  );
+  if (writeFiles) {
+    const target =
+      outDir ?? path.join(RUNS_DIR, `replay-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+    fs.mkdirSync(target, { recursive: true });
+    const jsonPath = path.join(target, "replay.json");
+    const mdPath = path.join(target, "replay.md");
+    fs.writeFileSync(jsonPath, JSON.stringify({ summary, results }, null, 2));
+    fs.writeFileSync(mdPath, renderReplayMarkdown(results));
+    console.log("");
+    console.log(`json: ${path.relative(process.cwd(), jsonPath)}`);
+    console.log(`md:   ${path.relative(process.cwd(), mdPath)}`);
+  }
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const sub = argv[0];
   if (sub === "aggregate") return runAggregateSubcommand(argv.slice(1));
   if (sub === "compare") return runCompareSubcommand(argv.slice(1));
   if (sub === "calibrate") return runCalibrateSubcommand(argv.slice(1));
+  if (sub === "replay") return runReplaySubcommand(argv.slice(1));
 
   const opts = parseArgs(argv);
   const all = listFixtures();

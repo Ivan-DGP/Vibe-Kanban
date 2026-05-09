@@ -1,6 +1,7 @@
 import { spawnProcess } from "../lib/runtime";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import { captureTaskAiRun } from "./taskAiCapture";
 
 export interface HeadlessClaudeOptions {
   prompt: string;
@@ -144,6 +145,17 @@ export async function spawnHeadlessClaude(
     } catch (e) {
       log("error", "claude", `failed to record task_ai_run`, { runId, error: String(e) });
     }
+
+    void captureTaskAiRun({
+      runId,
+      taskId: opts.taskId,
+      projectId: opts.projectId,
+      cwd: opts.cwd,
+      exitCode: result.exitCode,
+      durationMs,
+      summary,
+      sessionId,
+    }).catch(() => undefined);
 
     if (result.exitCode !== 0) {
       log("warn", "claude", `headless claude non-zero exit`, {
