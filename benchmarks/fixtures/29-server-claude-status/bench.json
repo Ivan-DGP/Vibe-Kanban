@@ -1,0 +1,51 @@
+{
+  "id": "29-server-claude-status",
+  "title": "Server: claude status + analyze validation",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Hit /claude/status (no AI calls), validate analyze 404 on missing task and gather-context 400 on missing fields.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "status returns shape",
+      "method": "GET",
+      "url": "/api/claude/status",
+      "expect": {
+        "statusCode": 200,
+        "bodyContains": "\"cliAvailable\""
+      }
+    },
+    {
+      "name": "analyze missing task → 404",
+      "method": "POST",
+      "url": "/api/claude/analyze",
+      "payload": { "projectId": "${projectId}", "taskId": "00000000-0000-0000-0000-000000000000" },
+      "expect": {
+        "statusCode": 404,
+        "jsonPath": [{ "path": "error", "value": "Task not found" }]
+      }
+    },
+    {
+      "name": "gather-context without fields → 400",
+      "method": "POST",
+      "url": "/api/claude/gather-context",
+      "payload": {},
+      "expect": {
+        "statusCode": 400,
+        "jsonPath": [{ "path": "error", "value": "taskTitle and projectId are required" }]
+      }
+    },
+    {
+      "name": "gather-context with title only → 400",
+      "method": "POST",
+      "url": "/api/claude/gather-context",
+      "payload": { "taskTitle": "x" },
+      "expect": { "statusCode": 400 }
+    }
+  ]
+}

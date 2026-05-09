@@ -61,7 +61,8 @@ describe("stripCommentsAndWhitespace", () => {
 
   test("two semantically-equal sources are normalized equal", () => {
     const a = "// header\nfunction add(x: number, y: number): number {\n  return x + y;\n}";
-    const b = "function add(x: number, y: number): number {\n  /* identical body */\n  return x + y;\n}\n\n";
+    const b =
+      "function add(x: number, y: number): number {\n  /* identical body */\n  return x + y;\n}\n\n";
     expect(stripCommentsAndWhitespace(a)).toBe(stripCommentsAndWhitespace(b));
   });
 

@@ -15,7 +15,13 @@ export function listResultFiles(resultsDir: string): string[] {
   if (!fs.existsSync(resultsDir)) return [];
   return fs
     .readdirSync(resultsDir)
-    .filter((f) => f.endsWith(".json") && !f.startsWith("aggregate-") && !f.startsWith("compare-") && !f.startsWith("calibrate-"))
+    .filter(
+      (f) =>
+        f.endsWith(".json") &&
+        !f.startsWith("aggregate-") &&
+        !f.startsWith("compare-") &&
+        !f.startsWith("calibrate-"),
+    )
     .map((f) => path.join(resultsDir, f))
     .sort();
 }
@@ -71,10 +77,26 @@ function finalizeBuckets(buckets: Map<string, AggregateBucket>): AggregateBucket
   return arr.sort((a, b) => a.key.localeCompare(b.key));
 }
 
-export function groupByFixture(reports: BenchReport[]): AggregateBucket[] {
+// A result is countable for solve-rate stats only when an AI actually ran
+// against the fixture *and* the fixture isn't a harness self-test. This
+// matches the calibrator's filter so the two reports stay consistent;
+// without it, dry-runs, --mock validations, and meta fixtures (like
+// 05-timeout-recovery) drag solve-rates down even though they aren't
+// real attempts.
+export function isCountableResult(r: BenchResult, spec: BenchSpec | undefined): boolean {
+  if (r.ai?.invoked === false) return false;
+  if (spec?.excludeFromCalibration) return false;
+  return true;
+}
+
+export function groupByFixture(
+  reports: BenchReport[],
+  specs?: Map<string, BenchSpec>,
+): AggregateBucket[] {
   const m = new Map<string, AggregateBucket>();
   for (const rep of reports) {
     for (const r of rep.results) {
+      if (!isCountableResult(r, specs?.get(r.fixtureId))) continue;
       const key = r.fixtureId;
       if (!m.has(key)) m.set(key, emptyBucket(key));
       addToBucket(m.get(key)!, r);
@@ -83,10 +105,14 @@ export function groupByFixture(reports: BenchReport[]): AggregateBucket[] {
   return finalizeBuckets(m);
 }
 
-export function groupByModel(reports: BenchReport[]): AggregateBucket[] {
+export function groupByModel(
+  reports: BenchReport[],
+  specs?: Map<string, BenchSpec>,
+): AggregateBucket[] {
   const m = new Map<string, AggregateBucket>();
   for (const rep of reports) {
     for (const r of rep.results) {
+      if (!isCountableResult(r, specs?.get(r.fixtureId))) continue;
       const arr = Array.isArray(r.ai?.models) ? r.ai.models : [];
       const models = arr.length > 0 ? arr : ["(unknown)"];
       for (const model of models) {
@@ -105,15 +131,45 @@ export function isoWeek(dateIso: string): string {
   const dayNum = (target.getUTCDay() + 6) % 7;
   target.setUTCDate(target.getUTCDate() - dayNum + 3);
   const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round(((target.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+  const week =
+    1 +
+    Math.round(
+      ((target.getTime() - firstThursday.getTime()) / 86400000 -
+        3 +
+        ((firstThursday.getUTCDay() + 6) % 7)) /
+        7,
+    );
   return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-export function groupByWeek(reports: BenchReport[]): AggregateBucket[] {
+// Coverage fixtures (server-integration mode) don't invoke an AI, so they're
+// excluded from the AI-solve buckets. We still want them visible somewhere —
+// this bucket reports pass/fail per fixture across all historical runs.
+export function groupByCoverage(reports: BenchReport[]): AggregateBucket[] {
+  const m = new Map<string, AggregateBucket>();
+  for (const rep of reports) {
+    for (const r of rep.results) {
+      if (!r.serverIntegration?.ran) continue;
+      const key = r.fixtureId;
+      if (!m.has(key)) m.set(key, emptyBucket(key));
+      const b = m.get(key)!;
+      b.total++;
+      if (r.serverIntegration.allPassed) b.solved++;
+      if (typeof r.durationMs === "number") b.totalDurationMs += r.durationMs;
+    }
+  }
+  return finalizeBuckets(m);
+}
+
+export function groupByWeek(
+  reports: BenchReport[],
+  specs?: Map<string, BenchSpec>,
+): AggregateBucket[] {
   const m = new Map<string, AggregateBucket>();
   for (const rep of reports) {
     const week = isoWeek(rep.startedAt);
     for (const r of rep.results) {
+      if (!isCountableResult(r, specs?.get(r.fixtureId))) continue;
       if (!m.has(week)) m.set(week, emptyBucket(week));
       addToBucket(m.get(week)!, r);
     }
@@ -137,10 +193,14 @@ export function computeOverBudget(
   return out;
 }
 
-export function aggregate(reports: BenchReport[], specs: Map<string, BenchSpec>): BenchAggregateReport {
-  const byFixture = groupByFixture(reports);
-  const byModel = groupByModel(reports);
-  const byWeek = groupByWeek(reports);
+export function aggregate(
+  reports: BenchReport[],
+  specs: Map<string, BenchSpec>,
+): BenchAggregateReport {
+  const byFixture = groupByFixture(reports, specs);
+  const byModel = groupByModel(reports, specs);
+  const byWeek = groupByWeek(reports, specs);
+  const byCoverage = groupByCoverage(reports);
   const overBudgetFixtures = computeOverBudget(byFixture, specs);
   const totalCostUsd = byFixture.reduce((acc, b) => acc + b.totalCostUsd, 0);
   return {
@@ -150,6 +210,7 @@ export function aggregate(reports: BenchReport[], specs: Map<string, BenchSpec>)
     byFixture,
     byModel,
     byWeek,
+    byCoverage,
     totalCostUsd,
     overBudgetFixtures,
   };
@@ -172,10 +233,14 @@ export function formatAggregateMd(a: BenchAggregateReport): string {
   const lines: string[] = [];
   lines.push(`# Benchmark aggregate — ${a.generatedAt}`);
   lines.push("");
-  lines.push(`Scanned **${a.resultsScanned}** results across **${a.reportsScanned}** runs · total cost ${fmtCost(a.totalCostUsd)}`);
+  lines.push(
+    `Scanned **${a.resultsScanned}** results across **${a.reportsScanned}** runs · total cost ${fmtCost(a.totalCostUsd)}`,
+  );
   lines.push("");
   if (a.overBudgetFixtures.length > 0) {
-    lines.push(`⚠️ **Over budget:** ${a.overBudgetFixtures.map((o) => `${o.fixtureId} (${fmtCost(o.totalCostUsd)} ≥ ${fmtCost(o.budget)})`).join(", ")}`);
+    lines.push(
+      `⚠️ **Over budget:** ${a.overBudgetFixtures.map((o) => `${o.fixtureId} (${fmtCost(o.totalCostUsd)} ≥ ${fmtCost(o.budget)})`).join(", ")}`,
+    );
     lines.push("");
   }
   lines.push("## by fixture");
@@ -193,6 +258,17 @@ export function formatAggregateMd(a: BenchAggregateReport): string {
   lines.push("| --- | --- | --- | --- | --- |");
   for (const b of a.byWeek) lines.push(bucketRow(b));
   lines.push("");
+  if (a.byCoverage.length > 0) {
+    lines.push("## by coverage (server-integration)");
+    lines.push("| fixture | passed/total | pass-rate | duration |");
+    lines.push("| --- | --- | --- | --- |");
+    for (const b of a.byCoverage) {
+      lines.push(
+        `| ${b.key} | ${b.solved}/${b.total} | ${pct(b.solveRate)} | ${(b.totalDurationMs / 1000).toFixed(1)}s |`,
+      );
+    }
+    lines.push("");
+  }
   return lines.join("\n");
 }
 
@@ -304,8 +380,12 @@ export function formatCompareMd(c: BenchCompareReport): string {
   lines.push(`Before: ${c.beforePath} (started ${c.beforeStartedAt})`);
   lines.push(`After:  ${c.afterPath} (started ${c.afterStartedAt})`);
   lines.push("");
-  lines.push(`**Regressions:** ${c.regressions} · **Improvements:** ${c.improvements} · **Status changes:** ${c.statusChanges}`);
-  lines.push(`**Cost:** ${fmtCost(c.totalCostBeforeUsd)} → ${fmtCost(c.totalCostAfterUsd)} (Δ ${fmtCost(c.costDeltaUsd)})`);
+  lines.push(
+    `**Regressions:** ${c.regressions} · **Improvements:** ${c.improvements} · **Status changes:** ${c.statusChanges}`,
+  );
+  lines.push(
+    `**Cost:** ${fmtCost(c.totalCostBeforeUsd)} → ${fmtCost(c.totalCostAfterUsd)} (Δ ${fmtCost(c.costDeltaUsd)})`,
+  );
   lines.push("");
   lines.push("| | fixture | before | after | Δcost | Δduration |");
   lines.push("| --- | --- | --- | --- | --- | --- |");
@@ -314,7 +394,9 @@ export function formatCompareMd(c: BenchCompareReport): string {
     const dDur = f.durationDeltaMs === null ? "—" : `${(f.durationDeltaMs / 1000).toFixed(1)}s`;
     const beforeBit = f.before.status ? `${f.before.status}` : "—";
     const afterBit = f.after.status ? `${f.after.status}` : "—";
-    lines.push(`| ${deltaIcon(f.delta)} | ${f.fixtureId} | ${beforeBit} | ${afterBit} | ${dCost} | ${dDur} |`);
+    lines.push(
+      `| ${deltaIcon(f.delta)} | ${f.fixtureId} | ${beforeBit} | ${afterBit} | ${dCost} | ${dDur} |`,
+    );
   }
   lines.push("");
   return lines.join("\n");
@@ -381,7 +463,10 @@ export function formatBaselineMd(c: BaselineComparison): string {
   return lines.join("\n");
 }
 
-export function writeAggregate(a: BenchAggregateReport, outDir: string): { jsonPath: string; mdPath: string } {
+export function writeAggregate(
+  a: BenchAggregateReport,
+  outDir: string,
+): { jsonPath: string; mdPath: string } {
   fs.mkdirSync(outDir, { recursive: true });
   const stamp = a.generatedAt.replace(/[:.]/g, "-");
   const jsonPath = path.join(outDir, `aggregate-${stamp}.json`);
@@ -391,7 +476,10 @@ export function writeAggregate(a: BenchAggregateReport, outDir: string): { jsonP
   return { jsonPath, mdPath };
 }
 
-export function writeCompare(c: BenchCompareReport, outDir: string): { jsonPath: string; mdPath: string } {
+export function writeCompare(
+  c: BenchCompareReport,
+  outDir: string,
+): { jsonPath: string; mdPath: string } {
   fs.mkdirSync(outDir, { recursive: true });
   const stamp = c.generatedAt.replace(/[:.]/g, "-");
   const jsonPath = path.join(outDir, `compare-${stamp}.json`);

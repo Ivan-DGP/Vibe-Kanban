@@ -42,6 +42,7 @@ interface CliOpts {
   ci: boolean;
   baseline: string | null;
   commentOut: string | null;
+  model: string | null;
 }
 
 function parseArgs(argv: string[]): CliOpts {
@@ -58,6 +59,7 @@ function parseArgs(argv: string[]): CliOpts {
     ci: false,
     baseline: null,
     commentOut: null,
+    model: null,
   };
   for (const a of argv) {
     if (a === "--dry-run") opts.dryRun = true;
@@ -66,8 +68,10 @@ function parseArgs(argv: string[]): CliOpts {
     else if (a === "--keep") opts.keepWorkdir = true;
     else if (a === "--mock-claude") opts.mockClaude = true;
     else if (a === "--ci") opts.ci = true;
-    else if (a.startsWith("--baseline=")) opts.baseline = path.resolve(a.slice("--baseline=".length));
-    else if (a.startsWith("--comment-out=")) opts.commentOut = path.resolve(a.slice("--comment-out=".length));
+    else if (a.startsWith("--baseline="))
+      opts.baseline = path.resolve(a.slice("--baseline=".length));
+    else if (a.startsWith("--comment-out="))
+      opts.commentOut = path.resolve(a.slice("--comment-out=".length));
     else if (a.startsWith("--parallel=")) {
       const n = Number(a.slice("--parallel=".length));
       if (!Number.isFinite(n) || n < 1) {
@@ -83,7 +87,14 @@ function parseArgs(argv: string[]): CliOpts {
       }
       opts.mode = v;
     } else if (a.startsWith("--fixture=")) opts.fixtures.push(a.slice("--fixture=".length));
-    else if (a.startsWith("--out=")) opts.outDir = path.resolve(a.slice("--out=".length));
+    else if (a.startsWith("--model=")) {
+      const v = a.slice("--model=".length).trim();
+      if (!v) {
+        console.error(`--model requires a non-empty value`);
+        process.exit(2);
+      }
+      opts.model = v;
+    } else if (a.startsWith("--out=")) opts.outDir = path.resolve(a.slice("--out=".length));
     else if (a === "-h" || a === "--help") {
       console.log(USAGE);
       process.exit(0);
@@ -117,6 +128,7 @@ flags (default subcommand):
   --ci             single-line summary; exit 1 if any fixture regressed vs --baseline
   --baseline=<p>   baseline aggregate-*.json to compare against (used with --ci)
   --comment-out=<p>  write PR-comment markdown delta table to <p> (used with --baseline)
+  --model=<id>     pass --model <id> to claude CLI (harness mode). e.g. haiku | sonnet | opus | full ID
   -h, --help       this message
 
 each fixture is benchmarks/fixtures/<id>/ with:
@@ -178,7 +190,10 @@ export function hashDir(dir: string): Map<string, string> {
   return result;
 }
 
-export function compareDirHashes(before: Map<string, string>, after: Map<string, string>): string[] {
+export function compareDirHashes(
+  before: Map<string, string>,
+  after: Map<string, string>,
+): string[] {
   const changed: string[] = [];
   const keys = new Set([...before.keys(), ...after.keys()]);
   for (const k of keys) {
@@ -238,24 +253,39 @@ export function parseClaudeJson(stdout: string): ParsedClaudeAi {
   return {
     summary: parsed.result ?? parsed.summary ?? null,
     sessionId: parsed.session_id ?? parsed.sessionId ?? null,
-    models: parsed.modelUsage && typeof parsed.modelUsage === "object" ? Object.keys(parsed.modelUsage) : [],
+    models:
+      parsed.modelUsage && typeof parsed.modelUsage === "object"
+        ? Object.keys(parsed.modelUsage)
+        : [],
     numTurns: typeof parsed.num_turns === "number" ? parsed.num_turns : null,
     totalCostUsd: typeof parsed.total_cost_usd === "number" ? parsed.total_cost_usd : null,
     durationApiMs: typeof parsed.duration_api_ms === "number" ? parsed.duration_api_ms : null,
     inputTokens: typeof parsed.usage?.input_tokens === "number" ? parsed.usage.input_tokens : null,
-    outputTokens: typeof parsed.usage?.output_tokens === "number" ? parsed.usage.output_tokens : null,
+    outputTokens:
+      typeof parsed.usage?.output_tokens === "number" ? parsed.usage.output_tokens : null,
     stopReason: parsed.stop_reason ?? null,
     terminalReason: parsed.terminal_reason ?? null,
-    permissionDenials: Array.isArray(parsed.permission_denials) ? parsed.permission_denials.length : null,
+    permissionDenials: Array.isArray(parsed.permission_denials)
+      ? parsed.permission_denials.length
+      : null,
   };
 }
 
-export function detectMisFixture(targetExitCode: number, regressionExitCode: number): { misFixture: boolean; reason: string | null } {
+export function detectMisFixture(
+  targetExitCode: number,
+  regressionExitCode: number,
+): { misFixture: boolean; reason: string | null } {
   if (targetExitCode === 0) {
-    return { misFixture: true, reason: "baseline target test already passes — fixture has nothing to solve" };
+    return {
+      misFixture: true,
+      reason: "baseline target test already passes — fixture has nothing to solve",
+    };
   }
   if (regressionExitCode !== 0) {
-    return { misFixture: true, reason: "baseline regression test fails — fixture has a broken baseline" };
+    return {
+      misFixture: true,
+      reason: "baseline regression test fails — fixture has a broken baseline",
+    };
   }
   return { misFixture: false, reason: null };
 }
@@ -282,7 +312,12 @@ interface SpawnResult {
   stderr: string;
 }
 
-async function runCmd(cmd: string[], cwd: string, timeoutMs?: number, env?: Record<string, string>): Promise<SpawnResult> {
+async function runCmd(
+  cmd: string[],
+  cwd: string,
+  timeoutMs?: number,
+  env?: Record<string, string>,
+): Promise<SpawnResult> {
   const proc = Bun.spawn(cmd, {
     cwd,
     stdout: "pipe",
@@ -307,7 +342,12 @@ async function gitInit(workDir: string): Promise<void> {
   await runCmd(["git", "commit", "-q", "-m", "baseline"], workDir);
 }
 
-function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, workDir: string): BenchResult {
+function makeEmptyResult(
+  spec: BenchSpec,
+  runId: string,
+  startedAtIso: string,
+  workDir: string,
+): BenchResult {
   return {
     fixtureId: spec.id,
     title: spec.title,
@@ -339,7 +379,13 @@ function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, w
       targetOutput: "",
       regressionOutput: "",
     },
-    diff: { filesChanged: [], linesAdded: 0, linesRemoved: 0, withinBudget: false, expectedFilesOnly: false },
+    diff: {
+      filesChanged: [],
+      linesAdded: 0,
+      linesRemoved: 0,
+      withinBudget: false,
+      expectedFilesOnly: false,
+    },
     preflight: { ran: false, misFixture: false, reason: null },
     tampering: { checked: false, detected: false, changedFiles: [] },
     chain: {
@@ -362,8 +408,20 @@ function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, w
     },
     sideEffects: {
       checked: false,
-      taskAiRun: { found: false, exitCode: null, success: null, durationMs: null, sessionIdSet: false, summarySet: false },
-      timestamps: { inboxAtSet: false, inProgressAtSet: false, doneAtSet: false, cascadeOrdered: false },
+      taskAiRun: {
+        found: false,
+        exitCode: null,
+        success: null,
+        durationMs: null,
+        sessionIdSet: false,
+        summarySet: false,
+      },
+      timestamps: {
+        inboxAtSet: false,
+        inProgressAtSet: false,
+        doneAtSet: false,
+        cascadeOrdered: false,
+      },
       snapshot: { fileExists: false, taskInSnapshot: false },
       embeddings: { rowCount: 0, skipped: false },
       allGreen: false,
@@ -374,6 +432,11 @@ function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, w
       missing: [],
       trivial: [],
       allTouched: true,
+    },
+    serverIntegration: {
+      ran: false,
+      steps: [],
+      allPassed: false,
     },
     status: "ERROR",
     solved: false,
@@ -424,18 +487,16 @@ async function runOne(spec: BenchSpec, opts: CliOpts): Promise<BenchResult> {
       } else {
         const aiStart = Date.now();
         result.ai.invoked = true;
-        const claudeRes = await runCmd(
-          [
-            "claude",
-            "-p",
-            "--output-format",
-            "json",
-            "--dangerously-skip-permissions",
-            spec.prompt,
-          ],
-          workDir,
-          spec.timeoutMs,
-        );
+        const claudeArgs = [
+          "claude",
+          "-p",
+          "--output-format",
+          "json",
+          "--dangerously-skip-permissions",
+        ];
+        if (opts.model) claudeArgs.push("--model", opts.model);
+        claudeArgs.push(spec.prompt);
+        const claudeRes = await runCmd(claudeArgs, workDir, spec.timeoutMs);
         result.ai.durationMs = Date.now() - aiStart;
         result.ai.exitCode = claudeRes.exitCode;
         Object.assign(result.ai, parseClaudeJson(claudeRes.stdout));
@@ -464,10 +525,13 @@ async function runOne(spec: BenchSpec, opts: CliOpts): Promise<BenchResult> {
       result.diff.filesChanged = parsedDiff.filesChanged;
       result.diff.linesAdded = parsedDiff.linesAdded;
       result.diff.linesRemoved = parsedDiff.linesRemoved;
-      result.diff.withinBudget = parsedDiff.linesAdded + parsedDiff.linesRemoved <= spec.maxDiffLines;
+      result.diff.withinBudget =
+        parsedDiff.linesAdded + parsedDiff.linesRemoved <= spec.maxDiffLines;
       if (spec.expectedFilesChanged && spec.expectedFilesChanged.length > 0) {
         const expected = new Set(spec.expectedFilesChanged);
-        result.diff.expectedFilesOnly = parsedDiff.filesChanged.length > 0 && parsedDiff.filesChanged.every((f) => expected.has(f));
+        result.diff.expectedFilesOnly =
+          parsedDiff.filesChanged.length > 0 &&
+          parsedDiff.filesChanged.every((f) => expected.has(f));
       } else {
         result.diff.expectedFilesOnly = true;
       }
@@ -479,7 +543,9 @@ async function runOne(spec: BenchSpec, opts: CliOpts): Promise<BenchResult> {
         result.multiFile.trivial = mf.trivial;
         result.multiFile.allTouched = mf.allTouched;
         if (!mf.allTouched && opts.lenient) {
-          console.warn(`[lenient] ${spec.id}: requireFiles not fully satisfied (missing=[${mf.missing.join(",")}] trivial=[${mf.trivial.join(",")}])`);
+          console.warn(
+            `[lenient] ${spec.id}: requireFiles not fully satisfied (missing=[${mf.missing.join(",")}] trivial=[${mf.trivial.join(",")}])`,
+          );
         }
       }
     }
@@ -505,7 +571,9 @@ async function runOne(spec: BenchSpec, opts: CliOpts): Promise<BenchResult> {
 }
 
 function printOneLine(r: BenchResult): void {
-  const aiBit = r.ai.invoked ? `ai=${r.ai.exitCode} ${(r.ai.durationMs / 1000).toFixed(1)}s` : "ai=skipped";
+  const aiBit = r.ai.invoked
+    ? `ai=${r.ai.exitCode} ${(r.ai.durationMs / 1000).toFixed(1)}s`
+    : "ai=skipped";
   const detail = r.preflight.misFixture
     ? ` reason="${r.preflight.reason}"`
     : r.tampering.detected
@@ -516,9 +584,16 @@ function printOneLine(r: BenchResult): void {
   );
 }
 
-async function runOnePipeline(fixtureId: string, opts: CliOpts): Promise<BenchResult> {
+async function runOnePipeline(
+  fixtureId: string,
+  opts: CliOpts,
+  spec: BenchSpec,
+): Promise<BenchResult> {
   fs.mkdirSync(RUNS_DIR, { recursive: true });
-  const resultFile = path.join(RUNS_DIR, `${fixtureId}-pipeline-${crypto.randomUUID().slice(0, 8)}-result.json`);
+  const resultFile = path.join(
+    RUNS_DIR,
+    `${fixtureId}-pipeline-${crypto.randomUUID().slice(0, 8)}-result.json`,
+  );
   const pipelineScript = path.join(HARNESS_DIR, "pipeline.ts");
   const cmd = [
     process.execPath,
@@ -531,6 +606,10 @@ async function runOnePipeline(fixtureId: string, opts: CliOpts): Promise<BenchRe
   if (opts.keepWorkdir) cmd.push("--keep");
   const env = { ...process.env };
   if (opts.parallel > 1) env.VK_DISABLE_EMBEDDINGS = "1";
+  // server-integration fixtures never invoke AI, so embedding worker startup
+  // is pure overhead and exposes the @xenova/transformers cold-cache race
+  // (ENOENT on the onnxruntime-web blob worker). Skip it.
+  if (spec.pipelineMode === "server-integration") env.VK_DISABLE_EMBEDDINGS = "1";
   const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", env });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -538,7 +617,9 @@ async function runOnePipeline(fixtureId: string, opts: CliOpts): Promise<BenchRe
     proc.exited,
   ]);
   if (exitCode !== 0 || !fs.existsSync(resultFile)) {
-    throw new Error(`pipeline subprocess failed (exit=${exitCode})\nstdout tail: ${stdout.slice(-500)}\nstderr tail: ${stderr.slice(-500)}`);
+    throw new Error(
+      `pipeline subprocess failed (exit=${exitCode})\nstdout tail: ${stdout.slice(-500)}\nstderr tail: ${stderr.slice(-500)}`,
+    );
   }
   const raw = fs.readFileSync(resultFile, "utf-8");
   fs.rmSync(resultFile);
@@ -603,7 +684,7 @@ async function runCalibrateSubcommand(args: string[]): Promise<void> {
   let resultsDir = RESULTS_DIR;
   let windowDays = 30;
   let trivialThreshold = 0.95;
-  let harderThreshold = 0.20;
+  let harderThreshold = 0.2;
   let minSamples = 3;
   let writeFiles = false;
   for (const a of args) {
@@ -654,7 +735,12 @@ async function runCalibrateSubcommand(args: string[]): Promise<void> {
     process.exit(1);
   }
   const specs = loadFixtureSpecs(FIXTURES_DIR);
-  const cal = calibrate(reports, specs, { windowDays, trivialThreshold, harderThreshold, minSamples });
+  const cal = calibrate(reports, specs, {
+    windowDays,
+    trivialThreshold,
+    harderThreshold,
+    minSamples,
+  });
   console.log(formatCalibrationText(cal));
   if (writeFiles) {
     fs.mkdirSync(outDir, { recursive: true });
@@ -694,13 +780,13 @@ async function main(): Promise<void> {
   );
 
   if (opts.mode === "harness" && !opts.dryRun && !opts.mock) {
-    if (!await isClaudeAvailable()) {
+    if (!(await isClaudeAvailable())) {
       console.error("`claude` binary not found in PATH — install Claude CLI or use --dry-run");
       process.exit(1);
     }
   }
   if (opts.mode === "pipeline" && !opts.mockClaude) {
-    if (!await isClaudeAvailable()) {
+    if (!(await isClaudeAvailable())) {
       console.error("pipeline mode without --mock-claude requires `claude` in PATH");
       process.exit(1);
     }
@@ -717,16 +803,30 @@ async function main(): Promise<void> {
       continue;
     }
     if (opts.mode === "harness" && spec.mockChain && spec.mockChain.length > 0) {
-      console.log(`[skipped] ${fixtureId.padEnd(30)} pipeline-only fixture (mockChain set); use --mode=pipeline`);
+      console.log(
+        `[skipped] ${fixtureId.padEnd(30)} pipeline-only fixture (mockChain set); use --mode=pipeline`,
+      );
+      continue;
+    }
+    if (opts.mode === "harness" && spec.pipelineMode === "server-integration") {
+      console.log(
+        `[skipped] ${fixtureId.padEnd(30)} pipeline-only fixture (server-integration); use --mode=pipeline`,
+      );
       continue;
     }
     fixturesToRun.push({ id: fixtureId, spec });
   }
 
-  const runOneFixture = async ({ id, spec }: { id: string; spec: BenchSpec }): Promise<BenchResult> => {
+  const runOneFixture = async ({
+    id,
+    spec,
+  }: {
+    id: string;
+    spec: BenchSpec;
+  }): Promise<BenchResult> => {
     if (opts.mode === "pipeline") {
       try {
-        return await runOnePipeline(id, opts);
+        return await runOnePipeline(id, opts, spec);
       } catch (err) {
         const r = makeEmptyResult(spec, "0".repeat(8), new Date().toISOString(), "");
         r.error = err instanceof Error ? err.message : String(err);
@@ -782,7 +882,9 @@ async function main(): Promise<void> {
     }
     console.log("");
     console.log(`solved ${report.solvedCount}/${report.count}`);
-    console.log(`vs baseline: regressed=${cmp.regressions.length} improved=${cmp.improvements.length} added=${cmp.added.length} removed=${cmp.removed.length} costΔ=$${cmp.costDelta.toFixed(4)}`);
+    console.log(
+      `vs baseline: regressed=${cmp.regressions.length} improved=${cmp.improvements.length} added=${cmp.added.length} removed=${cmp.removed.length} costΔ=$${cmp.costDelta.toFixed(4)}`,
+    );
     console.log(`report: ${path.relative(process.cwd(), mdPath)}`);
     console.log(`json:   ${path.relative(process.cwd(), jsonPath)}`);
     return;
@@ -790,7 +892,9 @@ async function main(): Promise<void> {
 
   if (opts.ci) {
     const failed = report.results.filter((r) => !r.solved).map((r) => r.fixtureId);
-    console.log(`bench-ci · solved ${report.solvedCount}/${report.count} · failed=${failed.length}${failed.length ? ` [${failed.join(", ")}]` : ""}`);
+    console.log(
+      `bench-ci · solved ${report.solvedCount}/${report.count} · failed=${failed.length}${failed.length ? ` [${failed.join(", ")}]` : ""}`,
+    );
     if (failed.length > 0) process.exit(1);
     return;
   }

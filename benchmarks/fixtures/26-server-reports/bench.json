@@ -1,0 +1,90 @@
+{
+  "id": "26-server-reports",
+  "title": "Server: reports period dispatch",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Hit /api/reports across multiple period values; with no done tasks each returns zero totals.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "default (today)",
+      "method": "GET",
+      "url": "/api/reports",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "period", "value": "today" },
+          { "path": "totalTasks", "value": 0 },
+          { "path": "totalHours", "value": 0 },
+          { "path": "avgHoursPerTask", "value": 0 },
+          { "path": "byProject", "value": [] }
+        ]
+      }
+    },
+    {
+      "name": "yesterday",
+      "method": "GET",
+      "url": "/api/reports?period=yesterday",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "period", "value": "yesterday" },
+          { "path": "totalTasks", "value": 0 }
+        ]
+      }
+    },
+    {
+      "name": "this-week",
+      "method": "GET",
+      "url": "/api/reports?period=this-week",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "period", "value": "this-week" }]
+      }
+    },
+    {
+      "name": "this-month",
+      "method": "GET",
+      "url": "/api/reports?period=this-month",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "period", "value": "this-month" }]
+      }
+    },
+    {
+      "name": "last-7",
+      "method": "GET",
+      "url": "/api/reports?period=last-7",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "period", "value": "last-7" }]
+      }
+    },
+    {
+      "name": "last-30",
+      "method": "GET",
+      "url": "/api/reports?period=last-30",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "period", "value": "last-30" }]
+      }
+    },
+    {
+      "name": "custom range",
+      "method": "GET",
+      "url": "/api/reports?period=custom&from=2026-01-01T00:00:00.000Z&to=2026-12-31T23:59:59.999Z",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "period", "value": "custom" },
+          { "path": "totalTasks", "value": 0 }
+        ]
+      }
+    }
+  ]
+}

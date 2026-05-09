@@ -10,7 +10,9 @@ describe("EventBus once() — auto-removes after first emit (target)", () => {
   test("once handler fires exactly once across multiple emits", () => {
     const bus = new EventBus<Events>();
     let calls = 0;
-    bus.once("ping", () => { calls++; });
+    bus.once("ping", () => {
+      calls++;
+    });
     bus.emit("ping", 1);
     bus.emit("ping", 2);
     bus.emit("ping", 3);
@@ -29,8 +31,12 @@ describe("EventBus once() — auto-removes after first emit (target)", () => {
     const bus = new EventBus<Events>();
     let onceCalls = 0;
     let onCalls = 0;
-    bus.once("ping", () => { onceCalls++; });
-    bus.on("ping", () => { onCalls++; });
+    bus.once("ping", () => {
+      onceCalls++;
+    });
+    bus.on("ping", () => {
+      onCalls++;
+    });
     bus.emit("ping", 1);
     bus.emit("ping", 2);
     expect(onceCalls).toBe(1);

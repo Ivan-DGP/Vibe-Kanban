@@ -7,18 +7,22 @@ describe("topoSort — cycle detection (target)", () => {
   });
 
   test("two-node cycle throws CycleError", () => {
-    expect(() => topoSort([
-      { id: "a", deps: ["b"] },
-      { id: "b", deps: ["a"] },
-    ])).toThrow(CycleError);
+    expect(() =>
+      topoSort([
+        { id: "a", deps: ["b"] },
+        { id: "b", deps: ["a"] },
+      ]),
+    ).toThrow(CycleError);
   });
 
   test("three-node cycle throws CycleError", () => {
-    expect(() => topoSort([
-      { id: "a", deps: ["b"] },
-      { id: "b", deps: ["c"] },
-      { id: "c", deps: ["a"] },
-    ])).toThrow(CycleError);
+    expect(() =>
+      topoSort([
+        { id: "a", deps: ["b"] },
+        { id: "b", deps: ["c"] },
+        { id: "c", deps: ["a"] },
+      ]),
+    ).toThrow(CycleError);
   });
 
   test("CycleError exposes cycle path containing all participants", () => {

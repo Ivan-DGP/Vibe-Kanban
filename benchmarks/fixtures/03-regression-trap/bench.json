@@ -3,7 +3,7 @@
   "title": "Fix findFirst() off-by-one without breaking findLast() / findIndex()",
   "category": "bug-fix",
   "difficulty": "medium",
-  "prompt": "There is a bug in src/list-helpers.ts: `findFirst()` never visits the last element of the array (off-by-one). The failing tests in tests/target.test.ts pin the correct behavior — they exercise matches at the final index and verify the predicate is called for every index 0..length-1.\n\nFix the bug so tests/target.test.ts passes. The tests in tests/regression.test.ts cover `findLast()` and `findIndex()` and must continue to pass — they include cases that match at index boundaries, so a sloppy fix that adjusts the shared internal scanner's loop bounds will break them.\n\nRead the contract on `_iterate` carefully: it expects an inclusive [from, to] range. The bug is at the *call site* of `_iterate` inside `findFirst`, not inside `_iterate` itself. Make the minimal correct change.\n\nDo not modify any test files. Do not add new files. Confine the change to src/list-helpers.ts.",
+  "prompt": "src/list-helpers.ts has an off-by-one in `findFirst` (skips the last element). `_iterate` already documents an inclusive [from,to] range — the bug is at the call site inside `findFirst`, not inside `_iterate`. Make the minimal fix so tests/target.test.ts passes; tests/regression.test.ts must keep passing. Confine the change to src/list-helpers.ts and don't touch tests.",
   "targetTestPath": "tests/target.test.ts",
   "regressionTestPath": "tests/regression.test.ts",
   "expectedFilesChanged": ["src/list-helpers.ts"],

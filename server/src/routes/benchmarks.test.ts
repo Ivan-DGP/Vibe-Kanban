@@ -26,7 +26,9 @@ describe("buildBenchArgs", () => {
 
   test("mode=harness or invalid mode is omitted", () => {
     expect(buildBenchArgs({ mode: "harness" }, known).args).not.toContain("--mode=harness");
-    expect(buildBenchArgs({ mode: "junk" as unknown as "pipeline" }, known).args).not.toContain("--mode=junk");
+    expect(buildBenchArgs({ mode: "junk" as unknown as "pipeline" }, known).args).not.toContain(
+      "--mode=junk",
+    );
   });
 
   test("parallel within bounds is appended", () => {
@@ -34,10 +36,20 @@ describe("buildBenchArgs", () => {
   });
 
   test("parallel out of bounds or non-integer is dropped", () => {
-    expect(buildBenchArgs({ parallel: 0 }, known).args.some((a) => a.startsWith("--parallel"))).toBe(false);
-    expect(buildBenchArgs({ parallel: 5 }, known).args.some((a) => a.startsWith("--parallel"))).toBe(false);
-    expect(buildBenchArgs({ parallel: 1.5 }, known).args.some((a) => a.startsWith("--parallel"))).toBe(false);
-    expect(buildBenchArgs({ parallel: "2" as unknown as number }, known).args.some((a) => a.startsWith("--parallel"))).toBe(false);
+    expect(
+      buildBenchArgs({ parallel: 0 }, known).args.some((a) => a.startsWith("--parallel")),
+    ).toBe(false);
+    expect(
+      buildBenchArgs({ parallel: 5 }, known).args.some((a) => a.startsWith("--parallel")),
+    ).toBe(false);
+    expect(
+      buildBenchArgs({ parallel: 1.5 }, known).args.some((a) => a.startsWith("--parallel")),
+    ).toBe(false);
+    expect(
+      buildBenchArgs({ parallel: "2" as unknown as number }, known).args.some((a) =>
+        a.startsWith("--parallel"),
+      ),
+    ).toBe(false);
   });
 
   test("non-string fixture entries are filtered without throwing", () => {
@@ -82,24 +94,89 @@ beforeAll(async () => {
       totalMs: 1000,
       count: 1,
       solvedCount: 1,
-      results: [{
-        fixtureId: "01-test-fixture",
-        title: "Test fixture",
-        runId: "abc",
-        startedAt: "2099-01-01T00:00:00.000Z",
-        durationMs: 1000,
-        status: "SOLVED",
-        solved: true,
-        ai: { totalCostUsd: 0.05, models: ["claude-test-1"], invoked: true, exitCode: 0, durationMs: 100, durationApiMs: null, summary: null, sessionId: null, numTurns: 1, inputTokens: null, outputTokens: null, stopReason: null, terminalReason: null, permissionDenials: null },
-        tests: { targetPassed: true, regressionsHeld: true, targetExitCode: 0, regressionExitCode: 0, targetOutput: "", regressionOutput: "" },
-        diff: { filesChanged: ["src/foo.ts"], linesAdded: 1, linesRemoved: 1, withinBudget: true, expectedFilesOnly: true },
-        preflight: { ran: false, misFixture: false, reason: null },
-        tampering: { checked: false, detected: false, changedFiles: [] },
-        chain: { depth: 0, parentLinksValid: true, leafTaskId: null, leafStatus: null, totalAiRuns: 0, totalDurationMs: 0, totalCostUsd: 0, expectedDepth: null, expectedDepthMet: true },
-        concurrency: { checked: false, statsBefore: null, statsAfter: null, slotLeak: false, timedOut: false },
-        sideEffects: { checked: false, taskAiRun: { found: false, exitCode: null, success: null, durationMs: null, sessionIdSet: false, summarySet: false }, timestamps: { inboxAtSet: false, inProgressAtSet: false, doneAtSet: false, cascadeOrdered: false }, snapshot: { fileExists: false, taskInSnapshot: false }, embeddings: { rowCount: 0, skipped: true }, allGreen: false },
-        error: null,
-      }],
+      results: [
+        {
+          fixtureId: "01-test-fixture",
+          title: "Test fixture",
+          runId: "abc",
+          startedAt: "2099-01-01T00:00:00.000Z",
+          durationMs: 1000,
+          status: "SOLVED",
+          solved: true,
+          ai: {
+            totalCostUsd: 0.05,
+            models: ["claude-test-1"],
+            invoked: true,
+            exitCode: 0,
+            durationMs: 100,
+            durationApiMs: null,
+            summary: null,
+            sessionId: null,
+            numTurns: 1,
+            inputTokens: null,
+            outputTokens: null,
+            stopReason: null,
+            terminalReason: null,
+            permissionDenials: null,
+          },
+          tests: {
+            targetPassed: true,
+            regressionsHeld: true,
+            targetExitCode: 0,
+            regressionExitCode: 0,
+            targetOutput: "",
+            regressionOutput: "",
+          },
+          diff: {
+            filesChanged: ["src/foo.ts"],
+            linesAdded: 1,
+            linesRemoved: 1,
+            withinBudget: true,
+            expectedFilesOnly: true,
+          },
+          preflight: { ran: false, misFixture: false, reason: null },
+          tampering: { checked: false, detected: false, changedFiles: [] },
+          chain: {
+            depth: 0,
+            parentLinksValid: true,
+            leafTaskId: null,
+            leafStatus: null,
+            totalAiRuns: 0,
+            totalDurationMs: 0,
+            totalCostUsd: 0,
+            expectedDepth: null,
+            expectedDepthMet: true,
+          },
+          concurrency: {
+            checked: false,
+            statsBefore: null,
+            statsAfter: null,
+            slotLeak: false,
+            timedOut: false,
+          },
+          sideEffects: {
+            checked: false,
+            taskAiRun: {
+              found: false,
+              exitCode: null,
+              success: null,
+              durationMs: null,
+              sessionIdSet: false,
+              summarySet: false,
+            },
+            timestamps: {
+              inboxAtSet: false,
+              inProgressAtSet: false,
+              doneAtSet: false,
+              cascadeOrdered: false,
+            },
+            snapshot: { fileExists: false, taskInSnapshot: false },
+            embeddings: { rowCount: 0, skipped: true },
+            allGreen: false,
+          },
+          error: null,
+        },
+      ],
     }),
   );
 
@@ -160,7 +237,11 @@ describe("benchmarks routes", () => {
   test("GET /api/benchmarks/aggregate runs in-process", async () => {
     const res = await app.inject({ method: "GET", url: "/api/benchmarks/aggregate" });
     expect(res.statusCode).toBe(200);
-    const j = res.json() as { reportsScanned: number; resultsScanned: number; byFixture: { key: string }[] };
+    const j = res.json() as {
+      reportsScanned: number;
+      resultsScanned: number;
+      byFixture: { key: string }[];
+    };
     expect(j.reportsScanned).toBe(1);
     expect(j.resultsScanned).toBe(1);
     expect(j.byFixture.find((b) => b.key === "01-test-fixture")).toBeDefined();

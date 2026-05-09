@@ -1,0 +1,54 @@
+{
+  "id": "27-server-benchmarks-read",
+  "title": "Server: benchmarks read endpoints (fixtures, runs, active, 400/404 paths)",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Read benchmarks fixtures, list runs, list active runs, exercise invalid id (400) and missing report (404).",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "list fixtures (sorted by id)",
+      "method": "GET",
+      "url": "/api/benchmarks/fixtures",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "fixtures[0].id", "value": "01-bug-fix-arithmetic" }]
+      }
+    },
+    {
+      "name": "list runs returns shape",
+      "method": "GET",
+      "url": "/api/benchmarks/runs",
+      "expect": {
+        "statusCode": 200,
+        "bodyContains": "\"runs\":"
+      }
+    },
+    {
+      "name": "list active runs",
+      "method": "GET",
+      "url": "/api/benchmarks/active",
+      "expect": {
+        "statusCode": 200,
+        "bodyContains": "\"runs\":"
+      }
+    },
+    {
+      "name": "invalid id → 400",
+      "method": "GET",
+      "url": "/api/benchmarks/runs/has spaces",
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "missing report → 404",
+      "method": "GET",
+      "url": "/api/benchmarks/runs/2999-12-31T00-00-00-000Z",
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

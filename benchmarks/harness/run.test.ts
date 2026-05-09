@@ -25,7 +25,10 @@ afterEach(() => {
 function makeFixtureLike(root: string): void {
   fs.mkdirSync(path.join(root, "src"), { recursive: true });
   fs.mkdirSync(path.join(root, "tests"), { recursive: true });
-  fs.writeFileSync(path.join(root, "bench.json"), JSON.stringify({ id: "x", mockFix: { "src/a.ts": "answer" } }));
+  fs.writeFileSync(
+    path.join(root, "bench.json"),
+    JSON.stringify({ id: "x", mockFix: { "src/a.ts": "answer" } }),
+  );
   fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
   fs.writeFileSync(path.join(root, "tests", "target.test.ts"), "test('t', () => {});");
   fs.writeFileSync(path.join(root, "tests", "regression.test.ts"), "test('r', () => {});");
@@ -93,7 +96,10 @@ describe("hashDir + compareDirHashes (tampering guard)", () => {
     fs.writeFileSync(path.join(dir, "target.test.ts"), "test('orig', () => {});");
 
     const before = hashDir(dir);
-    fs.writeFileSync(path.join(dir, "target.test.ts"), "test('orig', () => { expect(true).toBe(true); });");
+    fs.writeFileSync(
+      path.join(dir, "target.test.ts"),
+      "test('orig', () => { expect(true).toBe(true); });",
+    );
     const after = hashDir(dir);
 
     expect(compareDirHashes(before, after)).toEqual(["target.test.ts"]);
@@ -194,7 +200,13 @@ function baseResult(overrides: Partial<BenchResult> = {}): BenchResult {
       targetOutput: "",
       regressionOutput: "",
     },
-    diff: { filesChanged: ["src/a.ts"], linesAdded: 1, linesRemoved: 1, withinBudget: true, expectedFilesOnly: true },
+    diff: {
+      filesChanged: ["src/a.ts"],
+      linesAdded: 1,
+      linesRemoved: 1,
+      withinBudget: true,
+      expectedFilesOnly: true,
+    },
     preflight: { ran: false, misFixture: false, reason: null },
     tampering: { checked: false, detected: false, changedFiles: [] },
     chain: {
@@ -217,8 +229,20 @@ function baseResult(overrides: Partial<BenchResult> = {}): BenchResult {
     },
     sideEffects: {
       checked: false,
-      taskAiRun: { found: false, exitCode: null, success: null, durationMs: null, sessionIdSet: false, summarySet: false },
-      timestamps: { inboxAtSet: false, inProgressAtSet: false, doneAtSet: false, cascadeOrdered: false },
+      taskAiRun: {
+        found: false,
+        exitCode: null,
+        success: null,
+        durationMs: null,
+        sessionIdSet: false,
+        summarySet: false,
+      },
+      timestamps: {
+        inboxAtSet: false,
+        inProgressAtSet: false,
+        doneAtSet: false,
+        cascadeOrdered: false,
+      },
       snapshot: { fileExists: false, taskInSnapshot: false },
       embeddings: { rowCount: 0, skipped: false },
       allGreen: false,
@@ -239,21 +263,140 @@ function baseResult(overrides: Partial<BenchResult> = {}): BenchResult {
 
 describe("evaluateStatus", () => {
   const cases: Array<[string, Partial<BenchResult>, boolean, BenchStatus]> = [
-    ["error short-circuits everything", { error: "boom", tests: { targetPassed: true, regressionsHeld: true, targetExitCode: 0, regressionExitCode: 0, targetOutput: "", regressionOutput: "" } }, false, "ERROR"],
-    ["mis-fixture short-circuits", { preflight: { ran: true, misFixture: true, reason: "x" } }, false, "MIS-FIXTURE"],
-    ["tampered short-circuits", { tampering: { checked: true, detected: true, changedFiles: ["tests/a.ts"] } }, false, "TAMPERED"],
+    [
+      "error short-circuits everything",
+      {
+        error: "boom",
+        tests: {
+          targetPassed: true,
+          regressionsHeld: true,
+          targetExitCode: 0,
+          regressionExitCode: 0,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+      },
+      false,
+      "ERROR",
+    ],
+    [
+      "mis-fixture short-circuits",
+      { preflight: { ran: true, misFixture: true, reason: "x" } },
+      false,
+      "MIS-FIXTURE",
+    ],
+    [
+      "tampered short-circuits",
+      { tampering: { checked: true, detected: true, changedFiles: ["tests/a.ts"] } },
+      false,
+      "TAMPERED",
+    ],
     ["target+reg pass, strict, within gates → SOLVED", {}, false, "SOLVED"],
-    ["target+reg pass, strict, over budget → SPRAWL", { diff: { filesChanged: ["src/a.ts"], linesAdded: 100, linesRemoved: 0, withinBudget: false, expectedFilesOnly: true } }, false, "SPRAWL"],
-    ["target+reg pass, strict, unexpected files → SPRAWL", { diff: { filesChanged: ["src/x.ts"], linesAdded: 1, linesRemoved: 0, withinBudget: true, expectedFilesOnly: false } }, false, "SPRAWL"],
-    ["target+reg pass, lenient, over budget → SOLVED", { diff: { filesChanged: ["src/a.ts"], linesAdded: 100, linesRemoved: 0, withinBudget: false, expectedFilesOnly: false } }, true, "SOLVED"],
-    ["target pass, reg broke → TARGET-ONLY", { tests: { targetPassed: true, regressionsHeld: false, targetExitCode: 0, regressionExitCode: 1, targetOutput: "", regressionOutput: "" } }, false, "TARGET-ONLY"],
-    ["target fail, reg held → TARGET-FAIL", { tests: { targetPassed: false, regressionsHeld: true, targetExitCode: 1, regressionExitCode: 0, targetOutput: "", regressionOutput: "" } }, false, "TARGET-FAIL"],
-    ["target fail + reg broke → REGRESSED", { tests: { targetPassed: false, regressionsHeld: false, targetExitCode: 1, regressionExitCode: 1, targetOutput: "", regressionOutput: "" } }, false, "REGRESSED"],
+    [
+      "target+reg pass, strict, over budget → SPRAWL",
+      {
+        diff: {
+          filesChanged: ["src/a.ts"],
+          linesAdded: 100,
+          linesRemoved: 0,
+          withinBudget: false,
+          expectedFilesOnly: true,
+        },
+      },
+      false,
+      "SPRAWL",
+    ],
+    [
+      "target+reg pass, strict, unexpected files → SPRAWL",
+      {
+        diff: {
+          filesChanged: ["src/x.ts"],
+          linesAdded: 1,
+          linesRemoved: 0,
+          withinBudget: true,
+          expectedFilesOnly: false,
+        },
+      },
+      false,
+      "SPRAWL",
+    ],
+    [
+      "target+reg pass, lenient, over budget → SOLVED",
+      {
+        diff: {
+          filesChanged: ["src/a.ts"],
+          linesAdded: 100,
+          linesRemoved: 0,
+          withinBudget: false,
+          expectedFilesOnly: false,
+        },
+      },
+      true,
+      "SOLVED",
+    ],
+    [
+      "target pass, reg broke → TARGET-ONLY",
+      {
+        tests: {
+          targetPassed: true,
+          regressionsHeld: false,
+          targetExitCode: 0,
+          regressionExitCode: 1,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+      },
+      false,
+      "TARGET-ONLY",
+    ],
+    [
+      "target fail, reg held → TARGET-FAIL",
+      {
+        tests: {
+          targetPassed: false,
+          regressionsHeld: true,
+          targetExitCode: 1,
+          regressionExitCode: 0,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+      },
+      false,
+      "TARGET-FAIL",
+    ],
+    [
+      "target fail + reg broke → REGRESSED",
+      {
+        tests: {
+          targetPassed: false,
+          regressionsHeld: false,
+          targetExitCode: 1,
+          regressionExitCode: 1,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+      },
+      false,
+      "REGRESSED",
+    ],
     [
       "concurrency.timedOut + target fail → TIMEOUT (overrides TARGET-FAIL)",
       {
-        tests: { targetPassed: false, regressionsHeld: true, targetExitCode: 1, regressionExitCode: 0, targetOutput: "", regressionOutput: "" },
-        concurrency: { checked: true, statsBefore: null, statsAfter: null, slotLeak: false, timedOut: true },
+        tests: {
+          targetPassed: false,
+          regressionsHeld: true,
+          targetExitCode: 1,
+          regressionExitCode: 0,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+        concurrency: {
+          checked: true,
+          statsBefore: null,
+          statsAfter: null,
+          slotLeak: false,
+          timedOut: true,
+        },
       },
       false,
       "TIMEOUT",
@@ -261,8 +404,21 @@ describe("evaluateStatus", () => {
     [
       "concurrency.timedOut + target pass → SOLVED (don't downgrade real success)",
       {
-        tests: { targetPassed: true, regressionsHeld: true, targetExitCode: 0, regressionExitCode: 0, targetOutput: "", regressionOutput: "" },
-        concurrency: { checked: true, statsBefore: null, statsAfter: null, slotLeak: false, timedOut: true },
+        tests: {
+          targetPassed: true,
+          regressionsHeld: true,
+          targetExitCode: 0,
+          regressionExitCode: 0,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+        concurrency: {
+          checked: true,
+          statsBefore: null,
+          statsAfter: null,
+          slotLeak: false,
+          timedOut: true,
+        },
       },
       false,
       "SOLVED",
@@ -270,7 +426,13 @@ describe("evaluateStatus", () => {
     [
       "target+reg pass, strict, requireFiles missing → INSUFFICIENT-FILES",
       {
-        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: ["src/b.ts"], trivial: [], allTouched: false },
+        multiFile: {
+          checked: true,
+          required: ["src/a.ts", "src/b.ts"],
+          missing: ["src/b.ts"],
+          trivial: [],
+          allTouched: false,
+        },
       },
       false,
       "INSUFFICIENT-FILES",
@@ -278,7 +440,13 @@ describe("evaluateStatus", () => {
     [
       "target+reg pass, strict, requireFiles trivial → INSUFFICIENT-FILES",
       {
-        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: [], trivial: ["src/b.ts"], allTouched: false },
+        multiFile: {
+          checked: true,
+          required: ["src/a.ts", "src/b.ts"],
+          missing: [],
+          trivial: ["src/b.ts"],
+          allTouched: false,
+        },
       },
       false,
       "INSUFFICIENT-FILES",
@@ -286,7 +454,13 @@ describe("evaluateStatus", () => {
     [
       "target+reg pass, lenient, requireFiles missing → SOLVED",
       {
-        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: ["src/b.ts"], trivial: [], allTouched: false },
+        multiFile: {
+          checked: true,
+          required: ["src/a.ts", "src/b.ts"],
+          missing: ["src/b.ts"],
+          trivial: [],
+          allTouched: false,
+        },
       },
       true,
       "SOLVED",
@@ -294,7 +468,13 @@ describe("evaluateStatus", () => {
     [
       "target+reg pass, strict, requireFiles allTouched → SOLVED",
       {
-        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: [], trivial: [], allTouched: true },
+        multiFile: {
+          checked: true,
+          required: ["src/a.ts", "src/b.ts"],
+          missing: [],
+          trivial: [],
+          allTouched: true,
+        },
       },
       false,
       "SOLVED",
@@ -302,8 +482,21 @@ describe("evaluateStatus", () => {
     [
       "target fail + requireFiles missing → TARGET-FAIL (multiFile only checked when target+reg pass)",
       {
-        tests: { targetPassed: false, regressionsHeld: true, targetExitCode: 1, regressionExitCode: 0, targetOutput: "", regressionOutput: "" },
-        multiFile: { checked: true, required: ["src/a.ts", "src/b.ts"], missing: ["src/b.ts"], trivial: [], allTouched: false },
+        tests: {
+          targetPassed: false,
+          regressionsHeld: true,
+          targetExitCode: 1,
+          regressionExitCode: 0,
+          targetOutput: "",
+          regressionOutput: "",
+        },
+        multiFile: {
+          checked: true,
+          required: ["src/a.ts", "src/b.ts"],
+          missing: ["src/b.ts"],
+          trivial: [],
+          allTouched: false,
+        },
       },
       false,
       "TARGET-FAIL",
@@ -373,7 +566,13 @@ describe("parseClaudeJson", () => {
     const stream = [
       '{"type":"system","sessionId":"x"}',
       '{"type":"assistant","content":"thinking"}',
-      JSON.stringify({ type: "result", result: "done", session_id: "ssn", num_turns: 2, total_cost_usd: 0.05 }),
+      JSON.stringify({
+        type: "result",
+        result: "done",
+        session_id: "ssn",
+        num_turns: 2,
+        total_cost_usd: 0.05,
+      }),
     ].join("\n");
     const r = parseClaudeJson(stream);
     expect(r.summary).toBe("done");
@@ -398,7 +597,9 @@ describe("--ci flag end-to-end (subprocess)", () => {
   const REPO_ROOT = path.resolve(import.meta.dir, "../..");
   const RUN_SCRIPT = path.resolve(import.meta.dir, "run.ts");
 
-  async function runHarness(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  async function runHarness(
+    args: string[],
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const proc = Bun.spawn([process.execPath, RUN_SCRIPT, ...args], {
       cwd: REPO_ROOT,
       stdout: "pipe",
@@ -429,17 +630,34 @@ describe("--ci flag end-to-end (subprocess)", () => {
   test("--ci with baseline (regression): exits 1 + names regressed fixtures", async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bench-ci-"));
     const baseline = path.join(tmp, "baseline.json");
-    fs.writeFileSync(baseline, JSON.stringify({
-      generatedAt: "2026-01-01T00:00:00.000Z",
-      reportsScanned: 1,
-      resultsScanned: 1,
-      byFixture: [{ key: "01-bug-fix-arithmetic", total: 1, solved: 1, solveRate: 1.0, totalCostUsd: 0, totalDurationMs: 0 }],
-      byModel: [],
-      byWeek: [],
-      totalCostUsd: 0,
-      overBudgetFixtures: [],
-    }));
-    const res = await runHarness(["--dry-run", "--ci", `--baseline=${baseline}`, "--fixture=01-bug-fix-arithmetic"]);
+    fs.writeFileSync(
+      baseline,
+      JSON.stringify({
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        reportsScanned: 1,
+        resultsScanned: 1,
+        byFixture: [
+          {
+            key: "01-bug-fix-arithmetic",
+            total: 1,
+            solved: 1,
+            solveRate: 1.0,
+            totalCostUsd: 0,
+            totalDurationMs: 0,
+          },
+        ],
+        byModel: [],
+        byWeek: [],
+        totalCostUsd: 0,
+        overBudgetFixtures: [],
+      }),
+    );
+    const res = await runHarness([
+      "--dry-run",
+      "--ci",
+      `--baseline=${baseline}`,
+      "--fixture=01-bug-fix-arithmetic",
+    ]);
     expect(res.exitCode).toBe(1);
     expect(res.stdout).toContain("regressed=1");
     expect(res.stderr).toContain("01-bug-fix-arithmetic");
@@ -450,17 +668,35 @@ describe("--ci flag end-to-end (subprocess)", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bench-ci-"));
     const baseline = path.join(tmp, "baseline.json");
     const commentPath = path.join(tmp, "comment.md");
-    fs.writeFileSync(baseline, JSON.stringify({
-      generatedAt: "2026-01-01T00:00:00.000Z",
-      reportsScanned: 1,
-      resultsScanned: 1,
-      byFixture: [{ key: "01-bug-fix-arithmetic", total: 1, solved: 1, solveRate: 1.0, totalCostUsd: 0, totalDurationMs: 0 }],
-      byModel: [],
-      byWeek: [],
-      totalCostUsd: 0,
-      overBudgetFixtures: [],
-    }));
-    const res = await runHarness(["--mock", "--ci", `--baseline=${baseline}`, `--comment-out=${commentPath}`, "--fixture=01-bug-fix-arithmetic"]);
+    fs.writeFileSync(
+      baseline,
+      JSON.stringify({
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        reportsScanned: 1,
+        resultsScanned: 1,
+        byFixture: [
+          {
+            key: "01-bug-fix-arithmetic",
+            total: 1,
+            solved: 1,
+            solveRate: 1.0,
+            totalCostUsd: 0,
+            totalDurationMs: 0,
+          },
+        ],
+        byModel: [],
+        byWeek: [],
+        totalCostUsd: 0,
+        overBudgetFixtures: [],
+      }),
+    );
+    const res = await runHarness([
+      "--mock",
+      "--ci",
+      `--baseline=${baseline}`,
+      `--comment-out=${commentPath}`,
+      "--fixture=01-bug-fix-arithmetic",
+    ]);
     expect(res.exitCode).toBe(0);
     expect(fs.existsSync(commentPath)).toBe(true);
     const md = fs.readFileSync(commentPath, "utf-8");
@@ -471,7 +707,12 @@ describe("--ci flag end-to-end (subprocess)", () => {
   }, 30_000);
 
   test("--baseline missing: exits 2", async () => {
-    const res = await runHarness(["--mock", "--ci", "--baseline=/tmp/nonexistent-bench-baseline-xyz.json", "--fixture=01-bug-fix-arithmetic"]);
+    const res = await runHarness([
+      "--mock",
+      "--ci",
+      "--baseline=/tmp/nonexistent-bench-baseline-xyz.json",
+      "--fixture=01-bug-fix-arithmetic",
+    ]);
     expect(res.exitCode).toBe(2);
     expect(res.stderr).toContain("baseline not found");
   });

@@ -7,7 +7,10 @@ describe("debounce — only-last-wins (target)", () => {
   test("3 rapid calls fire only once", async () => {
     let calls = 0;
     const args: number[] = [];
-    const d = debounce((n: number) => { calls++; args.push(n); }, 30);
+    const d = debounce((n: number) => {
+      calls++;
+      args.push(n);
+    }, 30);
     d(1);
     d(2);
     d(3);
@@ -18,7 +21,9 @@ describe("debounce — only-last-wins (target)", () => {
 
   test("rapid calls then idle then more rapid → fires twice", async () => {
     let calls = 0;
-    const d = debounce(() => { calls++; }, 25);
+    const d = debounce(() => {
+      calls++;
+    }, 25);
     d();
     d();
     await sleep(60);

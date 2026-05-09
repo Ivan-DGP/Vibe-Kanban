@@ -45,16 +45,57 @@ function makeResult(over: Partial<BenchResult> = {}): BenchResult {
       terminalReason: null,
       permissionDenials: null,
     },
-    tests: { targetPassed: true, regressionsHeld: true, targetExitCode: 0, regressionExitCode: 0, targetOutput: "", regressionOutput: "" },
-    diff: { filesChanged: [], linesAdded: 0, linesRemoved: 0, withinBudget: true, expectedFilesOnly: true },
+    tests: {
+      targetPassed: true,
+      regressionsHeld: true,
+      targetExitCode: 0,
+      regressionExitCode: 0,
+      targetOutput: "",
+      regressionOutput: "",
+    },
+    diff: {
+      filesChanged: [],
+      linesAdded: 0,
+      linesRemoved: 0,
+      withinBudget: true,
+      expectedFilesOnly: true,
+    },
     preflight: { ran: false, misFixture: false, reason: null },
     tampering: { checked: false, detected: false, changedFiles: [] },
-    chain: { depth: 1, parentLinksValid: true, leafTaskId: null, leafStatus: null, totalAiRuns: 0, totalDurationMs: 0, totalCostUsd: 0, expectedDepth: null, expectedDepthMet: true },
-    concurrency: { checked: false, statsBefore: null, statsAfter: null, slotLeak: false, timedOut: false },
+    chain: {
+      depth: 1,
+      parentLinksValid: true,
+      leafTaskId: null,
+      leafStatus: null,
+      totalAiRuns: 0,
+      totalDurationMs: 0,
+      totalCostUsd: 0,
+      expectedDepth: null,
+      expectedDepthMet: true,
+    },
+    concurrency: {
+      checked: false,
+      statsBefore: null,
+      statsAfter: null,
+      slotLeak: false,
+      timedOut: false,
+    },
     sideEffects: {
       checked: false,
-      taskAiRun: { found: false, exitCode: null, success: null, durationMs: null, sessionIdSet: false, summarySet: false },
-      timestamps: { inboxAtSet: false, inProgressAtSet: false, doneAtSet: false, cascadeOrdered: false },
+      taskAiRun: {
+        found: false,
+        exitCode: null,
+        success: null,
+        durationMs: null,
+        sessionIdSet: false,
+        summarySet: false,
+      },
+      timestamps: {
+        inboxAtSet: false,
+        inProgressAtSet: false,
+        doneAtSet: false,
+        cascadeOrdered: false,
+      },
       snapshot: { fileExists: false, taskInSnapshot: false },
       embeddings: { rowCount: 0, skipped: false },
       allGreen: false,
@@ -110,7 +151,7 @@ describe("groupByFixture", () => {
     const r = makeReport([
       makeResult({ ai: { ...makeResult().ai, totalCostUsd: 0.05 } }),
       makeResult({ ai: { ...makeResult().ai, totalCostUsd: null } }),
-      makeResult({ ai: { ...makeResult().ai, totalCostUsd: 0.10 } }),
+      makeResult({ ai: { ...makeResult().ai, totalCostUsd: 0.1 } }),
     ]);
     const buckets = groupByFixture([r]);
     expect(buckets[0].totalCostUsd).toBeCloseTo(0.15, 4);
@@ -120,13 +161,54 @@ describe("groupByFixture", () => {
     const buckets = groupByFixture([r]);
     expect(buckets[0].solveRate).toBe(0);
   });
+  test("excludes results where ai.invoked === false (dry-run / --mock leak)", () => {
+    const r = makeReport([
+      makeResult({ fixtureId: "a", solved: true, ai: { ...makeResult().ai, invoked: false } }),
+      makeResult({ fixtureId: "a", solved: false, ai: { ...makeResult().ai, invoked: false } }),
+      makeResult({ fixtureId: "a", solved: true }),
+    ]);
+    const buckets = groupByFixture([r]);
+    expect(buckets[0].total).toBe(1);
+    expect(buckets[0].solved).toBe(1);
+    expect(buckets[0].solveRate).toBe(1);
+  });
+  test("excludes fixtures flagged excludeFromCalibration when specs are passed", () => {
+    const r = makeReport([
+      makeResult({ fixtureId: "meta", solved: false, status: "TARGET-FAIL" }),
+      makeResult({ fixtureId: "real", solved: true }),
+    ]);
+    const specs = new Map<string, BenchSpec>([
+      [
+        "meta",
+        {
+          id: "meta",
+          title: "t",
+          category: "stress",
+          difficulty: "easy",
+          prompt: "p",
+          targetTestPath: "t",
+          regressionTestPath: "r",
+          maxDiffLines: 100,
+          timeoutMs: 1000,
+          excludeFromCalibration: true,
+        },
+      ],
+    ]);
+    const buckets = groupByFixture([r], specs);
+    expect(buckets.length).toBe(1);
+    expect(buckets[0].key).toBe("real");
+  });
 });
 
 describe("groupByModel", () => {
   test("dedupes per result, counts per model", () => {
     const r = makeReport([
       makeResult({ ai: { ...makeResult().ai, models: ["claude-opus-4-7"] } }),
-      makeResult({ ai: { ...makeResult().ai, models: ["claude-sonnet-4-6"] }, solved: false, status: "REGRESSED" }),
+      makeResult({
+        ai: { ...makeResult().ai, models: ["claude-sonnet-4-6"] },
+        solved: false,
+        status: "REGRESSED",
+      }),
     ]);
     const buckets = groupByModel([r]);
     expect(buckets.length).toBe(2);
@@ -158,22 +240,58 @@ describe("computeOverBudget", () => {
       makeResult({ fixtureId: "x", ai: { ...makeResult().ai, totalCostUsd: 0.6 } }),
     ]);
     const buckets = groupByFixture([r]);
-    const specs = new Map<string, BenchSpec>([["x", { id: "x", title: "x", category: "x", difficulty: "x", prompt: "p", targetTestPath: "t", regressionTestPath: "r", maxDiffLines: 100, timeoutMs: 1000, costBudgetUsd: 1.0 }]]);
+    const specs = new Map<string, BenchSpec>([
+      [
+        "x",
+        {
+          id: "x",
+          title: "x",
+          category: "x",
+          difficulty: "x",
+          prompt: "p",
+          targetTestPath: "t",
+          regressionTestPath: "r",
+          maxDiffLines: 100,
+          timeoutMs: 1000,
+          costBudgetUsd: 1.0,
+        },
+      ],
+    ]);
     const flagged = computeOverBudget(buckets, specs);
     expect(flagged.length).toBe(1);
     expect(flagged[0].totalCostUsd).toBeCloseTo(1.1, 4);
     expect(buckets[0].overBudget).toBe(true);
   });
   test("skips when fixture has no budget", () => {
-    const r = makeReport([makeResult({ fixtureId: "y", ai: { ...makeResult().ai, totalCostUsd: 99 } })]);
+    const r = makeReport([
+      makeResult({ fixtureId: "y", ai: { ...makeResult().ai, totalCostUsd: 99 } }),
+    ]);
     const buckets = groupByFixture([r]);
     const flagged = computeOverBudget(buckets, new Map());
     expect(flagged.length).toBe(0);
   });
   test("no flag when cost is under budget", () => {
-    const r = makeReport([makeResult({ fixtureId: "z", ai: { ...makeResult().ai, totalCostUsd: 0.1 } })]);
+    const r = makeReport([
+      makeResult({ fixtureId: "z", ai: { ...makeResult().ai, totalCostUsd: 0.1 } }),
+    ]);
     const buckets = groupByFixture([r]);
-    const specs = new Map<string, BenchSpec>([["z", { id: "z", title: "z", category: "z", difficulty: "z", prompt: "p", targetTestPath: "t", regressionTestPath: "r", maxDiffLines: 100, timeoutMs: 1000, costBudgetUsd: 1.0 }]]);
+    const specs = new Map<string, BenchSpec>([
+      [
+        "z",
+        {
+          id: "z",
+          title: "z",
+          category: "z",
+          difficulty: "z",
+          prompt: "p",
+          targetTestPath: "t",
+          regressionTestPath: "r",
+          maxDiffLines: 100,
+          timeoutMs: 1000,
+          costBudgetUsd: 1.0,
+        },
+      ],
+    ]);
     expect(computeOverBudget(buckets, specs).length).toBe(0);
   });
 });
@@ -182,7 +300,12 @@ describe("aggregate full", () => {
   test("combines all groupings + totals", () => {
     const r = makeReport([
       makeResult({ ai: { ...makeResult().ai, totalCostUsd: 0.02, models: ["m1"] } }),
-      makeResult({ fixtureId: "b", solved: false, status: "TARGET-FAIL", ai: { ...makeResult().ai, totalCostUsd: 0.03, models: ["m2"] } }),
+      makeResult({
+        fixtureId: "b",
+        solved: false,
+        status: "TARGET-FAIL",
+        ai: { ...makeResult().ai, totalCostUsd: 0.03, models: ["m2"] },
+      }),
     ]);
     const a = aggregate([r], new Map());
     expect(a.resultsScanned).toBe(2);
@@ -216,7 +339,9 @@ describe("compareReports", () => {
     expect(cEntry.delta).toBe("no-change");
   });
   test("status-change when solved unchanged but status differs", () => {
-    const before = makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })]);
+    const before = makeReport([
+      makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" }),
+    ]);
     const after = makeReport([makeResult({ fixtureId: "a", solved: false, status: "REGRESSED" })]);
     const cmp = compareReports(before, after, "x", "y");
     expect(cmp.statusChanges).toBe(1);
@@ -230,13 +355,17 @@ describe("compareReports", () => {
     expect(newone.delta).toBe("added");
   });
   test("cost delta sums correctly", () => {
-    const before = makeReport([makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.10 } })]);
-    const after = makeReport([makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.30 } })]);
+    const before = makeReport([
+      makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.1 } }),
+    ]);
+    const after = makeReport([
+      makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.3 } }),
+    ]);
     const cmp = compareReports(before, after, "x", "y");
-    expect(cmp.totalCostBeforeUsd).toBeCloseTo(0.10, 4);
-    expect(cmp.totalCostAfterUsd).toBeCloseTo(0.30, 4);
-    expect(cmp.costDeltaUsd).toBeCloseTo(0.20, 4);
-    expect(cmp.fixtures[0].costDeltaUsd).toBeCloseTo(0.20, 4);
+    expect(cmp.totalCostBeforeUsd).toBeCloseTo(0.1, 4);
+    expect(cmp.totalCostAfterUsd).toBeCloseTo(0.3, 4);
+    expect(cmp.costDeltaUsd).toBeCloseTo(0.2, 4);
+    expect(cmp.fixtures[0].costDeltaUsd).toBeCloseTo(0.2, 4);
   });
 });
 
@@ -246,7 +375,9 @@ describe("compareAgainstBaseline", () => {
       [makeReport([makeResult({ fixtureId: "a", solved: true })])],
       new Map(),
     );
-    const current = makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })]);
+    const current = makeReport([
+      makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" }),
+    ]);
     const cmp = compareAgainstBaseline([current], baseline);
     expect(cmp.regressions).toEqual(["a"]);
     expect(cmp.improvements).toEqual([]);
@@ -271,7 +402,9 @@ describe("compareAgainstBaseline", () => {
       ],
       new Map(),
     );
-    const current = makeReport([makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" })]);
+    const current = makeReport([
+      makeResult({ fixtureId: "a", solved: false, status: "TARGET-FAIL" }),
+    ]);
     const cmp = compareAgainstBaseline([current], baseline);
     expect(cmp.regressions).toEqual([]);
   });
@@ -298,17 +431,21 @@ describe("compareAgainstBaseline", () => {
       [makeReport([makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.1 } })])],
       new Map(),
     );
-    const current = makeReport([makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.3 } })]);
+    const current = makeReport([
+      makeResult({ fixtureId: "a", ai: { ...makeResult().ai, totalCostUsd: 0.3 } }),
+    ]);
     const cmp = compareAgainstBaseline([current], baseline);
     expect(cmp.costDelta).toBeCloseTo(0.2, 4);
   });
 
   test("returns sorted lists", () => {
     const baseline = aggregate(
-      [makeReport([
-        makeResult({ fixtureId: "z", solved: true }),
-        makeResult({ fixtureId: "a", solved: true }),
-      ])],
+      [
+        makeReport([
+          makeResult({ fixtureId: "z", solved: true }),
+          makeResult({ fixtureId: "a", solved: true }),
+        ]),
+      ],
       new Map(),
     );
     const current = makeReport([
@@ -339,7 +476,13 @@ describe("formatBaselineMd", () => {
     expect(md).toContain("b");
   });
   test("empty lists render as em-dash", () => {
-    const md = formatBaselineMd({ regressions: [], improvements: [], added: [], removed: [], costDelta: 0 });
+    const md = formatBaselineMd({
+      regressions: [],
+      improvements: [],
+      added: [],
+      removed: [],
+      costDelta: 0,
+    });
     expect(md).toContain("—");
   });
 });
@@ -402,8 +545,34 @@ describe("filesystem helpers", () => {
     const fxDir = path.join(tmpDir, "fixtures");
     fs.mkdirSync(path.join(fxDir, "01-x"), { recursive: true });
     fs.mkdirSync(path.join(fxDir, "02-y"), { recursive: true });
-    fs.writeFileSync(path.join(fxDir, "01-x", "bench.json"), JSON.stringify({ id: "01-x", title: "t", category: "c", difficulty: "easy", prompt: "p", targetTestPath: "t", regressionTestPath: "r", maxDiffLines: 100, timeoutMs: 1000 }));
-    fs.writeFileSync(path.join(fxDir, "02-y", "bench.json"), JSON.stringify({ id: "02-y", title: "t", category: "c", difficulty: "easy", prompt: "p", targetTestPath: "t", regressionTestPath: "r", maxDiffLines: 100, timeoutMs: 1000 }));
+    fs.writeFileSync(
+      path.join(fxDir, "01-x", "bench.json"),
+      JSON.stringify({
+        id: "01-x",
+        title: "t",
+        category: "c",
+        difficulty: "easy",
+        prompt: "p",
+        targetTestPath: "t",
+        regressionTestPath: "r",
+        maxDiffLines: 100,
+        timeoutMs: 1000,
+      }),
+    );
+    fs.writeFileSync(
+      path.join(fxDir, "02-y", "bench.json"),
+      JSON.stringify({
+        id: "02-y",
+        title: "t",
+        category: "c",
+        difficulty: "easy",
+        prompt: "p",
+        targetTestPath: "t",
+        regressionTestPath: "r",
+        maxDiffLines: 100,
+        timeoutMs: 1000,
+      }),
+    );
     const specs = loadFixtureSpecs(fxDir);
     expect(specs.size).toBe(2);
     expect(specs.has("01-x")).toBe(true);

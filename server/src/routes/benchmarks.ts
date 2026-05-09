@@ -37,10 +37,15 @@ export interface BuiltBenchArgs {
   fixtures: string[];
 }
 
-export function buildBenchArgs(body: BenchTriggerInput, knownFixtureIds: Set<string>): BuiltBenchArgs {
+export function buildBenchArgs(
+  body: BenchTriggerInput,
+  knownFixtureIds: Set<string>,
+): BuiltBenchArgs {
   const args: string[] = ["run", "bench"];
   const fx = Array.isArray(body.fixtures)
-    ? (body.fixtures as unknown[]).filter((v): v is string => typeof v === "string" && knownFixtureIds.has(v))
+    ? (body.fixtures as unknown[]).filter(
+        (v): v is string => typeof v === "string" && knownFixtureIds.has(v),
+      )
     : [];
   for (const f of fx) args.push(`--fixture=${f}`);
   if (body.mock === true) args.push("--mock");
@@ -48,10 +53,10 @@ export function buildBenchArgs(body: BenchTriggerInput, knownFixtureIds: Set<str
   if (body.lenient === true) args.push("--lenient");
   if (body.mode === "pipeline") args.push("--mode=pipeline");
   if (
-    typeof body.parallel === "number"
-    && Number.isInteger(body.parallel)
-    && body.parallel >= ALLOWED_PARALLEL_MIN
-    && body.parallel <= ALLOWED_PARALLEL_MAX
+    typeof body.parallel === "number" &&
+    Number.isInteger(body.parallel) &&
+    body.parallel >= ALLOWED_PARALLEL_MIN &&
+    body.parallel <= ALLOWED_PARALLEL_MAX
   ) {
     args.push(`--parallel=${body.parallel}`);
   }
@@ -63,13 +68,22 @@ function listReportFiles(): string[] {
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".json") && !f.startsWith("aggregate-") && !f.startsWith("compare-") && !f.startsWith("calibrate-"))
+    .filter(
+      (f) =>
+        f.endsWith(".json") &&
+        !f.startsWith("aggregate-") &&
+        !f.startsWith("compare-") &&
+        !f.startsWith("calibrate-"),
+    )
     .sort()
     .reverse();
 }
 
 function totalCost(r: { results?: { ai?: { totalCostUsd?: number | null } }[] }): number {
-  return (r.results ?? []).reduce((s, x) => s + (typeof x.ai?.totalCostUsd === "number" ? x.ai.totalCostUsd : 0), 0);
+  return (r.results ?? []).reduce(
+    (s, x) => s + (typeof x.ai?.totalCostUsd === "number" ? x.ai.totalCostUsd : 0),
+    0,
+  );
 }
 
 function uniqueModels(r: { results?: { ai?: { models?: string[] } }[] }): string[] {
@@ -124,31 +138,33 @@ function toActiveWire(row: benchRunsRepo.BenchRunRow): ActiveRunWire {
 const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/benchmarks/runs", async () => {
     const files = listReportFiles();
-    const runs = files.map((f) => {
-      try {
-        const full = path.join(resultsDir(), f);
-        const r = JSON.parse(fs.readFileSync(full, "utf-8")) as {
-          startedAt?: string;
-          finishedAt?: string;
-          totalMs?: number;
-          count?: number;
-          solvedCount?: number;
-          results?: { ai?: { totalCostUsd?: number | null; models?: string[] } }[];
-        };
-        return {
-          id: f.slice(0, -".json".length),
-          startedAt: r.startedAt ?? null,
-          finishedAt: r.finishedAt ?? null,
-          totalMs: r.totalMs ?? null,
-          count: r.count ?? (r.results?.length ?? 0),
-          solvedCount: r.solvedCount ?? null,
-          totalCostUsd: totalCost(r),
-          models: uniqueModels(r),
-        };
-      } catch {
-        return null;
-      }
-    }).filter((x): x is NonNullable<typeof x> => x !== null);
+    const runs = files
+      .map((f) => {
+        try {
+          const full = path.join(resultsDir(), f);
+          const r = JSON.parse(fs.readFileSync(full, "utf-8")) as {
+            startedAt?: string;
+            finishedAt?: string;
+            totalMs?: number;
+            count?: number;
+            solvedCount?: number;
+            results?: { ai?: { totalCostUsd?: number | null; models?: string[] } }[];
+          };
+          return {
+            id: f.slice(0, -".json".length),
+            startedAt: r.startedAt ?? null,
+            finishedAt: r.finishedAt ?? null,
+            totalMs: r.totalMs ?? null,
+            count: r.count ?? r.results?.length ?? 0,
+            solvedCount: r.solvedCount ?? null,
+            totalCostUsd: totalCost(r),
+            models: uniqueModels(r),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
     return { runs };
   });
 
@@ -199,9 +215,13 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
     const startedAt = new Date().toISOString();
     const mode = body.mode === "pipeline" ? "pipeline" : "harness";
     const mock = body.mock === true;
-    const parallel = typeof body.parallel === "number" && Number.isInteger(body.parallel) && body.parallel >= ALLOWED_PARALLEL_MIN && body.parallel <= ALLOWED_PARALLEL_MAX
-      ? body.parallel
-      : 1;
+    const parallel =
+      typeof body.parallel === "number" &&
+      Number.isInteger(body.parallel) &&
+      body.parallel >= ALLOWED_PARALLEL_MIN &&
+      body.parallel <= ALLOWED_PARALLEL_MAX
+        ? body.parallel
+        : 1;
 
     benchRunsRepo.insert({
       id: runId,
@@ -217,7 +237,13 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (process.env.VK_DISABLE_BENCH_SPAWN === "1") {
       benchRunsRepo.updateOnFinish(runId, "succeeded", null);
-      return reply.send({ runId, startedAt, args: built.args, fixtures: built.fixtures, spawned: false });
+      return reply.send({
+        runId,
+        startedAt,
+        args: built.args,
+        fixtures: built.fixtures,
+        spawned: false,
+      });
     }
 
     try {
@@ -251,7 +277,13 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
       benchRunsRepo.updateOnFinish(runId, "failed", null);
     }
 
-    return reply.send({ runId, startedAt, args: built.args, fixtures: built.fixtures, spawned: true });
+    return reply.send({
+      runId,
+      startedAt,
+      args: built.args,
+      fixtures: built.fixtures,
+      spawned: true,
+    });
   });
 };
 

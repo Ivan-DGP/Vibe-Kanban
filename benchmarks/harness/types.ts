@@ -11,6 +11,34 @@ export interface BenchMockChainStep {
   createChildMetadata?: Record<string, unknown>;
 }
 
+/**
+ * server-integration mode: declarative HTTP script run against the real
+ * Fastify app. Each step is dispatched via app.inject(). URLs and payloads
+ * may reference earlier responses with `${var}` after a step uses `saveAs`.
+ * `${projectId}` is preset by the harness to the bench-created project.
+ */
+export interface BenchHttpExpect {
+  /** Required exact status code. */
+  statusCode?: number;
+  /** Substring match against raw body (useful for plain-text endpoints). */
+  bodyContains?: string;
+  /** Each entry asserts a JSON path equals an exact value. Path uses dot+bracket form: `a.b[0].c`. */
+  jsonPath?: { path: string; value: unknown }[];
+  /** Save the parsed JSON body under this name for later `${name…}` substitution. */
+  saveAs?: string;
+}
+
+export interface BenchHttpStep {
+  /** Short label rendered in the per-fixture report. */
+  name: string;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** Path; may reference `${projectId}` and any `saveAs` names with `${name.path}` form. */
+  url: string;
+  /** Optional JSON body; same `${…}` substitution applies recursively. */
+  payload?: unknown;
+  expect?: BenchHttpExpect;
+}
+
 export interface BenchSpec {
   id: string;
   title: string;
@@ -27,9 +55,11 @@ export interface BenchSpec {
   /** Optional reference fix used by --mock to validate scoring without burning tokens. Map of relative path → full file content. */
   mockFix?: Record<string, string>;
   /** Pipeline-mode dispatch hint. Defaults to "codebase" (bench-codebase spawn). */
-  pipelineMode?: "codebase" | "qa-test" | "dev-fix";
+  pipelineMode?: "codebase" | "qa-test" | "dev-fix" | "server-integration";
   /** Drive a multi-task orchestration chain in mock mode. fake-claude steps through these by matching task metadata.type. */
   mockChain?: BenchMockChainStep[];
+  /** server-integration mode: ordered HTTP script. AI is never invoked; coverage of real route handlers is the point. */
+  httpScript?: BenchHttpStep[];
   /** Expected final chain depth (root=1, +1 per child). Used to gate Phase C scoring. */
   expectedChainDepth?: number;
   /** Force fake-claude to sleep this many ms before exiting. Used for timeout-recovery tests. */
@@ -161,6 +191,19 @@ export interface BenchResult {
     allTouched: boolean;
   };
 
+  serverIntegration: {
+    ran: boolean;
+    steps: {
+      name: string;
+      method: string;
+      url: string;
+      statusCode: number | null;
+      passed: boolean;
+      error: string | null;
+    }[];
+    allPassed: boolean;
+  };
+
   status: BenchStatus;
   solved: boolean;
   error: string | null;
@@ -192,14 +235,26 @@ export interface BenchAggregateReport {
   byFixture: AggregateBucket[];
   byModel: AggregateBucket[];
   byWeek: AggregateBucket[];
+  /** server-integration coverage fixtures: pass/fail rather than AI solve-rate. */
+  byCoverage: AggregateBucket[];
   totalCostUsd: number;
   overBudgetFixtures: { fixtureId: string; totalCostUsd: number; budget: number }[];
 }
 
 export interface FixtureCompareEntry {
   fixtureId: string;
-  before: { status: string | null; solved: boolean | null; totalCostUsd: number | null; durationMs: number | null };
-  after: { status: string | null; solved: boolean | null; totalCostUsd: number | null; durationMs: number | null };
+  before: {
+    status: string | null;
+    solved: boolean | null;
+    totalCostUsd: number | null;
+    durationMs: number | null;
+  };
+  after: {
+    status: string | null;
+    solved: boolean | null;
+    totalCostUsd: number | null;
+    durationMs: number | null;
+  };
   delta: "regression" | "improvement" | "status-change" | "no-change" | "added" | "removed";
   costDeltaUsd: number | null;
   durationDeltaMs: number | null;

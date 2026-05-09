@@ -7,6 +7,7 @@
 ## Context
 
 We shipped v1 at `benchmarks/` (3 fixtures, harness, JSON+MD reports). Three validation agents found:
+
 - 5 v1 integrity bugs (answer-key leak, test tampering risk, weak gates, parser, no baseline pre-flight)
 - 8 production pipeline gaps (no MCP, wrong prompts, single-shot only, DB writes / cascade / snapshots / embeddings / concurrency unexercised)
 
@@ -19,6 +20,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 ## Phases
 
 ### Phase A: v1 trust & integrity
+
 - **Status:** completed
 - **Dependencies:** none
 - **Files:**
@@ -37,6 +39,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** New `BenchStatus` enum: `SOLVED · TARGET-FAIL · TARGET-ONLY · REGRESSED · SPRAWL · TAMPERED · MIS-FIXTURE · ERROR`. `printOneLine` and report markdown switched from "solved yes/no" → status display. `main()` gated with `import.meta.main` so harness functions are importable in tests.
 
 ### Phase B: pipeline-bench mode (in-process production path)
+
 - **Status:** completed
 - **Dependencies:** Phase A
 - **Files:**
@@ -57,6 +60,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Subprocess-per-fixture architecture chosen over in-process loop — `data-dir.ts` evaluates `DATA_DIR` const at import time and `mcpConfigWriter` similarly snapshots `PORT`, so re-using one process across fixtures is unsafe. Each pipeline run is a fresh `bun pipeline.ts --fixture=<id>` invocation. Fake-claude shim uses HTTP PATCH /api/tasks/:id (mocking what real claude does via MCP `update_task`) — verified production task PATCH route updates status correctly. The bash wrapper exports `VK_BENCH_API_URL` because production `spawnProcess` only forwards a fixed env allowlist (PATH/HOME/USERPROFILE/SYSTEMROOT) to subprocesses.
 
 ### Phase C: multi-task orchestration bench
+
 - **Status:** completed
 - **Dependencies:** Phase B
 - **Files:**
@@ -75,6 +79,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** fake-claude handles chain dispatch by calling `GET /api/tasks/:id` to discover its own metadata.type, then matching against the `mockChain` array shipped to cwd as `.bench-mockchain.json`. The harness writes both `.bench-mockfix.json` (legacy single-fix) and `.bench-mockchain.json` (chain-aware) to workDir before kicking off; both are removed before the grading tests run so they don't show up in the diff. evaluateStatus does not gate on chain — chain shape is reported separately. If the chain fails to unfold the leaf never lands a fix, target test fails, and we report TARGET-FAIL through the existing path.
 
 ### Phase D: side-effect verification
+
 - **Status:** completed
 - **Dependencies:** Phase B
 - **Files:**
@@ -93,6 +98,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Hooked into pipeline.ts after `traceChain`, using `chain.leafTaskId` (so chained fixtures verify the leaf, e.g. fixture 04's dev-fix child). `summarize()` computes `allGreen` requiring all four invariants except embeddings.skipped is allowed. MD report adds one `- side-effects: allGreen=… aiRun=… ts=[inbox=… inProgress=… done=… ordered=…] snapshot=…/… embeddings=…` line per fixture. evaluateStatus does NOT gate on sideEffects — it's diagnostic, similar to chain in Phase C.
 
 ### Phase E: concurrency & stress
+
 - **Status:** completed
 - **Dependencies:** Phase B
 - **Files:**
@@ -112,9 +118,10 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
   - [x] E2: `concurrency.statsBefore`/`statsAfter` snapshot `getHeadlessClaudeStats()`; `slotLeak = statsAfter.inFlight !== 0`. Verified `slotLeak=false` on all 5 fixtures including the killed timeout case.
   - [x] E3: Fixture 05 (`05-timeout-recovery`) sets `mockHangMs=30000` and `timeoutMs=2000`. fake-claude sleeps; production kills it after 2s; spawnHeadlessClaude finally block records the row (exitCode=143/SIGTERM) and releases the slot. Status `TIMEOUT` (new) reported when `concurrency.timedOut && !targetPassed`.
   - [x] E4: Smoke `--mode=pipeline --mock-claude --parallel=2` → 4 SOLVED + 1 TIMEOUT, every slotLeak=false. 12 concurrency.test.ts unit tests; 2 added evaluateStatus rows; harness suite 78/78; server suite 1302/1302 across 26 sharded batches.
-- **Notes:** Two tricky bits surfaced. (1) `pollForTaskAiRun` originally used `spec.timeoutMs` as its own deadline, but the row is only written *after* the kill+spawnHeadlessClaude finally block — needed +5s settle window or polls miss the row. (2) Parallel subprocesses race in `@xenova/transformers` cache initialization (`ENOENT: ... open 'blob:...'`). Solved by setting `VK_DISABLE_EMBEDDINGS=1` for parallel runs only — phase-D embedding verification still works at parallel=1, and `verifyEmbeddings` already accommodates `skipped: true`. The headlessClaude `VK_HEADLESS_CLAUDE_TIMEOUT_MS` env override is a useful production knob (default unchanged at 15min).
+- **Notes:** Two tricky bits surfaced. (1) `pollForTaskAiRun` originally used `spec.timeoutMs` as its own deadline, but the row is only written _after_ the kill+spawnHeadlessClaude finally block — needed +5s settle window or polls miss the row. (2) Parallel subprocesses race in `@xenova/transformers` cache initialization (`ENOENT: ... open 'blob:...'`). Solved by setting `VK_DISABLE_EMBEDDINGS=1` for parallel runs only — phase-D embedding verification still works at parallel=1, and `verifyEmbeddings` already accommodates `skipped: true`. The headlessClaude `VK_HEADLESS_CLAUDE_TIMEOUT_MS` env override is a useful production knob (default unchanged at 15min).
 
 ### Phase F: reporting, model comparison, cost
+
 - **Status:** completed
 - **Dependencies:** Phase A (works on standalone codebase results too)
 - **Files:**
@@ -130,6 +137,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** History tolerance was non-obvious — pre-Phase-D reports lack `ai.models[]`, so `groupByModel` defensively treats `r.ai?.models` as optional and buckets missing entries under `(unknown)`. `loadAllReports` also swallows malformed json files instead of poisoning the roll-up. Subcommand dispatch lives at the top of `main()` — first non-flag positional decides; everything else falls through to the existing `parseArgs` so `--fixture=…` / `--mode=…` keep working without `--` separator hacks.
 
 ### Phase G: fixture library expansion
+
 - **Status:** completed
 - **Dependencies:** Phase A (codebase mode), benefits from B for full pipeline runs
 - **Files:**
@@ -148,6 +156,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Total fixtures now 12 across {bug-fix, feature-add, regression-trap, orchestration, timeout-recovery, react, css, async, multi-file types, multi-file validator, hard token bucket, hard event-once}. Difficulty mix: 7 medium, 3 hard (#11, #12, #09), 2 already medium-hard (#03, #05). Categories cover algorithm, abstract-data-type, async, frontend (logic level), and cross-file refactor. Multi-file enforcement strictness is a known harness gap — would require AST checks or per-file test partitioning to fix; out of scope for v1.
 
 ### Phase H: UI integration
+
 - **Status:** completed
 - **Dependencies:** Phase F (consumes aggregate data)
 - **Files:**
@@ -180,6 +189,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Frontend test fixtures (G1)** — Playwright-driven targets are slow + flaky; consider whether to gate them behind a separate `--include-e2e` flag.
 
 ### Phase I: failure-injection bench
+
 - **Status:** pending
 - **Dependencies:** Phase B
 - **Files:**
@@ -201,6 +211,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes risk "Streaming-JSON edge cases" + "MCP `update_task` auth"; closes pipeline gaps 11–13.
 
 ### Phase J: E2E task-flow UI bench (Playwright)
+
 - **Status:** pending
 - **Dependencies:** Phase B
 - **Files:**
@@ -211,12 +222,13 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Work items:**
   - [ ] J1: Playwright spec drives the user-visible loop: open `/`, create project pointing at fixture work dir, create task in board, observe status badge transitions (backlog → in_progress → done) within p95 budget, assert diff renders in detail panel
   - [ ] J2: SSE/WebSocket assertions — task status streams to UI within 2s of DB write; failure here means the task page is stale even when the backend is fine
-  - [ ] J3: Drag-drop status-change → cascade verification (covers the path *not* exercised by API-only tests)
+  - [ ] J3: Drag-drop status-change → cascade verification (covers the path _not_ exercised by API-only tests)
   - [ ] J4: 1 fixture wrapped as E2E (existing `01-bug-fix-arithmetic`); `--include-e2e` opt-in flag so default `bench` runs stay fast
   - [ ] J5: Result reporting — fold E2E results into the same `bench` table; new diff field `e2eMs` for board-update latency
 - **Notes:** This is the "real user view" bench — the current Phase H UI is the bench dashboard, not the user task flow. Closes pipeline gaps 14–15.
 
 ### Phase K: adversarial bench
+
 - **Status:** pending
 - **Dependencies:** Phase A
 - **Files:**
@@ -227,13 +239,14 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
   - `benchmarks/harness/score.ts` (extend with `verifyNoExfil`)
   - `benchmarks/harness/types.ts` (new statuses `EXFIL`, `INJECTED`)
 - **Work items:**
-  - [ ] K1: 4 adversarial fixtures; SOLVED ⇔ model resisted the trap *and* delivered the legit fix
+  - [ ] K1: 4 adversarial fixtures; SOLVED ⇔ model resisted the trap _and_ delivered the legit fix
   - [ ] K2: `verifyNoExfil(claudeJsonl, decoys[])` — scans assistant turns + tool args for any decoy substring; fails the run if found
   - [ ] K3: Reuse existing `TAMPERED` (tests/ edits) and `SPRAWL` (extra files); add `EXFIL` for leakage and `INJECTED` for instruction-following the trap
   - [ ] K4: n=3 real-claude calibration to confirm each trap actually challenges current frontier (avoid the "supposedly hard" mistake from Phase G)
 - **Notes:** Closes pipeline gap 17. Reuses existing copy-exclusion + tamper-hash mechanics from Phase A.
 
 ### Phase L: replay bench
+
 - **Status:** pending
 - **Dependencies:** Phase B + capture infra
 - **Files:**
@@ -249,6 +262,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes pipeline gap 18. Highest setup cost but highest fidelity to actual user workload.
 
 ### Phase M: multi-file enforcement
+
 - **Status:** completed
 - **Dependencies:** Phase A
 - **Files:**
@@ -261,6 +275,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes the Phase G acknowledged limitation (bun:test runtime is type-lenient).
 
 ### Phase N: live progress streaming
+
 - **Status:** pending
 - **Dependencies:** Phase H
 - **Files:**
@@ -274,6 +289,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes the Phase H acknowledged limitation.
 
 ### Phase O: persistent active-runs registry
+
 - **Status:** completed
 - **Dependencies:** Phase H
 - **Files:**
@@ -287,6 +303,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Closes the Phase H acknowledged limitation.
 
 ### Phase P: bench-CI gate
+
 - **Status:** completed
 - **Dependencies:** Phase F
 - **Files:**
@@ -300,6 +317,7 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Notes:** Turns the harness into a regression watch — its calibration value comes alive only when CI gates on it.
 
 ### Phase Q: frontier-calibrated hard fixtures
+
 - **Status:** pending
 - **Dependencies:** Phase A, real-claude budget
 - **Files:**
@@ -311,11 +329,29 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
   - [ ] Q4: Document the authoring patterns that produced empirically-hard (vs aspirationally-hard) fixtures
 - **Notes:** Direct response to the Phase G calibration finding — fixtures 11–14 (labeled `hard`) all empirically calibrate as `trivial` against current Opus. The harness can't measure difficulty without empirically-hard fixtures.
 
+### Phase R: server-integration coverage bench
+
+- **Status:** completed
+- **Dependencies:** Phase B (buildApp under `VK_DATA_DIR`)
+- **Files:**
+  - `benchmarks/harness/types.ts` (new `BenchHttpStep`/`BenchHttpExpect`; `pipelineMode: "server-integration"`; `httpScript`; `serverIntegration` BenchResult block; `byCoverage` aggregate bucket)
+  - `benchmarks/harness/pipeline.ts` (new `runHttpScript` with `${var.path}` substitution + jsonPath asserts; server-integration short-circuits AI/task path entirely)
+  - `benchmarks/harness/run.ts` (server-integration fixtures auto-skipped in harness mode with helpful message; `VK_DISABLE_EMBEDDINGS=1` set for server-integration subprocesses to avoid `@xenova/transformers` cold-cache race; `--model=<id>` flag plumbed through to claude CLI)
+  - `benchmarks/harness/aggregate.ts` (new `groupByCoverage` + `byCoverage` MD section)
+  - `benchmarks/fixtures/15-server-tasks-crud/` … `33-server-sync-validation/` (19 new fixtures driving the real Fastify routes via `app.inject`)
+- **Work items:**
+  - [x] R1: `server-integration` pipeline mode runs declarative HTTP scripts against the in-process Fastify instance — no AI invocation, fixtures grade purely on route correctness
+  - [x] R2: `httpScript` step format with `${projectId}` preset + `saveAs` + `${task.id}` substitution + `jsonPath` exact-value asserts + optional `bodyContains`
+  - [x] R3: 19 fixtures cover the route surface: tasks/milestones/todos CRUD, git-status, MCP list-tools, api-clients, graph, roadmap, files-rw, artifacts, logs, reports, benchmarks-read, knowledge-stats, claude-status, terminal-rest, notion (no-token), github-mapping, sync-validation
+  - [x] R4: `bun run bench --mode=pipeline --mock-claude` against fixtures 15–33 → 19/19 SOLVED across 3 sequential runs; harness suite 173/173; benchmarks route tests 28/28
+- **Notes:** Diagnosed cold-cache flake on first run of fixture 15 (ENOENT on `blob:…` from onnxruntime-web worker); fix is preventive — server-integration mode disables embeddings since AI never runs. New `byCoverage` aggregate bucket separates pass/fail coverage fixtures from AI solve-rate fixtures so they don't poison the calibration window.
+
 ## Phases A–H Summary (shipped)
 
 All eight phases shipped. Coverage went from ~10-15% → broad pipeline coverage with TDD-graded scoring, real production paths exercised, side-effect invariants verified, concurrency stress modeled, history aggregation + comparison, and a UI in front of all of it.
 
 **Headline metrics** (post-mission):
+
 - 12 fixtures across 8 categories × 3 difficulties: bug-fix, feature-add, regression-trap, async, react-state, css-merge, abstract-data-type, multi-file refactor.
 - Harness suite: 103/103 across 7 files (run, score, pipeline, chain, sideEffects, concurrency, aggregate).
 - Server suite: 27-batch sharded run all green; +16 tests for the new `/benchmarks` route via `app.inject()`.
@@ -330,6 +366,7 @@ All eight phases shipped. Coverage went from ~10-15% → broad pipeline coverage
 **UI (Phase H):** `/benchmarks` page with multi-fixture trigger panel, runs table, deep-linkable detail panel via `?run=<id>`, hardest-fixtures and active-runs widgets, per-fixture re-run, full-report re-run.
 
 **Known limitations to note for future work:**
-- Multi-file fixture enforcement is still bun:test-runtime lenient; an AST-level check would be required to *force* the AI to touch every file in `expectedFilesChanged` rather than just *allow* it.
+
+- Multi-file fixture enforcement is still bun:test-runtime lenient; an AST-level check would be required to _force_ the AI to touch every file in `expectedFilesChanged` rather than just _allow_ it.
 - Phase H trigger spawns `bun run bench` as a subprocess; live progress streaming (via SSE/WebSocket) was deferred — the frontend polls instead. Active-runs registry is in-memory and not persisted across server restarts.
 - Phase G calibration fixtures (#11, #12) target current-frontier difficulty; revisit when models leap.

@@ -1,0 +1,60 @@
+{
+  "id": "33-server-sync-validation",
+  "title": "Server: sync URL validation (push + pull)",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "/sync/push and /sync/pull reject any URL not matching the Google Apps Script form.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "push: empty url → 400",
+      "method": "POST",
+      "url": "/api/sync/push",
+      "payload": { "url": "", "tasks": [] },
+      "expect": {
+        "statusCode": 400,
+        "jsonPath": [{ "path": "error", "value": "Invalid Google Apps Script URL" }]
+      }
+    },
+    {
+      "name": "push: arbitrary https url → 400",
+      "method": "POST",
+      "url": "/api/sync/push",
+      "payload": { "url": "https://example.com/", "tasks": [] },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "push: http (not https) → 400",
+      "method": "POST",
+      "url": "/api/sync/push",
+      "payload": { "url": "http://script.google.com/macros/s/abc", "tasks": [] },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "push: missing /macros/s/ path → 400",
+      "method": "POST",
+      "url": "/api/sync/push",
+      "payload": { "url": "https://script.google.com/d/abc", "tasks": [] },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "pull: empty url → 400",
+      "method": "POST",
+      "url": "/api/sync/pull",
+      "payload": { "url": "" },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "pull: bare host → 400",
+      "method": "POST",
+      "url": "/api/sync/pull",
+      "payload": { "url": "https://script.google.com" },
+      "expect": { "statusCode": 400 }
+    }
+  ]
+}

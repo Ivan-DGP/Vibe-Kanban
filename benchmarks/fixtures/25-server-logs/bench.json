@@ -1,0 +1,55 @@
+{
+  "id": "25-server-logs",
+  "title": "Server: system_logs list + clear",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "List logs (paginated shape), clear them, list again returns empty.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "list logs returns paginated shape",
+      "method": "GET",
+      "url": "/api/logs?limit=10",
+      "expect": {
+        "statusCode": 200,
+        "bodyContains": "\"items\":"
+      }
+    },
+    {
+      "name": "filter by level=info",
+      "method": "GET",
+      "url": "/api/logs?level=info",
+      "expect": { "statusCode": 200 }
+    },
+    {
+      "name": "filter by category=server",
+      "method": "GET",
+      "url": "/api/logs?category=server",
+      "expect": { "statusCode": 200 }
+    },
+    {
+      "name": "clear all logs",
+      "method": "DELETE",
+      "url": "/api/logs",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "list now empty",
+      "method": "GET",
+      "url": "/api/logs",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "total", "value": 0 },
+          { "path": "items", "value": [] },
+          { "path": "hasMore", "value": false }
+        ]
+      }
+    }
+  ]
+}

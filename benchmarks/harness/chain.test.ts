@@ -35,13 +35,26 @@ afterEach(() => {
   if (tmpDir && fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function insertTask(id: string, projectId: string, status: string, parent: string | null, createdAt: string): void {
+function insertTask(
+  id: string,
+  projectId: string,
+  status: string,
+  parent: string | null,
+  createdAt: string,
+): void {
   const meta = parent ? JSON.stringify({ parent_task: parent }) : "{}";
-  db.prepare("INSERT INTO tasks (id, projectId, status, metadata, createdAt) VALUES (?, ?, ?, ?, ?)").run(id, projectId, status, meta, createdAt);
+  db.prepare(
+    "INSERT INTO tasks (id, projectId, status, metadata, createdAt) VALUES (?, ?, ?, ?, ?)",
+  ).run(id, projectId, status, meta, createdAt);
 }
 
 function insertAiRun(id: string, taskId: string, durationMs: number, summary: string | null): void {
-  db.prepare("INSERT INTO task_ai_runs (id, taskId, durationMs, summary) VALUES (?, ?, ?, ?)").run(id, taskId, durationMs, summary);
+  db.prepare("INSERT INTO task_ai_runs (id, taskId, durationMs, summary) VALUES (?, ?, ?, ?)").run(
+    id,
+    taskId,
+    durationMs,
+    summary,
+  );
 }
 
 describe("traceChain", () => {
@@ -116,9 +129,19 @@ describe("traceChain", () => {
 
   test("totalCostUsd sums claude JSON cost from each task_ai_run summary", async () => {
     insertTask("root", "p", "done", null, "2026-01-01T00:00:00Z");
-    insertAiRun("r1", "root", 10, JSON.stringify({ result: "x", total_cost_usd: 0.05, session_id: "s1" }));
+    insertAiRun(
+      "r1",
+      "root",
+      10,
+      JSON.stringify({ result: "x", total_cost_usd: 0.05, session_id: "s1" }),
+    );
     insertTask("child", "p", "done", "root", "2026-01-01T00:00:01Z");
-    insertAiRun("r2", "child", 10, JSON.stringify({ result: "y", total_cost_usd: 0.07, session_id: "s2" }));
+    insertAiRun(
+      "r2",
+      "child",
+      10,
+      JSON.stringify({ result: "y", total_cost_usd: 0.07, session_id: "s2" }),
+    );
 
     const trace = await traceChain(() => db, "root", "p", 500, 5);
     expect(trace.totalCostUsd).toBeCloseTo(0.12, 5);

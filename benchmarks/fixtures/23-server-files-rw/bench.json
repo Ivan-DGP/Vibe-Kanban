@@ -1,0 +1,113 @@
+{
+  "id": "23-server-files-rw",
+  "title": "Server: project file CRUD + search + protected-path 403",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create, write, read, rename, delete project files; verify dir listing and grep-search; protected paths block writes.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create file at notes.md",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/files/create",
+      "payload": { "path": "notes.md", "type": "file" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "ok", "value": true }]
+      }
+    },
+    {
+      "name": "create directory subdir",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/files/create",
+      "payload": { "path": "subdir", "type": "directory" },
+      "expect": { "statusCode": 200 }
+    },
+    {
+      "name": "write content to notes.md",
+      "method": "PUT",
+      "url": "/api/projects/${projectId}/files/write",
+      "payload": { "path": "notes.md", "content": "TODO: bench-needle-marker\nline 2\n" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "ok", "value": true }]
+      }
+    },
+    {
+      "name": "read notes.md back",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/files/read?path=notes.md",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "encoding", "value": "utf-8" },
+          { "path": "content", "value": "TODO: bench-needle-marker\nline 2\n" }
+        ]
+      }
+    },
+    {
+      "name": "list root shows directory before file (alpha within types)",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/files",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].name", "value": "subdir" },
+          { "path": "[0].type", "value": "directory" }
+        ]
+      }
+    },
+    {
+      "name": "rename notes.md → docs.md",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/files/rename",
+      "payload": { "oldPath": "notes.md", "newPath": "docs.md" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "ok", "value": true }]
+      }
+    },
+    {
+      "name": "read renamed docs.md",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/files/read?path=docs.md",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "content", "value": "TODO: bench-needle-marker\nline 2\n" }]
+      }
+    },
+    {
+      "name": "old path now 404s",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/files/read?path=notes.md",
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "blocked path write → 403",
+      "method": "PUT",
+      "url": "/api/projects/${projectId}/files/write",
+      "payload": { "path": ".env", "content": "SECRET=1" },
+      "expect": { "statusCode": 403 }
+    },
+    {
+      "name": "delete docs.md",
+      "method": "DELETE",
+      "url": "/api/projects/${projectId}/files/delete?path=docs.md",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "ok", "value": true }]
+      }
+    },
+    {
+      "name": "deleted file 404s on read",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/files/read?path=docs.md",
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

@@ -62,7 +62,10 @@ async function runGit(args: string[], cwd: string): Promise<{ exitCode: number; 
   return { exitCode, stdout };
 }
 
-export async function verifyMultiFile(workDir: string, requireFiles: string[]): Promise<MultiFileResult> {
+export async function verifyMultiFile(
+  workDir: string,
+  requireFiles: string[],
+): Promise<MultiFileResult> {
   if (!requireFiles || requireFiles.length === 0) {
     return { allTouched: true, missing: [], trivial: [] };
   }

@@ -29,10 +29,27 @@ export interface EmbeddingsCheck {
 
 export function verifyTaskAiRun(getDb: () => any, taskId: string): TaskAiRunCheck {
   const row = getDb()
-    .prepare("SELECT exitCode, success, durationMs, summary, sessionId FROM task_ai_runs WHERE taskId = ? ORDER BY createdAt DESC LIMIT 1")
-    .get(taskId) as { exitCode: number | null; success: number | null; durationMs: number | null; summary: string | null; sessionId: string | null } | undefined;
+    .prepare(
+      "SELECT exitCode, success, durationMs, summary, sessionId FROM task_ai_runs WHERE taskId = ? ORDER BY createdAt DESC LIMIT 1",
+    )
+    .get(taskId) as
+    | {
+        exitCode: number | null;
+        success: number | null;
+        durationMs: number | null;
+        summary: string | null;
+        sessionId: string | null;
+      }
+    | undefined;
   if (!row) {
-    return { found: false, exitCode: null, success: null, durationMs: null, sessionIdSet: false, summarySet: false };
+    return {
+      found: false,
+      exitCode: null,
+      success: null,
+      durationMs: null,
+      sessionIdSet: false,
+      summarySet: false,
+    };
   }
   return {
     found: true,
@@ -47,7 +64,9 @@ export function verifyTaskAiRun(getDb: () => any, taskId: string): TaskAiRunChec
 export function verifyTimestampCascade(getDb: () => any, taskId: string): TimestampCheck {
   const row = getDb()
     .prepare("SELECT status, inboxAt, inProgressAt, doneAt FROM tasks WHERE id = ?")
-    .get(taskId) as { status: string; inboxAt: string | null; inProgressAt: string | null; doneAt: string | null } | undefined;
+    .get(taskId) as
+    | { status: string; inboxAt: string | null; inProgressAt: string | null; doneAt: string | null }
+    | undefined;
   if (!row) {
     return { inboxAtSet: false, inProgressAtSet: false, doneAtSet: false, cascadeOrdered: false };
   }
@@ -70,7 +89,9 @@ export function verifySnapshot(dataDir: string, projectId: string, taskId: strin
   const filePath = path.join(dataDir, "tasks", `${projectId}.json`);
   if (!fs.existsSync(filePath)) return { fileExists: false, taskInSnapshot: false };
   try {
-    const snap = JSON.parse(fs.readFileSync(filePath, "utf-8")) as { tasks?: Array<{ id: string }> };
+    const snap = JSON.parse(fs.readFileSync(filePath, "utf-8")) as {
+      tasks?: Array<{ id: string }>;
+    };
     const found = Array.isArray(snap.tasks) && snap.tasks.some((t) => t.id === taskId);
     return { fileExists: true, taskInSnapshot: found };
   } catch {
@@ -78,7 +99,11 @@ export function verifySnapshot(dataDir: string, projectId: string, taskId: strin
   }
 }
 
-export async function verifyEmbeddings(getDb: () => any, taskId: string, settleMs = 5000): Promise<EmbeddingsCheck> {
+export async function verifyEmbeddings(
+  getDb: () => any,
+  taskId: string,
+  settleMs = 5000,
+): Promise<EmbeddingsCheck> {
   const deadline = Date.now() + settleMs;
   let count = 0;
   while (Date.now() < deadline) {

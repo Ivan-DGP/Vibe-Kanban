@@ -7,7 +7,10 @@ describe("validateLogin — existing rules (regression)", () => {
   });
 
   test("missing username", () => {
-    expect(validateLogin("", "longenoughpassword")).toEqual({ ok: false, reason: "missing username" });
+    expect(validateLogin("", "longenoughpassword")).toEqual({
+      ok: false,
+      reason: "missing username",
+    });
   });
 
   test("password too short (non-empty)", () => {

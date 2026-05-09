@@ -5,8 +5,14 @@ import path from "node:path";
 import net from "node:net";
 import { copyDirSync, hashDir, compareDirHashes, evaluateStatus, parseClaudeJson } from "./run";
 import { parseNumstat } from "./score";
-import { verifyTaskAiRun, verifyTimestampCascade, verifySnapshot, verifyEmbeddings, summarize } from "./sideEffects";
-import type { BenchSpec, BenchResult } from "./types";
+import {
+  verifyTaskAiRun,
+  verifyTimestampCascade,
+  verifySnapshot,
+  verifyEmbeddings,
+  summarize,
+} from "./sideEffects";
+import type { BenchSpec, BenchResult, BenchHttpStep } from "./types";
 
 const HARNESS_DIR = path.resolve(import.meta.dir);
 const BENCH_ROOT = path.resolve(HARNESS_DIR, "..");
@@ -96,7 +102,11 @@ async function gitInit(workDir: string): Promise<void> {
   await runCmd(["git", "commit", "-q", "-m", "baseline"], workDir);
 }
 
-async function pollForTaskAiRun(getDb: () => any, taskId: string, timeoutMs: number): Promise<any | null> {
+async function pollForTaskAiRun(
+  getDb: () => any,
+  taskId: string,
+  timeoutMs: number,
+): Promise<any | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const row = getDb()
@@ -108,7 +118,12 @@ async function pollForTaskAiRun(getDb: () => any, taskId: string, timeoutMs: num
   return null;
 }
 
-function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, workDir: string): BenchResult {
+function makeEmptyResult(
+  spec: BenchSpec,
+  runId: string,
+  startedAtIso: string,
+  workDir: string,
+): BenchResult {
   return {
     fixtureId: spec.id,
     title: spec.title,
@@ -140,7 +155,13 @@ function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, w
       targetOutput: "",
       regressionOutput: "",
     },
-    diff: { filesChanged: [], linesAdded: 0, linesRemoved: 0, withinBudget: false, expectedFilesOnly: false },
+    diff: {
+      filesChanged: [],
+      linesAdded: 0,
+      linesRemoved: 0,
+      withinBudget: false,
+      expectedFilesOnly: false,
+    },
     preflight: { ran: false, misFixture: false, reason: null },
     tampering: { checked: false, detected: false, changedFiles: [] },
     chain: {
@@ -163,11 +184,35 @@ function makeEmptyResult(spec: BenchSpec, runId: string, startedAtIso: string, w
     },
     sideEffects: {
       checked: false,
-      taskAiRun: { found: false, exitCode: null, success: null, durationMs: null, sessionIdSet: false, summarySet: false },
-      timestamps: { inboxAtSet: false, inProgressAtSet: false, doneAtSet: false, cascadeOrdered: false },
+      taskAiRun: {
+        found: false,
+        exitCode: null,
+        success: null,
+        durationMs: null,
+        sessionIdSet: false,
+        summarySet: false,
+      },
+      timestamps: {
+        inboxAtSet: false,
+        inProgressAtSet: false,
+        doneAtSet: false,
+        cascadeOrdered: false,
+      },
       snapshot: { fileExists: false, taskInSnapshot: false },
       embeddings: { rowCount: 0, skipped: false },
       allGreen: false,
+    },
+    multiFile: {
+      checked: false,
+      required: spec.requireFiles ?? [],
+      missing: [],
+      trivial: [],
+      allTouched: true,
+    },
+    serverIntegration: {
+      ran: false,
+      steps: [],
+      allPassed: false,
     },
     status: "ERROR",
     solved: false,
@@ -187,14 +232,22 @@ interface ChainTrace {
 }
 
 function selectChildTask(getDb: () => any, projectId: string, parentId: string): any | null {
-  return getDb()
-    .prepare(
-      "SELECT * FROM tasks WHERE projectId = ? AND json_extract(metadata, '$.parent_task') = ? ORDER BY createdAt ASC LIMIT 1",
-    )
-    .get(projectId, parentId) ?? null;
+  return (
+    getDb()
+      .prepare(
+        "SELECT * FROM tasks WHERE projectId = ? AND json_extract(metadata, '$.parent_task') = ? ORDER BY createdAt ASC LIMIT 1",
+      )
+      .get(projectId, parentId) ?? null
+  );
 }
 
-export async function traceChain(getDb: () => any, rootTaskId: string, projectId: string, settleMs: number, maxDepth = 5): Promise<ChainTrace> {
+export async function traceChain(
+  getDb: () => any,
+  rootTaskId: string,
+  projectId: string,
+  settleMs: number,
+  maxDepth = 5,
+): Promise<ChainTrace> {
   const trace: ChainTrace = {
     depth: 1,
     parentLinksValid: true,
@@ -258,6 +311,148 @@ export async function traceChain(getDb: () => any, rootTaskId: string, projectId
   return trace;
 }
 
+// Resolve `${var}` and `${var.path[0].sub}` references against a context map.
+// Used by server-integration script steps so a fixture can chain GET/POST
+// requests where later URLs/payloads reference earlier responses.
+export function substituteVars(input: unknown, ctx: Record<string, unknown>): unknown {
+  if (typeof input === "string") {
+    // Whole-string single reference preserves the raw value type so fixtures
+    // can write things like { value: "${task.id}" } and still compare strings.
+    const whole = input.match(/^\$\{([^}]+)\}$/);
+    if (whole) {
+      return readPath(ctx, whole[1].trim());
+    }
+    return input.replace(/\$\{([^}]+)\}/g, (_, expr: string) => {
+      const value = readPath(ctx, expr.trim());
+      if (value === undefined) return "";
+      return typeof value === "string" ? value : JSON.stringify(value);
+    });
+  }
+  if (Array.isArray(input)) {
+    return input.map((v) => substituteVars(v, ctx));
+  }
+  if (input && typeof input === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      out[k] = substituteVars(v, ctx);
+    }
+    return out;
+  }
+  return input;
+}
+
+function readPath(root: unknown, expr: string): unknown {
+  // Supports a.b[0].c style. Empty path returns root.
+  const tokens = expr
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter((t) => t.length > 0);
+  let cur: unknown = root;
+  for (const t of tokens) {
+    if (cur == null) return undefined;
+    if (Array.isArray(cur)) {
+      const idx = Number(t);
+      cur = Number.isInteger(idx) ? cur[idx] : undefined;
+    } else if (typeof cur === "object") {
+      cur = (cur as Record<string, unknown>)[t];
+    } else {
+      return undefined;
+    }
+  }
+  return cur;
+}
+
+interface ScriptStepResult {
+  name: string;
+  method: string;
+  url: string;
+  statusCode: number | null;
+  passed: boolean;
+  error: string | null;
+  body: unknown;
+}
+
+export async function runHttpScript(
+  app: { inject: (req: unknown) => Promise<{ statusCode: number; body: string }> },
+  steps: BenchHttpStep[],
+  initialCtx: Record<string, unknown>,
+): Promise<ScriptStepResult[]> {
+  const results: ScriptStepResult[] = [];
+  const ctx = { ...initialCtx };
+  for (const step of steps) {
+    const url = String(substituteVars(step.url, ctx));
+    const payload = step.payload === undefined ? undefined : substituteVars(step.payload, ctx);
+    const stepResult: ScriptStepResult = {
+      name: step.name,
+      method: step.method,
+      url,
+      statusCode: null,
+      passed: false,
+      error: null,
+      body: null,
+    };
+    try {
+      const res = await app.inject({
+        method: step.method,
+        url,
+        payload,
+      });
+      stepResult.statusCode = res.statusCode;
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(res.body);
+      } catch {
+        parsed = res.body;
+      }
+      stepResult.body = parsed;
+      const exp = (substituteVars(step.expect ?? {}, ctx) as BenchHttpStep["expect"]) ?? {};
+      if (exp.statusCode !== undefined && exp.statusCode !== res.statusCode) {
+        stepResult.error = `expected statusCode ${exp.statusCode}, got ${res.statusCode}`;
+      } else if (exp.bodyContains && !res.body.includes(exp.bodyContains)) {
+        stepResult.error = `body does not contain ${JSON.stringify(exp.bodyContains)}`;
+      } else if (exp.jsonPath) {
+        for (const j of exp.jsonPath) {
+          const got = readPath(parsed, j.path);
+          if (!deepEqual(got, j.value)) {
+            stepResult.error = `jsonPath ${j.path}: expected ${JSON.stringify(j.value)}, got ${JSON.stringify(got)}`;
+            break;
+          }
+        }
+      }
+      stepResult.passed = stepResult.error === null;
+      if (exp.saveAs && stepResult.passed) {
+        ctx[exp.saveAs] = parsed;
+      }
+    } catch (err) {
+      stepResult.error = err instanceof Error ? err.message : String(err);
+    }
+    results.push(stepResult);
+    if (!stepResult.passed) break;
+  }
+  return results;
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (typeof a === "object" && typeof b === "object") {
+    const ka = Object.keys(a as object).sort();
+    const kb = Object.keys(b as object).sort();
+    if (ka.length !== kb.length) return false;
+    return ka.every(
+      (k, i) =>
+        k === kb[i] &&
+        deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+    );
+  }
+  return false;
+}
+
 export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promise<BenchResult> {
   const runId = crypto.randomUUID().slice(0, 8);
   const startedAtIso = new Date().toISOString();
@@ -315,7 +510,8 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
       url: "/api/projects",
       payload: { name: `bench-${spec.id}`, path: workDir },
     });
-    if (projectRes.statusCode !== 200) throw new Error(`POST /api/projects failed: ${projectRes.statusCode} ${projectRes.body}`);
+    if (projectRes.statusCode !== 200)
+      throw new Error(`POST /api/projects failed: ${projectRes.statusCode} ${projectRes.body}`);
     const project = JSON.parse(projectRes.body);
 
     await app.inject({
@@ -325,8 +521,40 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
     });
 
     const pipelineMode = spec.pipelineMode ?? "codebase";
+
+    // server-integration mode short-circuits the AI/task path entirely:
+    // it just runs an HTTP script against the booted app. No AI is invoked,
+    // no task is created, no diff/test scoring at the end. Coverage of real
+    // route handlers is the point.
+    if (pipelineMode === "server-integration") {
+      const steps = spec.httpScript ?? [];
+      const stepResults = await runHttpScript(app, steps, { projectId: project.id });
+      result.serverIntegration.ran = true;
+      result.serverIntegration.steps = stepResults.map((s) => ({
+        name: s.name,
+        method: s.method,
+        url: s.url,
+        statusCode: s.statusCode,
+        passed: s.passed,
+        error: s.error,
+      }));
+      result.serverIntegration.allPassed = steps.length > 0 && stepResults.every((s) => s.passed);
+      result.tests.targetPassed = result.serverIntegration.allPassed;
+      result.tests.regressionsHeld = true;
+      result.diff.expectedFilesOnly = true;
+      result.diff.withinBudget = true;
+      result.chain.depth = 1;
+      result.status = result.serverIntegration.allPassed ? "SOLVED" : "TARGET-FAIL";
+      result.solved = result.serverIntegration.allPassed;
+      return result;
+    }
+
     const taskMetaType =
-      pipelineMode === "qa-test" ? "qa-test" : pipelineMode === "dev-fix" ? "dev-fix" : "bench-codebase";
+      pipelineMode === "qa-test"
+        ? "qa-test"
+        : pipelineMode === "dev-fix"
+          ? "dev-fix"
+          : "bench-codebase";
 
     const taskRes = await app.inject({
       method: "POST",
@@ -340,7 +568,8 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
         metadata: { type: taskMetaType },
       },
     });
-    if (taskRes.statusCode !== 200) throw new Error(`POST tasks failed: ${taskRes.statusCode} ${taskRes.body}`);
+    if (taskRes.statusCode !== 200)
+      throw new Error(`POST tasks failed: ${taskRes.statusCode} ${taskRes.body}`);
     const task = JSON.parse(taskRes.body);
 
     const testsDir = path.join(workDir, "tests");
@@ -387,7 +616,11 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
 
     result.concurrency.statsAfter = headlessModule.getHeadlessClaudeStats();
     result.concurrency.slotLeak = result.concurrency.statsAfter.inFlight !== 0;
-    if (taskAiRun && (taskAiRun.exitCode === null || taskAiRun.exitCode !== 0) && result.ai.durationMs >= spec.timeoutMs * 0.8) {
+    if (
+      taskAiRun &&
+      (taskAiRun.exitCode === null || taskAiRun.exitCode !== 0) &&
+      result.ai.durationMs >= spec.timeoutMs * 0.8
+    ) {
       result.concurrency.timedOut = true;
     }
 
@@ -396,7 +629,12 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
     const seTimestamps = verifyTimestampCascade(dbModule.getDb, leafForChecks);
     const seSnapshot = verifySnapshot(dataDir, project.id, leafForChecks);
     const seEmbeddings = await verifyEmbeddings(dbModule.getDb, leafForChecks, 5000);
-    const seSummary = summarize({ taskAiRun: seTaskAiRun, timestamps: seTimestamps, snapshot: seSnapshot, embeddings: seEmbeddings });
+    const seSummary = summarize({
+      taskAiRun: seTaskAiRun,
+      timestamps: seTimestamps,
+      snapshot: seSnapshot,
+      embeddings: seEmbeddings,
+    });
     result.sideEffects.checked = true;
     result.sideEffects.taskAiRun = seSummary.taskAiRun;
     result.sideEffects.timestamps = seSummary.timestamps;
@@ -440,7 +678,8 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
     result.diff.withinBudget = parsedDiff.linesAdded + parsedDiff.linesRemoved <= spec.maxDiffLines;
     if (spec.expectedFilesChanged && spec.expectedFilesChanged.length > 0) {
       const expected = new Set(spec.expectedFilesChanged);
-      result.diff.expectedFilesOnly = parsedDiff.filesChanged.length > 0 && parsedDiff.filesChanged.every((f) => expected.has(f));
+      result.diff.expectedFilesOnly =
+        parsedDiff.filesChanged.length > 0 && parsedDiff.filesChanged.every((f) => expected.has(f));
     } else {
       result.diff.expectedFilesOnly = true;
     }
@@ -491,7 +730,9 @@ export async function runPipeline(spec: BenchSpec, opts: PipelineCliOpts): Promi
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   if (!opts.fixtureId) {
-    console.error("usage: pipeline.ts --fixture=<id> [--mock-claude|--real-claude] [--lenient] [--keep] [--result-file=<path>]");
+    console.error(
+      "usage: pipeline.ts --fixture=<id> [--mock-claude|--real-claude] [--lenient] [--keep] [--result-file=<path>]",
+    );
     process.exit(2);
   }
   const spec = loadSpec(opts.fixtureId);

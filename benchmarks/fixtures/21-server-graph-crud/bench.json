@@ -1,0 +1,128 @@
+{
+  "id": "21-server-graph-crud",
+  "title": "Server: graph nodes + edges CRUD with validation",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create two graph nodes, link them with an edge, exercise edge validation (missing node → 400), patch a node, then delete and confirm 404.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create node A",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/graph/nodes",
+      "payload": { "label": "Alpha", "type": "concept", "description": "first" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "label", "value": "Alpha" },
+          { "path": "type", "value": "concept" }
+        ],
+        "saveAs": "nodeA"
+      }
+    },
+    {
+      "name": "create node B",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/graph/nodes",
+      "payload": { "label": "Beta", "type": "system" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "label", "value": "Beta" }],
+        "saveAs": "nodeB"
+      }
+    },
+    {
+      "name": "create edge missing source → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/graph/edges",
+      "payload": { "targetNodeId": "${nodeB.id}" },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "create edge with bogus node → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/graph/edges",
+      "payload": {
+        "sourceNodeId": "00000000-0000-0000-0000-000000000000",
+        "targetNodeId": "${nodeB.id}"
+      },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "create edge A → B",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/graph/edges",
+      "payload": {
+        "sourceNodeId": "${nodeA.id}",
+        "targetNodeId": "${nodeB.id}",
+        "label": "leads-to"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "sourceNodeId", "value": "${nodeA.id}" },
+          { "path": "targetNodeId", "value": "${nodeB.id}" },
+          { "path": "label", "value": "leads-to" }
+        ],
+        "saveAs": "edge"
+      }
+    },
+    {
+      "name": "fetch full graph",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/graph",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "nodes[0].id", "value": "${nodeA.id}" },
+          { "path": "nodes[1].id", "value": "${nodeB.id}" },
+          { "path": "edges[0].id", "value": "${edge.id}" }
+        ]
+      }
+    },
+    {
+      "name": "patch node A description",
+      "method": "PATCH",
+      "url": "/api/graph/nodes/${nodeA.id}",
+      "payload": { "description": "first updated", "x": 100, "y": 200 },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "description", "value": "first updated" },
+          { "path": "x", "value": 100 },
+          { "path": "y", "value": 200 }
+        ]
+      }
+    },
+    {
+      "name": "delete edge",
+      "method": "DELETE",
+      "url": "/api/graph/edges/${edge.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "delete edge again → 404",
+      "method": "DELETE",
+      "url": "/api/graph/edges/${edge.id}",
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "delete node B",
+      "method": "DELETE",
+      "url": "/api/graph/nodes/${nodeB.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "patch deleted node → 404",
+      "method": "PATCH",
+      "url": "/api/graph/nodes/${nodeB.id}",
+      "payload": { "label": "ghost" },
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

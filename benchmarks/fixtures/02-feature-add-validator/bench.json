@@ -3,7 +3,7 @@
   "title": "Implement isValidEmail() in validators.ts",
   "category": "feature-add",
   "difficulty": "easy-medium",
-  "prompt": "src/validators.ts is missing an `isValidEmail` function. Implement and export it from src/validators.ts so the tests in tests/target.test.ts pass.\n\nSpec (derived from the tests):\n- Signature: `isValidEmail(value: unknown): boolean`.\n- Returns false for any non-string input (null, undefined, numbers, objects).\n- Trims surrounding whitespace before validating; whitespace-only and empty strings are invalid.\n- Validation is case-insensitive.\n- The address must contain exactly one `@`.\n- The local part (before `@`) must be non-empty.\n- The domain (after `@`) must be non-empty AND must contain at least one `.` (so plain hostnames like `localhost` are rejected).\n- Common patterns like dots and `+tag` in the local part, and multi-label domains like `example.co.uk`, must be accepted.\n\nDo NOT modify the existing `isNonEmptyString` or `normalizeEmail` functions — they are covered by tests/regression.test.ts and must keep passing. Do not modify any test files. Keep the change confined to src/validators.ts.",
+  "prompt": "Add and export `isValidEmail(value: unknown): boolean` in src/validators.ts. Read tests/target.test.ts for the exact spec; tests/regression.test.ts pins the existing functions and must keep passing. Confine the change to src/validators.ts and don't touch tests.",
   "targetTestPath": "tests/target.test.ts",
   "regressionTestPath": "tests/regression.test.ts",
   "expectedFilesChanged": ["src/validators.ts"],

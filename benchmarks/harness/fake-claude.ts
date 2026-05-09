@@ -10,7 +10,12 @@ function findPrompt(args: string[]): string {
       i++;
       continue;
     }
-    if (a === "--output-format" || a === "--mcp-config" || a === "--model" || a === "--system-prompt") {
+    if (
+      a === "--output-format" ||
+      a === "--mcp-config" ||
+      a === "--model" ||
+      a === "--system-prompt"
+    ) {
       i += 2;
       continue;
     }
@@ -52,7 +57,7 @@ if (apiUrl && taskId) {
   try {
     const res = await fetch(`${apiUrl}/api/tasks/${taskId}`);
     if (res.ok) {
-      const t = await res.json() as any;
+      const t = (await res.json()) as any;
       taskType = (t.metadata && typeof t.metadata === "object" ? t.metadata.type : null) ?? null;
       projectId = t.projectId ?? null;
     }
@@ -134,7 +139,7 @@ if (apiUrl && projectId && chainStep?.createChildType) {
       }),
     });
     if (res.ok) {
-      const child = await res.json() as any;
+      const child = (await res.json()) as any;
       createdChildId = child.id ?? null;
     } else {
       createError = `${res.status} ${await res.text()}`;
@@ -171,7 +176,13 @@ const result = {
     cache_read_input_tokens: 0,
   },
   modelUsage: {
-    "fake-claude": { inputTokens: 10, outputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 },
+    "fake-claude": {
+      inputTokens: 10,
+      outputTokens: 10,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      costUSD: 0,
+    },
   },
   permission_denials: [],
   terminal_reason: "completed",

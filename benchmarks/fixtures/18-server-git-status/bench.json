@@ -1,0 +1,63 @@
+{
+  "id": "18-server-git-status",
+  "title": "Server: git status / log / diff / branches",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Read git state through the project's git API: a clean repo should report no changes, exactly one baseline commit, an empty diff, and a current branch.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "git status of clean repo",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/git/status",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "ahead", "value": 0 },
+          { "path": "behind", "value": 0 },
+          { "path": "staged", "value": [] },
+          { "path": "unstaged", "value": [] },
+          { "path": "untracked", "value": [] }
+        ]
+      }
+    },
+    {
+      "name": "git log shows the baseline commit",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/git/log",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].author", "value": "bench" },
+          { "path": "[0].message", "value": "baseline" }
+        ]
+      }
+    },
+    {
+      "name": "git diff is empty for clean repo",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/git/diff",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "", "value": "" }]
+      }
+    },
+    {
+      "name": "git branches has exactly one current branch",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/git/branches",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].current", "value": true },
+          { "path": "[0].remote", "value": false }
+        ]
+      }
+    }
+  ]
+}

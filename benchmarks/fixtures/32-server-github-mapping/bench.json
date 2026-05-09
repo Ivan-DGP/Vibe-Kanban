@@ -1,0 +1,75 @@
+{
+  "id": "32-server-github-mapping",
+  "title": "Server: github-accounts list + project mapping CRUD + ci-status validation",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "List github-accounts (empty); patch missing → 404; project github-mapping starts empty; ci-status missing branch → 400; ci-status no mapping → 404.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "list accounts (empty)",
+      "method": "GET",
+      "url": "/api/github-accounts",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "", "value": [] }]
+      }
+    },
+    {
+      "name": "patch missing account → 404",
+      "method": "PATCH",
+      "url": "/api/github-accounts/00000000-0000-0000-0000-000000000000",
+      "payload": { "name": "ghost" },
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "project mapping (empty)",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/github-mapping",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "", "value": [] }]
+      }
+    },
+    {
+      "name": "delete missing mapping is idempotent",
+      "method": "DELETE",
+      "url": "/api/projects/${projectId}/github-mapping",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "ok", "value": true }]
+      }
+    },
+    {
+      "name": "ci-status without branch → 400",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/ci-status",
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "ci-status with branch but no mapping → 404",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/ci-status?branch=main",
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "ci-status batch with empty branches → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/ci-status/batch",
+      "payload": { "branches": [] },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "ci-status batch with branches but no mapping → 404",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/ci-status/batch",
+      "payload": { "branches": ["main"] },
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

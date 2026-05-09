@@ -10,7 +10,9 @@ describe("EventBus on/emit/off (regression)", () => {
   test("on/emit dispatches payload", () => {
     const bus = new EventBus<Events>();
     let captured = 0;
-    bus.on("ping", (n) => { captured = n; });
+    bus.on("ping", (n) => {
+      captured = n;
+    });
     bus.emit("ping", 42);
     expect(captured).toBe(42);
   });
@@ -19,8 +21,12 @@ describe("EventBus on/emit/off (regression)", () => {
     const bus = new EventBus<Events>();
     let a = 0;
     let b = 0;
-    bus.on("ping", () => { a++; });
-    bus.on("ping", () => { b++; });
+    bus.on("ping", () => {
+      a++;
+    });
+    bus.on("ping", () => {
+      b++;
+    });
     bus.emit("ping", 1);
     expect(a).toBe(1);
     expect(b).toBe(1);
@@ -29,7 +35,9 @@ describe("EventBus on/emit/off (regression)", () => {
   test("off removes a specific listener", () => {
     const bus = new EventBus<Events>();
     let calls = 0;
-    const fn = () => { calls++; };
+    const fn = () => {
+      calls++;
+    };
     bus.on("ping", fn);
     bus.emit("ping", 1);
     bus.off("ping", fn);
@@ -40,7 +48,9 @@ describe("EventBus on/emit/off (regression)", () => {
   test("on returns a disposer that detaches", () => {
     const bus = new EventBus<Events>();
     let calls = 0;
-    const dispose = bus.on("ping", () => { calls++; });
+    const dispose = bus.on("ping", () => {
+      calls++;
+    });
     bus.emit("ping", 1);
     dispose();
     bus.emit("ping", 2);
@@ -55,7 +65,9 @@ describe("EventBus on/emit/off (regression)", () => {
   test("typed payloads flow through", () => {
     const bus = new EventBus<Events>();
     let captured: { value: string } | null = null;
-    bus.on("data", (p) => { captured = p; });
+    bus.on("data", (p) => {
+      captured = p;
+    });
     bus.emit("data", { value: "hello" });
     expect(captured).toEqual({ value: "hello" });
   });

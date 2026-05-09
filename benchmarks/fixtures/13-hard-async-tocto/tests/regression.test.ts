@@ -1,5 +1,12 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { reset, tryConsume, getState, getConfig, type LimiterDeps, type LimiterState } from "../src/asyncLimiter";
+import {
+  reset,
+  tryConsume,
+  getState,
+  getConfig,
+  type LimiterDeps,
+  type LimiterState,
+} from "../src/asyncLimiter";
 
 let persisted: LimiterState[] = [];
 const deps: LimiterDeps = {

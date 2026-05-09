@@ -33,6 +33,7 @@ The `claude` binary must be on PATH for non-dry runs.
 ## Scoring
 
 A fixture is `solved` iff:
+
 - `target.test.ts` passes after the AI run, AND
 - `regression.test.ts` still passes.
 

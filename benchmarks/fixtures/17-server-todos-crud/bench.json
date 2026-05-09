@@ -1,0 +1,85 @@
+{
+  "id": "17-server-todos-crud",
+  "title": "Server: todos CRUD + clear-completed",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create two todos, mark one complete, run clear-completed, and verify only the open todo remains.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create todo A",
+      "method": "POST",
+      "url": "/api/todos",
+      "payload": { "title": "todo A" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "title", "value": "todo A" },
+          { "path": "completed", "value": false }
+        ],
+        "saveAs": "todoA"
+      }
+    },
+    {
+      "name": "create todo B",
+      "method": "POST",
+      "url": "/api/todos",
+      "payload": { "title": "todo B" },
+      "expect": {
+        "statusCode": 200,
+        "saveAs": "todoB"
+      }
+    },
+    {
+      "name": "complete todo A",
+      "method": "PATCH",
+      "url": "/api/todos/${todoA.id}",
+      "payload": { "completed": true },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "completed", "value": true }]
+      }
+    },
+    {
+      "name": "list shows both",
+      "method": "GET",
+      "url": "/api/todos",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].id", "value": "${todoB.id}" },
+          { "path": "[0].completed", "value": false },
+          { "path": "[1].id", "value": "${todoA.id}" },
+          { "path": "[1].completed", "value": true }
+        ]
+      }
+    },
+    {
+      "name": "clear completed",
+      "method": "DELETE",
+      "url": "/api/todos/clear-completed",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "list shows only B",
+      "method": "GET",
+      "url": "/api/todos",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "[0].id", "value": "${todoB.id}" }]
+      }
+    },
+    {
+      "name": "patch missing todo → 404",
+      "method": "PATCH",
+      "url": "/api/todos/${todoA.id}",
+      "payload": { "title": "ghost" },
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

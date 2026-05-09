@@ -1,0 +1,79 @@
+{
+  "id": "19-server-mcp-list-tools",
+  "title": "Server: MCP enable + tools/list (auth disabled)",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Toggle the MCP server on with auth disabled, then call the JSON-RPC tools/list method and confirm core tools are advertised.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "mcp disabled by default → tools/list returns 404",
+      "method": "POST",
+      "url": "/mcp",
+      "payload": { "jsonrpc": "2.0", "method": "tools/list", "id": 1 },
+      "expect": {
+        "statusCode": 404,
+        "bodyContains": "MCP server is disabled"
+      }
+    },
+    {
+      "name": "enable MCP and disable auth via settings",
+      "method": "PUT",
+      "url": "/api/settings",
+      "payload": { "mcpEnabled": true, "mcpAuthRequired": false },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "mcpEnabled", "value": true },
+          { "path": "mcpAuthRequired", "value": false }
+        ]
+      }
+    },
+    {
+      "name": "JSON-RPC initialize",
+      "method": "POST",
+      "url": "/mcp",
+      "payload": { "jsonrpc": "2.0", "method": "initialize", "id": 1 },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "jsonrpc", "value": "2.0" },
+          { "path": "id", "value": 1 },
+          { "path": "result.serverInfo.name", "value": "vibe-kanban" }
+        ]
+      }
+    },
+    {
+      "name": "tools/list advertises list_projects",
+      "method": "POST",
+      "url": "/mcp",
+      "payload": { "jsonrpc": "2.0", "method": "tools/list", "id": 2 },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "jsonrpc", "value": "2.0" },
+          { "path": "id", "value": 2 }
+        ],
+        "bodyContains": "list_projects"
+      }
+    },
+    {
+      "name": "unknown method returns JSON-RPC error",
+      "method": "POST",
+      "url": "/mcp",
+      "payload": { "jsonrpc": "2.0", "method": "totally/fake", "id": 3 },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "error.code", "value": -32601 },
+          { "path": "id", "value": 3 }
+        ]
+      }
+    }
+  ]
+}

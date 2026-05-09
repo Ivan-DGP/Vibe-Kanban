@@ -6,7 +6,11 @@ interface ChunkedRunStats {
   order: number[];
 }
 
-async function chunkedRun<T extends number>(items: T[], parallel: number, runOne: (item: T) => Promise<void>): Promise<void> {
+async function chunkedRun<T extends number>(
+  items: T[],
+  parallel: number,
+  runOne: (item: T) => Promise<void>,
+): Promise<void> {
   if (parallel <= 1) {
     for (const it of items) await runOne(it);
     return;
@@ -74,7 +78,10 @@ describe("chunked parallel dispatch", () => {
 });
 
 describe("slot-leak detection", () => {
-  function detectLeak(before: { inFlight: number } | null, after: { inFlight: number } | null): boolean {
+  function detectLeak(
+    before: { inFlight: number } | null,
+    after: { inFlight: number } | null,
+  ): boolean {
     if (!after) return false;
     return after.inFlight !== 0;
   }
@@ -97,7 +104,11 @@ describe("slot-leak detection", () => {
 });
 
 describe("timeout heuristic", () => {
-  function detectTimedOut(taskAiRunExitCode: number | null, durationMs: number, timeoutMs: number): boolean {
+  function detectTimedOut(
+    taskAiRunExitCode: number | null,
+    durationMs: number,
+    timeoutMs: number,
+  ): boolean {
     if (taskAiRunExitCode === 0) return false;
     return durationMs >= timeoutMs * 0.8;
   }
