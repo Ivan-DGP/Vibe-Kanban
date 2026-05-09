@@ -3,6 +3,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { aggregate, loadAllReports, loadFixtureSpecs } from "../../../benchmarks/harness/aggregate";
 import * as benchRunsRepo from "../services/benchRunsRepo";
+import {
+  createRunStream,
+  emitStatus,
+  flushPartials,
+  ingestChunk,
+  type RunStreamState,
+  type SseEvent,
+  type Subscriber,
+} from "../services/benchRunStream";
 
 const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const DEFAULT_BENCH_DIR = path.join(REPO_ROOT, "benchmarks");
@@ -101,6 +110,7 @@ interface ActiveRunTransient {
   pid: number | null;
   exitCode: number | null;
   output: string;
+  stream: RunStreamState;
 }
 
 const transient = new Map<string, ActiveRunTransient>();
@@ -207,6 +217,58 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
     return { runs: rows.map(toActiveWire) };
   });
 
+  fastify.get("/benchmarks/runs/:id/events", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!ID_RE.test(id)) return reply.code(400).send({ error: "invalid id" });
+    const row = benchRunsRepo.getById(id);
+    if (!row) return reply.code(404).send({ error: "not found" });
+
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const write = (evt: SseEvent): void => {
+      reply.raw.write(`event: ${evt.event}\n`);
+      reply.raw.write(`data: ${JSON.stringify(evt.data)}\n\n`);
+    };
+
+    const t = transient.get(id);
+    if (t) {
+      for (const line of t.stream.lines) write({ event: "log", data: line });
+    }
+
+    const wireStatus = statusToWire(row.status);
+    if (!t || t.stream.finished || wireStatus !== "running") {
+      write({
+        event: "status",
+        data: { status: wireStatus, exitCode: t?.exitCode ?? null },
+      });
+      reply.raw.end();
+      return reply;
+    }
+
+    let closed = false;
+    const sub: Subscriber = (evt) => {
+      if (closed) return;
+      write(evt);
+      if (evt.event === "status") {
+        closed = true;
+        reply.raw.end();
+      }
+    };
+    t.stream.subscribers.add(sub);
+
+    request.raw.on("close", () => {
+      closed = true;
+      t.stream.subscribers.delete(sub);
+    });
+
+    return reply;
+  });
+
   fastify.post("/benchmarks/runs", async (request, reply) => {
     const body = (request.body ?? {}) as BenchTriggerInput;
     const knownIds = new Set(loadFixtureSpecs(fixturesDir()).keys());
@@ -232,10 +294,17 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
       parallel,
     });
 
-    const t: ActiveRunTransient = { args: built.args, pid: null, exitCode: null, output: "" };
+    const t: ActiveRunTransient = {
+      args: built.args,
+      pid: null,
+      exitCode: null,
+      output: "",
+      stream: createRunStream(),
+    };
     transient.set(runId, t);
 
     if (process.env.VK_DISABLE_BENCH_SPAWN === "1") {
+      emitStatus(t.stream, { status: "done", exitCode: 0 });
       benchRunsRepo.updateOnFinish(runId, "succeeded", null);
       return reply.send({
         runId,
@@ -253,27 +322,38 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
         stderr: "pipe",
       });
       t.pid = proc.pid;
-      const append = async (stream: ReadableStream<Uint8Array> | null | undefined) => {
+      const append = async (
+        stream: ReadableStream<Uint8Array> | null | undefined,
+        which: "stdout" | "stderr",
+      ) => {
         if (!stream) return;
         const reader = stream.getReader();
         const dec = new TextDecoder();
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          const text = dec.decode(value);
           if (t.output.length < MAX_OUTPUT_BYTES) {
-            t.output += dec.decode(value);
+            t.output += text;
             if (t.output.length > MAX_OUTPUT_BYTES) t.output = t.output.slice(0, MAX_OUTPUT_BYTES);
           }
+          ingestChunk(t.stream, which, text);
         }
       };
-      void Promise.all([append(proc.stdout), append(proc.stderr)]);
+      void Promise.all([append(proc.stdout, "stdout"), append(proc.stderr, "stderr")]);
       void proc.exited.then((code) => {
+        flushPartials(t.stream);
         t.exitCode = code;
+        emitStatus(t.stream, { status: code === 0 ? "done" : "error", exitCode: code });
         benchRunsRepo.updateOnFinish(runId, code === 0 ? "succeeded" : "failed", null);
       });
     } catch (err) {
+      const msg = `\nspawn error: ${err instanceof Error ? err.message : String(err)}`;
       t.exitCode = -1;
-      t.output += `\nspawn error: ${err instanceof Error ? err.message : String(err)}`;
+      t.output += msg;
+      ingestChunk(t.stream, "stderr", msg);
+      flushPartials(t.stream);
+      emitStatus(t.stream, { status: "error", exitCode: -1 });
       benchRunsRepo.updateOnFinish(runId, "failed", null);
     }
 

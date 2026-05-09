@@ -267,17 +267,17 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 
 ### Phase N: live progress streaming
 
-- **Status:** pending
+- **Status:** done (2026-05-09)
 - **Dependencies:** Phase H
-- **Files:**
-  - `server/src/routes/benchmarks.ts` (`GET /benchmarks/runs/:id/events` SSE)
-  - `client/src/hooks/useBenchmarks.ts` (`useBenchmarkEvents(id)` consuming EventSource)
-  - `client/src/routes/Benchmarks.tsx` (live-tail per active run; auto-collapse on completion)
-- **Work items:**
-  - [ ] N1: Subprocess stdout/stderr → SSE bridge in the `/benchmarks/runs` POST handler; broadcast each line as `event: log`
-  - [ ] N2: Frontend tail view; replaces 2s polling for active-runs panel
-  - [ ] N3: Test via app.inject() + EventSource mock
-- **Notes:** Closes the Phase H acknowledged limitation.
+- **Shipped:**
+  - `server/src/services/benchRunStream.ts` — pure stream-state module: `createRunStream`, `ingestChunk` (newline-splits across stdout/stderr partials), `flushPartials`, `emitLine` (capped at MAX_LINES=5000), `emitStatus` (notifies + clears subscribers, marks finished)
+  - `server/src/routes/benchmarks.ts` — `GET /benchmarks/runs/:id/events` SSE endpoint: replays buffered lines on connect, streams new `event: log`, ends on terminal `event: status`. Spawn handler wired to ingest stdout/stderr chunks and emit terminal status on `proc.exited` (or on spawn-error path)
+  - `client/src/hooks/useBenchmarks.ts` — `useBenchmarkEvents(runId, enabled)` hook: lazy-connect (only when expanded), parses `log`/`status` events, caps client-side at 1000 lines, closes EventSource on terminal status
+  - `client/src/routes/Benchmarks.tsx` — `ActiveRunRow` component with expandable chevron; auto-scroll-to-bottom (disengages if user scrolls up >24px); shows `connecting`/`running`/`done`/`error` badge transitions and `— exit N —` footer
+  - `server/src/services/benchRunStream.test.ts` — 11-test unit matrix (line splitting across chunks, partial-stream independence, MAX_LINES cap drops oldest, subscriber-throws isolated, emitStatus clears subscribers)
+  - `server/src/routes/benchmarks.test.ts` — 3 SSE integration tests (400 bad id, 404 unknown, finished-run replay-then-close via real listener + fetch)
+  - End-to-end smoke (curl on real dev server): mock-claude pipeline run streams `event: log` lines + final `event: status {status:"done",exitCode:0}`
+- **Notes:** Closes Phase H acknowledged limitation. Lazy-connect design avoids opening N EventSources when N runs are listed; only an expanded row consumes a connection. Terminal-state replay path (subscribe to a finished run) returns buffered lines + final status synchronously.
 
 ### Phase O: persistent active-runs registry
 

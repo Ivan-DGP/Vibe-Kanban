@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -7,16 +7,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, Play, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Play, RefreshCw, X } from "lucide-react";
 import {
   useBenchmarkRuns,
   useBenchmarkRun,
   useBenchmarkFixtures,
   useBenchmarkAggregate,
   useBenchmarkActive,
+  useBenchmarkEvents,
   useTriggerBenchmark,
 } from "@/hooks";
-import type { BenchResult, BenchTriggerInput } from "@/lib/api";
+import type { BenchActiveRun, BenchResult, BenchTriggerInput } from "@/lib/api";
 
 function fmtCost(usd: number | null | undefined): string {
   if (typeof usd !== "number" || usd === 0) return "—";
@@ -45,16 +46,31 @@ function ResultRow({ r, onRerun }: { r: BenchResult; onRerun: (fixtureId: string
       <div className="flex items-center gap-3 px-3 py-2 hover:bg-muted/40">
         <CollapsibleTrigger asChild>
           <button className="flex items-center gap-2 flex-1 text-left">
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "" : "-rotate-90"}`} />
-            <Badge variant={statusVariant(r.status)} className="font-mono text-[10px]">{r.status}</Badge>
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${open ? "" : "-rotate-90"}`}
+            />
+            <Badge variant={statusVariant(r.status)} className="font-mono text-[10px]">
+              {r.status}
+            </Badge>
             <span className="font-medium text-sm">{r.fixtureId}</span>
             <span className="text-muted-foreground/70 text-xs truncate">{r.title}</span>
           </button>
         </CollapsibleTrigger>
-        <span className="text-xs text-muted-foreground tabular-nums">+{r.diff.linesAdded}/-{r.diff.linesRemoved}</span>
-        <span className="text-xs text-muted-foreground tabular-nums w-16 text-right">{fmtMs(r.durationMs)}</span>
-        <span className="text-xs text-muted-foreground tabular-nums w-16 text-right">{fmtCost(r.ai.totalCostUsd)}</span>
-        <Button size="sm" variant="ghost" onClick={() => onRerun(r.fixtureId)} title="Re-run this fixture">
+        <span className="text-xs text-muted-foreground tabular-nums">
+          +{r.diff.linesAdded}/-{r.diff.linesRemoved}
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums w-16 text-right">
+          {fmtMs(r.durationMs)}
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums w-16 text-right">
+          {fmtCost(r.ai.totalCostUsd)}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onRerun(r.fixtureId)}
+          title="Re-run this fixture"
+        >
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -62,40 +78,68 @@ function ResultRow({ r, onRerun }: { r: BenchResult; onRerun: (fixtureId: string
         <div className="grid grid-cols-2 gap-3 text-xs pt-2">
           <div>
             <div className="font-medium mb-0.5">Tests</div>
-            <div className="text-muted-foreground">target: {r.tests.targetPassed ? "PASS" : "FAIL"} (exit {r.tests.targetExitCode})</div>
-            <div className="text-muted-foreground">regression: {r.tests.regressionsHeld ? "HOLD" : "BROKE"} (exit {r.tests.regressionExitCode})</div>
+            <div className="text-muted-foreground">
+              target: {r.tests.targetPassed ? "PASS" : "FAIL"} (exit {r.tests.targetExitCode})
+            </div>
+            <div className="text-muted-foreground">
+              regression: {r.tests.regressionsHeld ? "HOLD" : "BROKE"} (exit{" "}
+              {r.tests.regressionExitCode})
+            </div>
           </div>
           <div>
             <div className="font-medium mb-0.5">Diff</div>
-            <div className="text-muted-foreground">files: {r.diff.filesChanged.length} ({r.diff.filesChanged.join(", ") || "none"})</div>
-            <div className="text-muted-foreground">budget: {r.diff.withinBudget ? "ok" : "over"} · expected-only: {r.diff.expectedFilesOnly ? "yes" : "no"}</div>
+            <div className="text-muted-foreground">
+              files: {r.diff.filesChanged.length} ({r.diff.filesChanged.join(", ") || "none"})
+            </div>
+            <div className="text-muted-foreground">
+              budget: {r.diff.withinBudget ? "ok" : "over"} · expected-only:{" "}
+              {r.diff.expectedFilesOnly ? "yes" : "no"}
+            </div>
           </div>
           {r.ai.invoked && (
             <div>
               <div className="font-medium mb-0.5">AI</div>
               <div className="text-muted-foreground">models: {r.ai.models.join(", ") || "—"}</div>
-              <div className="text-muted-foreground">turns: {r.ai.numTurns ?? "—"} · tokens: {r.ai.inputTokens ?? "—"}/{r.ai.outputTokens ?? "—"}</div>
+              <div className="text-muted-foreground">
+                turns: {r.ai.numTurns ?? "—"} · tokens: {r.ai.inputTokens ?? "—"}/
+                {r.ai.outputTokens ?? "—"}
+              </div>
               <div className="text-muted-foreground">stop: {r.ai.stopReason ?? "—"}</div>
             </div>
           )}
           {r.chain.depth > 0 && (
             <div>
               <div className="font-medium mb-0.5">Chain</div>
-              <div className="text-muted-foreground">depth: {r.chain.depth} · expected: {r.chain.expectedDepth ?? "—"} · met: {r.chain.expectedDepthMet ? "yes" : "no"}</div>
-              <div className="text-muted-foreground">leaf: {r.chain.leafTaskId ? `${r.chain.leafTaskId.slice(0, 8)} (${r.chain.leafStatus})` : "—"}</div>
+              <div className="text-muted-foreground">
+                depth: {r.chain.depth} · expected: {r.chain.expectedDepth ?? "—"} · met:{" "}
+                {r.chain.expectedDepthMet ? "yes" : "no"}
+              </div>
+              <div className="text-muted-foreground">
+                leaf:{" "}
+                {r.chain.leafTaskId
+                  ? `${r.chain.leafTaskId.slice(0, 8)} (${r.chain.leafStatus})`
+                  : "—"}
+              </div>
             </div>
           )}
           {r.sideEffects.checked && (
             <div>
               <div className="font-medium mb-0.5">Side-effects</div>
-              <div className="text-muted-foreground">allGreen: {r.sideEffects.allGreen ? "yes" : "no"}</div>
-              <div className="text-muted-foreground">aiRun: {r.sideEffects.taskAiRun.found ? "found" : "—"} · snapshot: {r.sideEffects.snapshot.fileExists ? "yes" : "no"}</div>
+              <div className="text-muted-foreground">
+                allGreen: {r.sideEffects.allGreen ? "yes" : "no"}
+              </div>
+              <div className="text-muted-foreground">
+                aiRun: {r.sideEffects.taskAiRun.found ? "found" : "—"} · snapshot:{" "}
+                {r.sideEffects.snapshot.fileExists ? "yes" : "no"}
+              </div>
             </div>
           )}
           {r.error && (
             <div className="col-span-2">
               <div className="font-medium mb-0.5 text-destructive">Error</div>
-              <pre className="bg-muted/40 p-1.5 rounded text-[11px] overflow-auto max-h-32">{r.error}</pre>
+              <pre className="bg-muted/40 p-1.5 rounded text-[11px] overflow-auto max-h-32">
+                {r.error}
+              </pre>
             </div>
           )}
         </div>
@@ -128,7 +172,9 @@ function TriggerPanel({ onClose }: { onClose: () => void }) {
     <div className="border rounded-md p-4 space-y-4 bg-muted/20">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Trigger benchmark run</h3>
-        <Button size="sm" variant="ghost" onClick={onClose}><X className="h-4 w-4" /></Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
       </div>
       <div>
         <Label className="text-xs">Fixtures (none = all)</Label>
@@ -162,7 +208,10 @@ function TriggerPanel({ onClose }: { onClose: () => void }) {
           --mock-claude (pipeline shim)
         </label>
         <label className="flex items-center gap-2 cursor-pointer">
-          <Checkbox checked={mode === "pipeline"} onCheckedChange={(v) => setMode(v ? "pipeline" : "harness")} />
+          <Checkbox
+            checked={mode === "pipeline"}
+            onCheckedChange={(v) => setMode(v ? "pipeline" : "harness")}
+          />
           --mode=pipeline
         </label>
         <label className="flex items-center gap-2">
@@ -178,13 +227,88 @@ function TriggerPanel({ onClose }: { onClose: () => void }) {
         </label>
       </div>
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button size="sm" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
         <Button size="sm" onClick={handleSubmit} disabled={trigger.isPending}>
           <Play className="h-3.5 w-3.5 mr-1" /> {trigger.isPending ? "Triggering…" : "Trigger run"}
         </Button>
       </div>
       {trigger.isError && (
-        <div className="text-xs text-destructive">Error: {(trigger.error as Error)?.message ?? "Failed"}</div>
+        <div className="text-xs text-destructive">
+          Error: {(trigger.error as Error)?.message ?? "Failed"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActiveRunRow({ run }: { run: BenchActiveRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLive = run.status === "running";
+  const { lines, status, exitCode } = useBenchmarkEvents(run.runId, expanded);
+  const tailRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+
+  useEffect(() => {
+    const el = tailRef.current;
+    if (!el || !stickToBottom.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  const onTailScroll = () => {
+    const el = tailRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    stickToBottom.current = nearBottom;
+  };
+
+  const wireStatus = isLive ? status : run.status;
+  const variant =
+    wireStatus === "running" || wireStatus === "connecting"
+      ? "secondary"
+      : wireStatus === "done"
+        ? "default"
+        : "destructive";
+
+  return (
+    <div className="border rounded-sm">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-3 text-xs px-2 py-1.5 hover:bg-muted/40 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0" />
+        )}
+        <Badge variant={variant}>{wireStatus}</Badge>
+        <span className="font-mono">{run.runId}</span>
+        <span className="text-muted-foreground/70 truncate flex-1 text-left">
+          {run.args.join(" ")}
+        </span>
+        <span className="text-muted-foreground tabular-nums">
+          {new Date(run.startedAt).toLocaleTimeString()}
+        </span>
+      </button>
+      {expanded && (
+        <div
+          ref={tailRef}
+          onScroll={onTailScroll}
+          className="border-t bg-muted/20 font-mono text-[11px] px-2 py-1.5 max-h-64 overflow-auto whitespace-pre-wrap"
+        >
+          {lines.length === 0 ? (
+            <span className="text-muted-foreground">
+              {status === "connecting" ? "connecting…" : "(no output yet)"}
+            </span>
+          ) : (
+            lines.map((line, i) => <div key={i}>{line || " "}</div>)
+          )}
+          {(status === "done" || status === "error") && (
+            <div className="text-muted-foreground mt-1">— exit {exitCode ?? "?"} —</div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -232,7 +356,8 @@ export default function Benchmarks() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Benchmarks</h1>
           <p className="text-sm text-muted-foreground/70 mt-0.5">
-            {runs.length} runs · {aggregate?.resultsScanned ?? 0} results · total cost {fmtCost(aggregate?.totalCostUsd)}
+            {runs.length} runs · {aggregate?.resultsScanned ?? 0} results · total cost{" "}
+            {fmtCost(aggregate?.totalCostUsd)}
           </p>
         </div>
         <Button size="sm" onClick={() => setShowTrigger(true)} disabled={showTrigger}>
@@ -245,16 +370,11 @@ export default function Benchmarks() {
       {activeRuns.length > 0 && (
         <div className="border rounded-md p-3 space-y-2">
           <h3 className="text-sm font-semibold">Active runs</h3>
-          {activeRuns.map((r) => (
-            <div key={r.runId} className="flex items-center gap-3 text-xs">
-              <Badge variant={r.status === "running" ? "secondary" : r.status === "done" ? "default" : "destructive"}>
-                {r.status}
-              </Badge>
-              <span className="font-mono">{r.runId}</span>
-              <span className="text-muted-foreground/70 truncate flex-1">{r.args.join(" ")}</span>
-              <span className="text-muted-foreground tabular-nums">{new Date(r.startedAt).toLocaleTimeString()}</span>
-            </div>
-          ))}
+          <div className="space-y-1.5">
+            {activeRuns.map((r) => (
+              <ActiveRunRow key={r.runId} run={r} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -265,9 +385,15 @@ export default function Benchmarks() {
             {topByFixture.map((b) => (
               <div key={b.key} className="flex items-center gap-3 text-xs">
                 <span className="font-mono w-48 truncate">{b.key}</span>
-                <span className="text-muted-foreground tabular-nums w-16">{(b.solveRate * 100).toFixed(0)}%</span>
-                <span className="text-muted-foreground tabular-nums w-12">{b.solved}/{b.total}</span>
-                <span className="text-muted-foreground tabular-nums w-16 text-right">{fmtCost(b.totalCostUsd)}</span>
+                <span className="text-muted-foreground tabular-nums w-16">
+                  {(b.solveRate * 100).toFixed(0)}%
+                </span>
+                <span className="text-muted-foreground tabular-nums w-12">
+                  {b.solved}/{b.total}
+                </span>
+                <span className="text-muted-foreground tabular-nums w-16 text-right">
+                  {fmtCost(b.totalCostUsd)}
+                </span>
               </div>
             ))}
           </div>
@@ -288,7 +414,9 @@ export default function Benchmarks() {
             <Skeleton className="h-8" />
           </div>
         ) : runs.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">No runs yet. Trigger one to get started.</div>
+          <div className="p-6 text-center text-sm text-muted-foreground">
+            No runs yet. Trigger one to get started.
+          </div>
         ) : (
           <div className="divide-y">
             {runs.map((r) => (
@@ -299,13 +427,19 @@ export default function Benchmarks() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="font-mono text-xs truncate">{r.id}</div>
-                  <div className="text-[10px] text-muted-foreground/70 truncate">{r.models.join(", ") || "no AI"}</div>
+                  <div className="text-[10px] text-muted-foreground/70 truncate">
+                    {r.models.join(", ") || "no AI"}
+                  </div>
                 </div>
                 <span className="w-20 text-right text-xs tabular-nums">
                   {r.solvedCount ?? "—"}/{r.count}
                 </span>
-                <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">{fmtMs(r.totalMs)}</span>
-                <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">{fmtCost(r.totalCostUsd)}</span>
+                <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">
+                  {fmtMs(r.totalMs)}
+                </span>
+                <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">
+                  {fmtCost(r.totalCostUsd)}
+                </span>
               </button>
             ))}
           </div>
@@ -317,7 +451,12 @@ export default function Benchmarks() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Run {selectedRunId}</h2>
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={handleRerunFullReport} disabled={trigger.isPending}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRerunFullReport}
+                disabled={trigger.isPending}
+              >
                 <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Re-run all
               </Button>
               <Button size="sm" variant="ghost" onClick={() => selectRun(null)}>

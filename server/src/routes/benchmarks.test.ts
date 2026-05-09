@@ -270,3 +270,53 @@ describe("benchmarks routes", () => {
     expect(j.runs.some((r) => r.status === "done")).toBe(true);
   });
 });
+
+describe("GET /api/benchmarks/runs/:id/events (SSE)", () => {
+  test("rejects bad id with 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/benchmarks/runs/..%2Fetc%2Fpasswd/events",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test("404 for unknown id", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/benchmarks/runs/no-such-run/events",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test("finished run replays + emits terminal status, then closes", async () => {
+    const trigger = await app.inject({
+      method: "POST",
+      url: "/api/benchmarks/runs",
+      headers: { "Content-Type": "application/json" },
+      payload: { fixtures: ["01-test-fixture"], mock: true },
+    });
+    const { runId } = trigger.json() as { runId: string };
+
+    const address = await app.listen({ port: 0, host: "127.0.0.1" });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`${address}/api/benchmarks/runs/${runId}/events`, {
+      signal: controller.signal,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("text/event-stream");
+
+    let body = "";
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) body += dec.decode(value);
+    }
+    clearTimeout(timer);
+
+    expect(body).toContain("event: status");
+    expect(body).toContain('"status":"done"');
+  });
+});
