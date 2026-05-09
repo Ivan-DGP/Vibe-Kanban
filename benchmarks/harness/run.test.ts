@@ -9,6 +9,7 @@ import {
   detectMisFixture,
   evaluateStatus,
   parseClaudeJson,
+  parsePlaywrightJsonReport,
 } from "./run";
 import type { BenchResult, BenchStatus } from "./types";
 
@@ -715,5 +716,98 @@ describe("--ci flag end-to-end (subprocess)", () => {
     ]);
     expect(res.exitCode).toBe(2);
     expect(res.stderr).toContain("baseline not found");
+  });
+});
+
+describe("parsePlaywrightJsonReport", () => {
+  test("returns null on empty/whitespace/non-JSON input", () => {
+    expect(parsePlaywrightJsonReport("")).toBeNull();
+    expect(parsePlaywrightJsonReport("   \n  ")).toBeNull();
+    expect(parsePlaywrightJsonReport("not json at all")).toBeNull();
+  });
+
+  test("returns null when JSON has no .suites field (not a PW report)", () => {
+    expect(parsePlaywrightJsonReport(JSON.stringify({ foo: "bar" }))).toBeNull();
+  });
+
+  test("recovers when garbage precedes the JSON object", () => {
+    const report = {
+      suites: [
+        {
+          specs: [
+            {
+              tests: [{ results: [{ status: "passed" }] }],
+            },
+          ],
+        },
+      ],
+    };
+    const wrapped = `Some warning text\n\n${JSON.stringify(report)}`;
+    const out = parsePlaywrightJsonReport(wrapped);
+    expect(out).not.toBeNull();
+    expect(out!.total).toBe(1);
+    expect(out!.passed).toBe(1);
+  });
+
+  test("counts passed/failed/skipped across nested suites + collects annotations", () => {
+    const report = {
+      suites: [
+        {
+          suites: [
+            {
+              specs: [
+                {
+                  tests: [
+                    {
+                      annotations: [
+                        { type: "e2eMs", description: "1234" },
+                        { type: "rowAppearMs", description: "234" },
+                      ],
+                      results: [{ status: "passed" }],
+                    },
+                    { results: [{ status: "skipped" }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          specs: [
+            {
+              tests: [
+                { results: [{ status: "failed" }] },
+                { results: [{ status: "expected" }] },
+                { results: [{ status: "timedOut" }] },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const out = parsePlaywrightJsonReport(JSON.stringify(report));
+    expect(out).not.toBeNull();
+    expect(out!.total).toBe(5);
+    expect(out!.passed).toBe(2); // passed + expected
+    expect(out!.skipped).toBe(1);
+    expect(out!.failed).toBe(2); // failed + timedOut
+    expect(out!.annotations).toEqual([
+      { type: "e2eMs", description: "1234" },
+      { type: "rowAppearMs", description: "234" },
+    ]);
+  });
+
+  test("handles tests with no annotations / no results gracefully", () => {
+    const report = {
+      suites: [
+        {
+          specs: [{ tests: [{}, { results: [] }] }],
+        },
+      ],
+    };
+    const out = parsePlaywrightJsonReport(JSON.stringify(report));
+    expect(out).not.toBeNull();
+    expect(out!.total).toBe(0);
+    expect(out!.annotations).toEqual([]);
   });
 });

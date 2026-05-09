@@ -277,6 +277,24 @@ export interface BenchReport {
   count: number;
   solvedCount: number;
   results: BenchResult[];
+  /** Phase J: optional E2E summary when bench was run with --include-e2e. */
+  e2e?: BenchE2EResult;
+}
+
+export interface BenchE2EResult {
+  ran: boolean;
+  /** Number of Playwright tests in the bench-e2e project. */
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  durationMs: number;
+  /** Per-test annotations the spec emits — e.g. e2eMs, rowAppearMs. */
+  annotations: { type: string; description: string }[];
+  /** Non-zero exit code from playwright if the run failed mechanically. */
+  exitCode: number | null;
+  /** Error message if the runner itself failed (couldn't spawn, etc.). */
+  error: string | null;
 }
 
 export interface AggregateBucket {

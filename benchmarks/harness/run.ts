@@ -20,7 +20,13 @@ import {
   writeCompare,
 } from "./aggregate";
 import { calibrate, formatCalibrationMd, formatCalibrationText } from "./calibrate";
-import type { BenchAggregateReport, BenchSpec, BenchResult, BenchStatus } from "./types";
+import type {
+  BenchAggregateReport,
+  BenchE2EResult,
+  BenchSpec,
+  BenchResult,
+  BenchStatus,
+} from "./types";
 
 const HARNESS_DIR = path.resolve(import.meta.dir);
 const BENCH_ROOT = path.resolve(HARNESS_DIR, "..");
@@ -44,6 +50,7 @@ interface CliOpts {
   baseline: string | null;
   commentOut: string | null;
   model: string | null;
+  includeE2e: boolean;
 }
 
 function parseArgs(argv: string[]): CliOpts {
@@ -61,6 +68,7 @@ function parseArgs(argv: string[]): CliOpts {
     baseline: null,
     commentOut: null,
     model: null,
+    includeE2e: false,
   };
   for (const a of argv) {
     if (a === "--dry-run") opts.dryRun = true;
@@ -69,6 +77,7 @@ function parseArgs(argv: string[]): CliOpts {
     else if (a === "--keep") opts.keepWorkdir = true;
     else if (a === "--mock-claude") opts.mockClaude = true;
     else if (a === "--ci") opts.ci = true;
+    else if (a === "--include-e2e") opts.includeE2e = true;
     else if (a.startsWith("--baseline="))
       opts.baseline = path.resolve(a.slice("--baseline=".length));
     else if (a.startsWith("--comment-out="))
@@ -130,6 +139,8 @@ flags (default subcommand):
   --baseline=<p>   baseline aggregate-*.json to compare against (used with --ci)
   --comment-out=<p>  write PR-comment markdown delta table to <p> (used with --baseline)
   --model=<id>     pass --model <id> to claude CLI (harness mode). e.g. haiku | sonnet | opus | full ID
+  --include-e2e    after the bench run, also execute Playwright project bench-e2e
+                   (benchmarks/e2e/*.spec.ts) and fold the summary into report.e2e
   -h, --help       this message
 
 each fixture is benchmarks/fixtures/<id>/ with:
@@ -787,6 +798,128 @@ async function runCalibrateSubcommand(args: string[]): Promise<void> {
   }
 }
 
+/**
+ * Phase J: shell out to `bunx playwright test --project=bench-e2e --reporter=json`,
+ * parse the JSON report into a BenchE2EResult. Tolerant of missing/garbled output —
+ * always returns a structured result with `ran` set.
+ */
+export async function runE2EAfterBench(): Promise<BenchE2EResult> {
+  const startedAt = Date.now();
+  const baseResult: BenchE2EResult = {
+    ran: true,
+    total: 0,
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    durationMs: 0,
+    annotations: [],
+    exitCode: null,
+    error: null,
+  };
+
+  const args = ["bunx", "playwright", "test", "--project=bench-e2e", "--reporter=json"];
+  let stdoutText = "";
+  let stderrText = "";
+  let exitCode: number | null = null;
+  try {
+    const proc = Bun.spawn(args, {
+      cwd: path.resolve(BENCH_ROOT, ".."),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, CI: process.env.CI ?? "1" },
+    });
+    stdoutText = await new Response(proc.stdout).text();
+    stderrText = await new Response(proc.stderr).text();
+    exitCode = await proc.exited;
+  } catch (err) {
+    return {
+      ...baseResult,
+      durationMs: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  baseResult.exitCode = exitCode;
+  baseResult.durationMs = Date.now() - startedAt;
+
+  const parsed = parsePlaywrightJsonReport(stdoutText);
+  if (!parsed) {
+    baseResult.error = `playwright reporter produced no parseable JSON (exit=${exitCode}); stderr=${stderrText.slice(0, 500)}`;
+    return baseResult;
+  }
+  return { ...baseResult, ...parsed, exitCode };
+}
+
+/**
+ * Extract counts and annotations from Playwright's JSON reporter output.
+ * Returns null if the input isn't a recognizable PW JSON report.
+ */
+export function parsePlaywrightJsonReport(
+  raw: string,
+): Pick<BenchE2EResult, "total" | "passed" | "failed" | "skipped" | "annotations"> | null {
+  if (!raw || !raw.trim()) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    // Some setups print non-JSON before the report; try to find the first { ... } object.
+    const start = raw.indexOf("{");
+    if (start < 0) return null;
+    try {
+      json = JSON.parse(raw.slice(start));
+    } catch {
+      return null;
+    }
+  }
+  if (!json || typeof json !== "object") return null;
+  const root = json as Record<string, unknown>;
+  if (!Array.isArray(root.suites)) return null;
+
+  let total = 0;
+  let passed = 0;
+  let failed = 0;
+  let skipped = 0;
+  const annotations: { type: string; description: string }[] = [];
+
+  function walkSuite(s: unknown): void {
+    if (!s || typeof s !== "object") return;
+    const node = s as Record<string, unknown>;
+    if (Array.isArray(node.suites)) for (const child of node.suites) walkSuite(child);
+    if (Array.isArray(node.specs))
+      for (const spec of node.specs) {
+        if (!spec || typeof spec !== "object") continue;
+        const sp = spec as Record<string, unknown>;
+        if (Array.isArray(sp.tests))
+          for (const t of sp.tests) {
+            if (!t || typeof t !== "object") continue;
+            const test = t as Record<string, unknown>;
+            if (Array.isArray(test.annotations))
+              for (const a of test.annotations) {
+                if (a && typeof a === "object") {
+                  const ann = a as Record<string, unknown>;
+                  annotations.push({
+                    type: typeof ann.type === "string" ? ann.type : "",
+                    description: typeof ann.description === "string" ? ann.description : "",
+                  });
+                }
+              }
+            if (Array.isArray(test.results))
+              for (const rr of test.results) {
+                if (!rr || typeof rr !== "object") continue;
+                const r = rr as Record<string, unknown>;
+                total++;
+                const status = r.status;
+                if (status === "passed" || status === "expected") passed++;
+                else if (status === "skipped") skipped++;
+                else failed++;
+              }
+          }
+      }
+  }
+  for (const s of root.suites) walkSuite(s);
+  return { total, passed, failed, skipped, annotations };
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const sub = argv[0];
@@ -890,6 +1023,17 @@ async function main(): Promise<void> {
   const finishedAt = new Date().toISOString();
 
   const report = buildReport(results, startedAt, finishedAt);
+  if (opts.includeE2e) {
+    console.log("");
+    console.log("--- bench-e2e (Playwright) ---");
+    const e2e = await runE2EAfterBench();
+    report.e2e = e2e;
+    const verdict = e2e.failed === 0 && e2e.exitCode === 0 ? "ok" : "FAIL";
+    console.log(
+      `bench-e2e ${verdict} · total=${e2e.total} pass=${e2e.passed} fail=${e2e.failed} skip=${e2e.skipped} (${(e2e.durationMs / 1000).toFixed(1)}s)`,
+    );
+    if (e2e.error) console.log(`bench-e2e error: ${e2e.error}`);
+  }
   const { jsonPath, mdPath } = writeReports(report, opts.outDir);
 
   if (opts.baseline) {

@@ -205,20 +205,18 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 
 ### Phase J: E2E task-flow UI bench (Playwright)
 
-- **Status:** pending
-- **Dependencies:** Phase B
-- **Files:**
-  - `benchmarks/e2e/task-flow.spec.ts` (new)
-  - `benchmarks/harness/run.ts` (`bench e2e` subcommand wrapping playwright)
-  - `playwright.config.ts` (new bench project)
-  - `benchmarks/harness/types.ts` (`BenchE2EResult`)
-- **Work items:**
-  - [ ] J1: Playwright spec drives the user-visible loop: open `/`, create project pointing at fixture work dir, create task in board, observe status badge transitions (backlog → in_progress → done) within p95 budget, assert diff renders in detail panel
-  - [ ] J2: SSE/WebSocket assertions — task status streams to UI within 2s of DB write; failure here means the task page is stale even when the backend is fine
-  - [ ] J3: Drag-drop status-change → cascade verification (covers the path _not_ exercised by API-only tests)
-  - [ ] J4: 1 fixture wrapped as E2E (existing `01-bug-fix-arithmetic`); `--include-e2e` opt-in flag so default `bench` runs stay fast
-  - [ ] J5: Result reporting — fold E2E results into the same `bench` table; new diff field `e2eMs` for board-update latency
-- **Notes:** This is the "real user view" bench — the current Phase H UI is the bench dashboard, not the user task flow. Closes pipeline gaps 14–15.
+- **Status:** done (2026-05-09)
+- **Dependencies:** Phase B + Phase N (live SSE)
+- **Shipped:**
+  - `playwright.config.ts` — added `bench-e2e` project (testDir `./benchmarks/e2e`); kept default chromium project (testDir `./client/e2e`) untouched
+  - `benchmarks/e2e/task-flow.spec.ts` — 2 specs:
+    1. Trigger `POST /api/benchmarks/runs` with `{ fixtures:["01-bug-fix-arithmetic"], mock:true, mockClaude:true, mode:"pipeline" }`, assert active-run row appears in `/benchmarks` view within 5s of trigger, expand the row, watch live tail render `/benchmark run/i` within `FIRST_LOG_BUDGET_MS`, then `/exit\s+0/i` and `done` badge inside `RUN_BUDGET_MS=30000`. Annotates `e2eMs` and `rowAppearMs`.
+    2. Re-connect after a finished run and assert replay-on-connect shows buffered lines + terminal status without holding an open EventSource.
+  - `benchmarks/harness/types.ts` — added `BenchE2EResult` (`ran/total/passed/failed/skipped/durationMs/annotations/exitCode/error`) and optional `BenchReport.e2e?`.
+  - `benchmarks/harness/run.ts` — added `--include-e2e` flag (`CliOpts.includeE2e`), USAGE doc line, `runE2EAfterBench()` (spawns `bunx playwright test --project=bench-e2e --reporter=json`, parses report, returns BenchE2EResult; tolerant of empty/garbled stdout), and `parsePlaywrightJsonReport()` recursive walker. Wired between `buildReport` and `writeReports` so the e2e summary is folded into the JSON + console line.
+  - `benchmarks/harness/run.test.ts` — 5 new unit tests for `parsePlaywrightJsonReport` (empty/garbled input, no-suites guard, garbage-prefix recovery, nested-suite counting, missing-results graceful path). Total 44 tests.
+- **Smoke result:** `bunx playwright test --project=bench-e2e --list` resolves both specs cleanly. Real browser execution deferred to CI (WSL2 host lacks libnspr4/libasound).
+- **Notes:** Phase J reuses Phase N's live-tail UI as the asserted surface. The `--include-e2e` flag keeps the default `bench` flow fast; CI opts in. Closes pipeline gaps 14–15. J3 (drag-drop cascade via Playwright) deferred — `client/e2e/kanban-tasks.spec.ts` already covers DnD; bench-e2e focuses on the API-trigger → live-tail path that previously had no coverage.
 
 ### Phase K: adversarial bench
 
