@@ -27,6 +27,7 @@ import {
   summarizeReplays,
   type ReplayResult,
 } from "./replay";
+import { replayResultsToBenchReport } from "./replayCalibrate";
 import type {
   BenchAggregateReport,
   BenchE2EResult,
@@ -785,6 +786,25 @@ async function runCalibrateSubcommand(args: string[]): Promise<void> {
     process.exit(1);
   }
   const specs = loadFixtureSpecs(FIXTURES_DIR);
+  // Phase L4: replay-derived fixtures don't have on-disk specs; synthesize one
+  // per unique replay-<projectNameHash> so calibrate can label the rows.
+  for (const rep of reports) {
+    if (!Array.isArray(rep.results)) continue;
+    for (const r of rep.results) {
+      if (!r.fixtureId.startsWith("replay-") || specs.has(r.fixtureId)) continue;
+      specs.set(r.fixtureId, {
+        id: r.fixtureId,
+        title: `Replay drift — ${r.fixtureId.slice("replay-".length, "replay-".length + 8)}`,
+        category: "replay",
+        difficulty: "replay",
+        prompt: "(replay — anonymized)",
+        targetTestPath: "",
+        regressionTestPath: "",
+        maxDiffLines: 0,
+        timeoutMs: 0,
+      });
+    }
+  }
   const cal = calibrate(reports, specs, {
     windowDays,
     trivialThreshold,
@@ -936,6 +956,7 @@ async function runReplaySubcommand(args: string[]): Promise<void> {
   let timeoutMs = 5 * 60 * 1000;
   let keep = false;
   let writeFiles = false;
+  let feedCalibrate = false;
   let limit = 0;
   for (const a of args) {
     if (a.startsWith("--dir=")) dir = path.resolve(a.slice("--dir=".length));
@@ -946,6 +967,7 @@ async function runReplaySubcommand(args: string[]): Promise<void> {
     else if (a === "--mock-claude") mockClaude = true;
     else if (a === "--keep") keep = true;
     else if (a === "--write") writeFiles = true;
+    else if (a === "--feed-calibrate") feedCalibrate = true;
     else if (a.startsWith("--timeout=")) {
       const n = Number(a.slice("--timeout=".length));
       if (!Number.isFinite(n) || n <= 0) {
@@ -1003,6 +1025,17 @@ async function runReplaySubcommand(args: string[]): Promise<void> {
     console.log("");
     console.log(`json: ${path.relative(process.cwd(), jsonPath)}`);
     console.log(`md:   ${path.relative(process.cwd(), mdPath)}`);
+  }
+  if (feedCalibrate) {
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const reportPath = path.join(RESULTS_DIR, `replay-calibrate-${stamp}.json`);
+    const report = replayResultsToBenchReport(results);
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+    console.log("");
+    console.log(
+      `calibrate feed: ${path.relative(process.cwd(), reportPath)} (${report.count} results, ${report.solvedCount} solved) — pick up via 'bun run benchmarks/harness/run.ts calibrate'`,
+    );
   }
 }
 

@@ -40,6 +40,12 @@ export interface ReplayResult {
   taskId: string;
   projectId: string;
   workDir: string;
+  /** Project nameHash from the sidecar payload — stable identity for grouping replays of the same anonymized project. */
+  projectNameHash: string;
+  /** ISO timestamp from the sidecar (when the original run was captured). */
+  capturedAt: string;
+  /** Anonymized task metadata as captured (or null). Used by the calibrate adapter to infer category. */
+  taskMetadata: Record<string, unknown> | null;
   captured: ReplayPayloadSidecar["outcome"];
   replay: ReplayOutcome;
   comparison: {
@@ -164,6 +170,9 @@ export async function runReplay(sidecarPath: string, opts: ReplayOpts): Promise<
     taskId: sidecar.taskId,
     projectId: sidecar.projectId,
     workDir,
+    projectNameHash: sidecar.payload.project.nameHash,
+    capturedAt: sidecar.capturedAt,
+    taskMetadata: sidecar.payload.task.metadata,
     captured: sidecar.outcome,
     replay: { exitCode: null, summary: null, sessionId: null, durationMs: 0 },
     comparison: { exitCodeMatches: false, bothNonZero: false, bothZero: false },
