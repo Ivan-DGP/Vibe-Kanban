@@ -41,6 +41,14 @@ export function useBenchmarkActive() {
   });
 }
 
+export function useBenchmarkDrift() {
+  return useQuery({
+    queryKey: ["benchmarks", "drift"],
+    queryFn: () => api.benchmarks.drift(),
+    refetchInterval: 30000,
+  });
+}
+
 export function useTriggerBenchmark() {
   const qc = useQueryClient();
   return useMutation({

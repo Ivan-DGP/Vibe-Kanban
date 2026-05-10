@@ -271,6 +271,73 @@ describe("benchmarks routes", () => {
   });
 });
 
+describe("GET /api/benchmarks/drift", () => {
+  test("returns zeros when replays/ does not exist", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/benchmarks/drift" });
+    expect(res.statusCode).toBe(200);
+    const j = res.json() as {
+      totalCaptures: number;
+      projectCount: number;
+      latestCaptureAt: string | null;
+      byProject: unknown[];
+    };
+    expect(j.totalCaptures).toBe(0);
+    expect(j.projectCount).toBe(0);
+    expect(j.latestCaptureAt).toBeNull();
+    expect(j.byProject).toEqual([]);
+  });
+
+  test("aggregates sidecar JSONs by project hash and sorts by lastAt desc", async () => {
+    const replaysDir = path.join(tmpBench, "replays");
+    fs.mkdirSync(replaysDir, { recursive: true });
+    const write = (
+      slug: string,
+      hash: string,
+      capturedAt: string,
+      exitCode: number | null,
+    ): void => {
+      fs.writeFileSync(
+        path.join(replaysDir, `${slug}.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          capturedAt,
+          runId: slug,
+          taskId: "t",
+          projectId: "p",
+          payload: { project: { nameHash: hash } },
+          outcome: { exitCode, durationMs: 1, summary: null, sessionId: null },
+          workdirArchive: `${slug}.tar.gz`,
+        }),
+      );
+    };
+    write("a", "hash-aaaa", "2099-01-01T00:00:00.000Z", 0);
+    write("b", "hash-aaaa", "2099-01-02T00:00:00.000Z", 1);
+    write("c", "hash-bbbb", "2099-01-03T00:00:00.000Z", 0);
+    fs.writeFileSync(path.join(replaysDir, "broken.json"), "{ not json");
+    fs.writeFileSync(path.join(replaysDir, "ignore.txt"), "ignored");
+
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/benchmarks/drift" });
+      expect(res.statusCode).toBe(200);
+      const j = res.json() as {
+        totalCaptures: number;
+        projectCount: number;
+        latestCaptureAt: string | null;
+        byProject: { hash: string; count: number; lastAt: string; lastExitCode: number | null }[];
+      };
+      expect(j.totalCaptures).toBe(3);
+      expect(j.projectCount).toBe(2);
+      expect(j.latestCaptureAt).toBe("2099-01-03T00:00:00.000Z");
+      expect(j.byProject[0].hash).toBe("hash-bbbb");
+      expect(j.byProject[1].hash).toBe("hash-aaaa");
+      expect(j.byProject[1].count).toBe(2);
+      expect(j.byProject[1].lastExitCode).toBe(1);
+    } finally {
+      fs.rmSync(replaysDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("GET /api/benchmarks/runs/:id/events (SSE)", () => {
   test("rejects bad id with 400", async () => {
     const res = await app.inject({

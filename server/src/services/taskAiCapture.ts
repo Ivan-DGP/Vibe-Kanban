@@ -39,7 +39,13 @@ const MAX_TEXT_LEN = 32_000;
 const TAR_TIMEOUT_MS = 60_000;
 
 export function isCaptureEnabled(): boolean {
-  return process.env.VK_BENCH_CAPTURE === "1";
+  if (process.env.VK_BENCH_CAPTURE === "0") return false;
+  if (process.env.VK_BENCH_CAPTURE === "1") return true;
+  // Default: ON in dev (any non-production NODE_ENV), OFF in production.
+  // Bun sets NODE_ENV=development for `bun run` by default, so a normal
+  // `bun run dev` session captures replays without ceremony. Production
+  // deploys are expected to set NODE_ENV=production.
+  return process.env.NODE_ENV !== "production";
 }
 
 export function getReplayDir(): string {

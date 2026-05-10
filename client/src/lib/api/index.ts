@@ -84,11 +84,9 @@ export const api = {
       get<Project[]>(`/projects${toQuery(params ?? {})}`),
     get: (id: string) => get<Project>(`/projects/${id}`),
     create: (input: CreateProjectInput) => post<Project>("/projects", input),
-    update: (id: string, input: UpdateProjectInput) =>
-      patch<Project>(`/projects/${id}`, input),
+    update: (id: string, input: UpdateProjectInput) => patch<Project>(`/projects/${id}`, input),
     delete: (id: string) => del(`/projects/${id}`),
-    scan: (directories: string[]) =>
-      post<ScannedProject[]>("/projects/scan", { directories }),
+    scan: (directories: string[]) => post<ScannedProject[]>("/projects/scan", { directories }),
   },
 
   tasks: {
@@ -99,14 +97,16 @@ export const api = {
     get: (id: string) => get<Task>(`/tasks/${id}`),
     create: (projectId: string, input: CreateTaskInput) =>
       post<Task>(`/projects/${projectId}/tasks`, input),
-    update: (id: string, input: UpdateTaskInput) =>
-      patch<Task>(`/tasks/${id}`, input),
+    update: (id: string, input: UpdateTaskInput) => patch<Task>(`/tasks/${id}`, input),
     delete: (id: string) => del(`/tasks/${id}`),
     reorder: (tasks: { id: string; sortOrder: number; status?: string }[]) =>
       patch<void>("/tasks/reorder", { tasks }),
     all: (params: { status?: string; sort?: string; limit?: number; offset?: number } = {}) =>
-      get<PaginatedResponse<Task & { projectName?: string }>>(`/tasks/all${toQuery(params as Record<string, unknown>)}`),
-    search: (q: string) => get<(Task & { projectName?: string })[]>(`/tasks/search?q=${encodeURIComponent(q)}`),
+      get<PaginatedResponse<Task & { projectName?: string }>>(
+        `/tasks/all${toQuery(params as Record<string, unknown>)}`,
+      ),
+    search: (q: string) =>
+      get<(Task & { projectName?: string })[]>(`/tasks/search?q=${encodeURIComponent(q)}`),
     workingOn: () => get<Task[]>("/tasks/working-on"),
     bulkImport: (projectId: string, tasks: CreateTaskInput[]) =>
       post<Task[]>(`/projects/${projectId}/tasks/bulk-import`, { tasks }),
@@ -116,17 +116,17 @@ export const api = {
       get<AiPreflightResult>(`/projects/${projectId}/tasks/${taskId}/ai-preflight`),
     aiResolvePrompt: (projectId: string, taskId: string) =>
       post<{ prompt: string }>(`/projects/${projectId}/tasks/${taskId}/ai-resolve`, {}),
-    aiRuns: (taskId: string) =>
-      get<TaskAiRun[]>(`/tasks/${taskId}/ai-runs`),
-    aiStats: (projectId: string) =>
-      get<ProjectAiStats>(`/projects/${projectId}/ai-stats`),
+    aiRuns: (taskId: string) => get<TaskAiRun[]>(`/tasks/${taskId}/ai-runs`),
+    aiStats: (projectId: string) => get<ProjectAiStats>(`/projects/${projectId}/ai-stats`),
     decompose: (projectId: string, taskId: string) =>
-      post<{ parentTaskId: string; subtasks: Task[] }>(`/projects/${projectId}/tasks/${taskId}/decompose`, {}),
+      post<{ parentTaskId: string; subtasks: Task[] }>(
+        `/projects/${projectId}/tasks/${taskId}/decompose`,
+        {},
+      ),
   },
 
   milestones: {
-    list: (projectId: string) =>
-      get<Milestone[]>(`/projects/${projectId}/milestones`),
+    list: (projectId: string) => get<Milestone[]>(`/projects/${projectId}/milestones`),
     create: (projectId: string, input: CreateMilestoneInput) =>
       post<Milestone>(`/projects/${projectId}/milestones`, input),
     update: (id: string, input: UpdateMilestoneInput) =>
@@ -140,9 +140,7 @@ export const api = {
     log: (projectId: string, subPath?: string) =>
       get<GitLogEntry[]>(`/projects/${projectId}/git/log${toQuery({ subPath })}`),
     branches: (projectId: string, subPath?: string) =>
-      get<GitBranch[]>(
-        `/projects/${projectId}/git/branches${toQuery({ subPath })}`,
-      ),
+      get<GitBranch[]>(`/projects/${projectId}/git/branches${toQuery({ subPath })}`),
     stage: (projectId: string, files: string[], subPath?: string) =>
       post(`/projects/${projectId}/git/stage`, { files, subPath }),
     unstage: (projectId: string, files: string[], subPath?: string) =>
@@ -158,15 +156,12 @@ export const api = {
     undoCommit: (projectId: string, subPath?: string) =>
       post(`/projects/${projectId}/git/undo-commit`, { subPath }),
     diff: (projectId: string, file?: string, subPath?: string) =>
-      get<string>(
-        `/projects/${projectId}/git/diff${toQuery({ file, subPath })}`,
-      ),
+      get<string>(`/projects/${projectId}/git/diff${toQuery({ file, subPath })}`),
     checkout: (projectId: string, branch: string, subPath?: string) =>
       post(`/projects/${projectId}/git/checkout`, { branch, subPath }),
     createBranch: (projectId: string, branch: string, baseBranch?: string, subPath?: string) =>
       post(`/projects/${projectId}/git/create-branch`, { branch, baseBranch, subPath }),
-    subRepos: (projectId: string) =>
-      get<string[]>(`/projects/${projectId}/git/sub-repos`),
+    subRepos: (projectId: string) => get<string[]>(`/projects/${projectId}/git/sub-repos`),
     divergence: (projectId: string, subPath?: string) =>
       get<{ mainBranch: string | null; ahead: number; behind: number }>(
         `/projects/${projectId}/git/divergence${toQuery({ subPath })}`,
@@ -175,29 +170,21 @@ export const api = {
 
   files: {
     list: (projectId: string, dirPath?: string) =>
-      get<FileEntry[]>(
-        `/projects/${projectId}/files${toQuery({ path: dirPath })}`,
-      ),
+      get<FileEntry[]>(`/projects/${projectId}/files${toQuery({ path: dirPath })}`),
     read: (projectId: string, filePath: string) =>
       get<{ content: string; encoding: string }>(
         `/projects/${projectId}/files/read${toQuery({ path: filePath })}`,
       ),
     write: (projectId: string, filePath: string, content: string) =>
       put(`/projects/${projectId}/files/write`, { path: filePath, content }),
-    create: (
-      projectId: string,
-      filePath: string,
-      type: "file" | "directory",
-    ) =>
+    create: (projectId: string, filePath: string, type: "file" | "directory") =>
       post(`/projects/${projectId}/files/create`, { path: filePath, type }),
     rename: (projectId: string, oldPath: string, newPath: string) =>
       post(`/projects/${projectId}/files/rename`, { oldPath, newPath }),
     delete: (projectId: string, filePath: string) =>
       del(`/projects/${projectId}/files/delete?path=${encodeURIComponent(filePath)}`),
     search: (projectId: string, q: string, caseSensitive?: boolean) =>
-      get(
-        `/projects/${projectId}/files/search${toQuery({ q, caseSensitive })}`,
-      ),
+      get(`/projects/${projectId}/files/search${toQuery({ q, caseSensitive })}`),
   },
 
   claude: {
@@ -218,7 +205,12 @@ export const api = {
         body: JSON.stringify({ projectId, taskId }),
         signal,
       }),
-    gatherContext: (taskTitle: string, projectId: string, taskDescription?: string, signal?: AbortSignal) =>
+    gatherContext: (
+      taskTitle: string,
+      projectId: string,
+      taskDescription?: string,
+      signal?: AbortSignal,
+    ) =>
       fetch("/api/claude/gather-context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -229,17 +221,12 @@ export const api = {
 
   settings: {
     get: () => get<AppSettings>("/settings"),
-    update: (settings: Partial<AppSettings>) =>
-      put<AppSettings>("/settings", settings),
+    update: (settings: Partial<AppSettings>) => put<AppSettings>("/settings", settings),
   },
 
   logs: {
-    query: (params?: {
-      level?: string;
-      category?: string;
-      limit?: number;
-      offset?: number;
-    }) => get<PaginatedResponse<SystemLog>>(`/logs${toQuery(params ?? {})}`),
+    query: (params?: { level?: string; category?: string; limit?: number; offset?: number }) =>
+      get<PaginatedResponse<SystemLog>>(`/logs${toQuery(params ?? {})}`),
     clear: () => del("/logs"),
   },
 
@@ -271,25 +258,24 @@ export const api = {
   },
 
   sync: {
-    push: (url: string, tasks: unknown[]) =>
-      post("/sync/push", { url, tasks }),
+    push: (url: string, tasks: unknown[]) => post("/sync/push", { url, tasks }),
     pull: (url: string) => post("/sync/pull", { url }),
   },
 
   terminal: {
     status: () => get<TerminalStatusResponse>("/terminal/status"),
     sessions: (projectId?: string) =>
-      get<TerminalSessionInfo[]>(`/terminal/sessions${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`),
+      get<TerminalSessionInfo[]>(
+        `/terminal/sessions${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`,
+      ),
     create: (input: CreateTerminalSessionInput) =>
       post<TerminalSessionInfo>("/terminal/sessions", input),
     kill: (sessionId: string) => del(`/terminal/sessions/${sessionId}`),
     aiSessions: () => get<TerminalSessionInfo[]>("/terminal/ai-sessions"),
     batchResolve: (input: BatchResolveInput) =>
       post<BatchResolveStatus>("/terminal/batch-resolve", input),
-    batchResolveStatus: () =>
-      get<BatchResolveStatus>("/terminal/batch-resolve/status"),
-    batchResolveCancel: () =>
-      post<BatchResolveStatus>("/terminal/batch-resolve/cancel"),
+    batchResolveStatus: () => get<BatchResolveStatus>("/terminal/batch-resolve/status"),
+    batchResolveCancel: () => post<BatchResolveStatus>("/terminal/batch-resolve/cancel"),
   },
 
   todos: {
@@ -297,12 +283,14 @@ export const api = {
     create: (input: CreateTodoInput) => post<Todo>("/todos", input),
     update: (id: string, input: UpdateTodoInput) => patch<Todo>(`/todos/${id}`, input),
     delete: (id: string) => del(`/todos/${id}`),
-    reorder: (todos: { id: string; sortOrder: number }[]) => patch<void>("/todos/reorder", { todos }),
+    reorder: (todos: { id: string; sortOrder: number }[]) =>
+      patch<void>("/todos/reorder", { todos }),
     clearCompleted: () => del("/todos/clear-completed"),
   },
 
   notion: {
-    status: () => get<{ connected: boolean; user: string | null; error?: string }>("/notion/status"),
+    status: () =>
+      get<{ connected: boolean; user: string | null; error?: string }>("/notion/status"),
     search: (query?: string, filter?: "database" | "page") =>
       post<{ results: NotionSearchResult[] }>("/notion/search", { query, filter }),
     databases: () => get<{ databases: NotionDatabase[] }>("/notion/databases"),
@@ -310,7 +298,10 @@ export const api = {
       get<{ pages: NotionPage[] }>(`/notion/databases/${databaseId}/pages`),
     page: (pageId: string) => get<NotionPageContent>(`/notion/pages/${pageId}`),
     importDatabase: (projectId: string) =>
-      post<{ imported: number; updated: number; total: number }>(`/projects/${projectId}/notion/import`, {}),
+      post<{ imported: number; updated: number; total: number }>(
+        `/projects/${projectId}/notion/import`,
+        {},
+      ),
   },
 
   ci: {
@@ -322,8 +313,7 @@ export const api = {
 
   apiClient: {
     collections: {
-      list: (projectId: string) =>
-        get<ApiCollection[]>(`/projects/${projectId}/api-collections`),
+      list: (projectId: string) => get<ApiCollection[]>(`/projects/${projectId}/api-collections`),
       create: (projectId: string, input: CreateApiCollectionInput) =>
         post<ApiCollection>(`/projects/${projectId}/api-collections`, input),
       update: (id: string, input: UpdateApiCollectionInput) =>
@@ -335,8 +325,7 @@ export const api = {
         get<ApiRequest[]>(`/api-collections/${collectionId}/requests`),
       listByProject: (projectId: string) =>
         get<ApiRequest[]>(`/projects/${projectId}/api-requests`),
-      create: (input: CreateApiRequestInput) =>
-        post<ApiRequest>("/api-requests", input),
+      create: (input: CreateApiRequestInput) => post<ApiRequest>("/api-requests", input),
       update: (id: string, input: UpdateApiRequestInput) =>
         patch<ApiRequest>(`/api-requests/${id}`, input),
       delete: (id: string) => del(`/api-requests/${id}`),
@@ -346,10 +335,12 @@ export const api = {
   },
 
   artifacts: {
-    list: (projectId: string, params?: { type?: string; search?: string; limit?: number; offset?: number }) =>
+    list: (
+      projectId: string,
+      params?: { type?: string; search?: string; limit?: number; offset?: number },
+    ) =>
       get<PaginatedResponse<Artifact>>(`/projects/${projectId}/artifacts${toQuery(params ?? {})}`),
-    get: (projectId: string, id: string) =>
-      get<Artifact>(`/projects/${projectId}/artifacts/${id}`),
+    get: (projectId: string, id: string) => get<Artifact>(`/projects/${projectId}/artifacts/${id}`),
     getContent: (projectId: string, id: string) =>
       get<{ content: string; encoding: string }>(`/projects/${projectId}/artifacts/${id}/content`),
     create: (projectId: string, input: CreateArtifactInput) =>
@@ -366,13 +357,11 @@ export const api = {
     },
     update: (projectId: string, id: string, input: UpdateArtifactInput) =>
       patch<Artifact>(`/projects/${projectId}/artifacts/${id}`, input),
-    delete: (projectId: string, id: string) =>
-      del(`/projects/${projectId}/artifacts/${id}`),
+    delete: (projectId: string, id: string) => del(`/projects/${projectId}/artifacts/${id}`),
   },
 
   roadmap: {
-    list: (projectId: string) =>
-      get<RoadmapItem[]>(`/projects/${projectId}/roadmap`),
+    list: (projectId: string) => get<RoadmapItem[]>(`/projects/${projectId}/roadmap`),
     create: (projectId: string, input: CreateRoadmapItemInput) =>
       post<RoadmapItem>(`/projects/${projectId}/roadmap`, input),
     update: (id: string, input: UpdateRoadmapItemInput) =>
@@ -390,15 +379,15 @@ export const api = {
         types?: ("artifact" | "task" | "graph_node")[];
       },
     ) => post<KnowledgeSearchResponse>(`/projects/${projectId}/knowledge/search`, body),
-    stats: (projectId: string) =>
-      get<KnowledgeStats>(`/projects/${projectId}/knowledge/stats`),
+    stats: (projectId: string) => get<KnowledgeStats>(`/projects/${projectId}/knowledge/stats`),
     backfill: (projectId: string, force?: boolean) =>
-      post<{ started: boolean; total: number }>(`/projects/${projectId}/knowledge/backfill`, { force: !!force }),
+      post<{ started: boolean; total: number }>(`/projects/${projectId}/knowledge/backfill`, {
+        force: !!force,
+      }),
   },
 
   graph: {
-    get: (projectId: string) =>
-      get<ProjectGraph>(`/projects/${projectId}/graph`),
+    get: (projectId: string) => get<ProjectGraph>(`/projects/${projectId}/graph`),
     createNode: (projectId: string, input: CreateGraphNodeInput) =>
       post<GraphNode>(`/projects/${projectId}/graph/nodes`, input),
     updateNode: (id: string, input: UpdateGraphNodeInput) =>
@@ -415,11 +404,15 @@ export const api = {
     fixtures: () => get<{ fixtures: BenchFixture[] }>("/benchmarks/fixtures"),
     aggregate: () => get<BenchAggregate>("/benchmarks/aggregate"),
     active: () => get<{ runs: BenchActiveRun[] }>("/benchmarks/active"),
+    drift: () => get<BenchDriftStats>("/benchmarks/drift"),
     trigger: (input: BenchTriggerInput) =>
-      post<{ runId: string; startedAt: string; args: string[]; fixtures: string[]; spawned: boolean }>(
-        "/benchmarks/runs",
-        input,
-      ),
+      post<{
+        runId: string;
+        startedAt: string;
+        args: string[];
+        fixtures: string[];
+        spawned: boolean;
+      }>("/benchmarks/runs", input),
   },
 };
 
@@ -472,6 +465,20 @@ export interface BenchAggregateBucket {
   totalCostUsd: number;
   totalDurationMs: number;
   overBudget?: boolean;
+}
+
+export interface BenchDriftProjectAgg {
+  hash: string;
+  count: number;
+  lastAt: string;
+  lastExitCode: number | null;
+}
+
+export interface BenchDriftStats {
+  totalCaptures: number;
+  projectCount: number;
+  latestCaptureAt: string | null;
+  byProject: BenchDriftProjectAgg[];
 }
 
 export interface BenchAggregate {
@@ -554,8 +561,20 @@ export interface BenchResult {
   };
   sideEffects: {
     checked: boolean;
-    taskAiRun: { found: boolean; exitCode: number | null; success: number | null; durationMs: number | null; sessionIdSet: boolean; summarySet: boolean };
-    timestamps: { inboxAtSet: boolean; inProgressAtSet: boolean; doneAtSet: boolean; cascadeOrdered: boolean };
+    taskAiRun: {
+      found: boolean;
+      exitCode: number | null;
+      success: number | null;
+      durationMs: number | null;
+      sessionIdSet: boolean;
+      summarySet: boolean;
+    };
+    timestamps: {
+      inboxAtSet: boolean;
+      inProgressAtSet: boolean;
+      doneAtSet: boolean;
+      cascadeOrdered: boolean;
+    };
     snapshot: { fileExists: boolean; taskInSnapshot: boolean };
     embeddings: { rowCount: number; skipped: boolean };
     allGreen: boolean;

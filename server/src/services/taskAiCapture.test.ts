@@ -7,29 +7,51 @@ import { getReplayDir, isCaptureEnabled } from "./taskAiCapture";
 
 describe("isCaptureEnabled", () => {
   let original: string | undefined;
+  let originalNodeEnv: string | undefined;
   beforeEach(() => {
     original = process.env.VK_BENCH_CAPTURE;
+    originalNodeEnv = process.env.NODE_ENV;
   });
   afterEach(() => {
     if (original === undefined) delete process.env.VK_BENCH_CAPTURE;
     else process.env.VK_BENCH_CAPTURE = original;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
   });
 
-  test("off by default (env unset)", () => {
+  test("off in production when env unset", () => {
     delete process.env.VK_BENCH_CAPTURE;
+    process.env.NODE_ENV = "production";
     expect(isCaptureEnabled()).toBe(false);
   });
 
-  test("off when set to anything other than '1'", () => {
-    for (const v of ["0", "true", "yes", "on", ""]) {
-      process.env.VK_BENCH_CAPTURE = v;
-      expect(isCaptureEnabled()).toBe(false);
+  test("on in dev/test when env unset (NODE_ENV != production)", () => {
+    delete process.env.VK_BENCH_CAPTURE;
+    for (const env of ["development", "test", undefined]) {
+      if (env === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = env;
+      expect(isCaptureEnabled()).toBe(true);
     }
   });
 
-  test("on when set exactly to '1'", () => {
+  test("explicit '0' wins over dev default", () => {
+    process.env.VK_BENCH_CAPTURE = "0";
+    process.env.NODE_ENV = "development";
+    expect(isCaptureEnabled()).toBe(false);
+  });
+
+  test("explicit '1' wins in production", () => {
     process.env.VK_BENCH_CAPTURE = "1";
+    process.env.NODE_ENV = "production";
     expect(isCaptureEnabled()).toBe(true);
+  });
+
+  test("non-canonical values fall through to NODE_ENV default", () => {
+    process.env.NODE_ENV = "production";
+    for (const v of ["true", "yes", "on", ""]) {
+      process.env.VK_BENCH_CAPTURE = v;
+      expect(isCaptureEnabled()).toBe(false);
+    }
   });
 });
 

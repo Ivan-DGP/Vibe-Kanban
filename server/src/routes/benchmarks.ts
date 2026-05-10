@@ -212,6 +212,60 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
     return aggregate(reports, specs);
   });
 
+  // Drift tile metadata: surfaces what VK_BENCH_CAPTURE has accumulated.
+  // Cheap: reads sidecar JSONs only — does NOT execute replays. Group by
+  // anonymized projectNameHash so the dashboard can show capture health
+  // without leaking project identity.
+  fastify.get("/benchmarks/drift", async () => {
+    const replaysDir = path.join(benchDir(), "replays");
+    if (!fs.existsSync(replaysDir)) {
+      return { totalCaptures: 0, projectCount: 0, latestCaptureAt: null, byProject: [] };
+    }
+    interface ProjectAgg {
+      hash: string;
+      count: number;
+      lastAt: string;
+      lastExitCode: number | null;
+    }
+    const byHash = new Map<string, ProjectAgg>();
+    let latest = "";
+    let total = 0;
+    for (const entry of fs.readdirSync(replaysDir)) {
+      if (!entry.endsWith(".json")) continue;
+      try {
+        const sidecar = JSON.parse(fs.readFileSync(path.join(replaysDir, entry), "utf8"));
+        const hash = sidecar?.payload?.project?.nameHash;
+        if (typeof hash !== "string") continue;
+        const at = typeof sidecar.capturedAt === "string" ? sidecar.capturedAt : "";
+        const exit =
+          sidecar?.outcome?.exitCode === null || typeof sidecar?.outcome?.exitCode === "number"
+            ? (sidecar.outcome.exitCode as number | null)
+            : null;
+        total++;
+        if (at > latest) latest = at;
+        const cur = byHash.get(hash);
+        if (!cur) {
+          byHash.set(hash, { hash, count: 1, lastAt: at, lastExitCode: exit });
+        } else {
+          cur.count++;
+          if (at > cur.lastAt) {
+            cur.lastAt = at;
+            cur.lastExitCode = exit;
+          }
+        }
+      } catch {
+        // skip malformed sidecars
+      }
+    }
+    const byProject = Array.from(byHash.values()).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+    return {
+      totalCaptures: total,
+      projectCount: byHash.size,
+      latestCaptureAt: latest || null,
+      byProject,
+    };
+  });
+
   fastify.get("/benchmarks/active", async () => {
     const rows = benchRunsRepo.list({});
     return { runs: rows.map(toActiveWire) };
