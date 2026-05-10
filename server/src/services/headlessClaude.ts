@@ -2,6 +2,13 @@ import { spawnProcess } from "../lib/runtime";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { captureTaskAiRun } from "./taskAiCapture";
+import {
+  loadPolicy,
+  recordFindings,
+  runProductionVerifiers,
+  snapshotPreSpawn,
+  type PreSpawnSnapshot,
+} from "./headlessClaudeAdversarial";
 
 export interface HeadlessClaudeOptions {
   prompt: string;
@@ -97,7 +104,11 @@ export async function spawnHeadlessClaude(
   const started = Date.now();
   const runId = crypto.randomUUID();
 
+  let preSnapshot: PreSpawnSnapshot = { preSha: null };
+
   try {
+    preSnapshot = await snapshotPreSpawn(opts.cwd);
+
     const cmd = [
       "claude",
       "-p",
@@ -156,6 +167,25 @@ export async function spawnHeadlessClaude(
       summary,
       sessionId,
     }).catch(() => undefined);
+
+    void runProductionVerifiers({
+      runId,
+      taskId: opts.taskId,
+      projectId: opts.projectId,
+      cwd: opts.cwd,
+      summary,
+      pre: preSnapshot,
+      policy: loadPolicy(opts.projectId, opts.taskId),
+    })
+      .then((findings) => {
+        recordFindings({
+          runId,
+          taskId: opts.taskId,
+          projectId: opts.projectId,
+          findings,
+        });
+      })
+      .catch(() => undefined);
 
     if (result.exitCode !== 0) {
       log("warn", "claude", `headless claude non-zero exit`, {

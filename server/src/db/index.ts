@@ -24,25 +24,20 @@ export function getDb(): DatabaseHandle {
 function runMigrations(db: DatabaseHandle): void {
   // Check if _migrations table exists
   const migrationTableExists = db
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'",
-    )
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'")
     .get();
 
   if (!migrationTableExists) {
     // First run - create all tables from base schema
     db.exec(SCHEMA_SQL);
-    db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
-      1,
-      "initial-schema",
-    );
+    db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(1, "initial-schema");
     // Fall through to run remaining migrations (2+)
   }
 
   // Check current version
-  const current = db
-    .prepare("SELECT MAX(version) as v FROM _migrations")
-    .get() as { v: number } | null;
+  const current = db.prepare("SELECT MAX(version) as v FROM _migrations").get() as {
+    v: number;
+  } | null;
   const currentVersion = current?.v ?? 0;
 
   // Run any pending migrations
@@ -62,9 +57,13 @@ function runMigrations(db: DatabaseHandle): void {
           db.exec("ALTER TABLE tasks ADD COLUMN taskNumber INTEGER NOT NULL DEFAULT 0");
         }
         // Backfill: assign numbers per project ordered by createdAt
-        const projects = db.prepare("SELECT DISTINCT projectId FROM tasks").all() as { projectId: string }[];
+        const projects = db.prepare("SELECT DISTINCT projectId FROM tasks").all() as {
+          projectId: string;
+        }[];
         for (const { projectId } of projects) {
-          const tasks = db.prepare("SELECT id FROM tasks WHERE projectId = ? ORDER BY createdAt ASC").all(projectId) as { id: string }[];
+          const tasks = db
+            .prepare("SELECT id FROM tasks WHERE projectId = ? ORDER BY createdAt ASC")
+            .all(projectId) as { id: string }[];
           for (let i = 0; i < tasks.length; i++) {
             db.prepare("UPDATE tasks SET taskNumber = ? WHERE id = ?").run(i + 1, tasks[i].id);
           }
@@ -212,7 +211,12 @@ function runMigrations(db: DatabaseHandle): void {
       noTransaction: true,
       up: () => {
         // Check if rebuild is needed (constraint might already include 'approved')
-        const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+        const tableSql =
+          (
+            db
+              .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+              .get() as any
+          )?.sql || "";
         if (tableSql.includes("'approved'")) return; // already rebuilt
 
         db.exec("PRAGMA foreign_keys = OFF");
@@ -260,7 +264,7 @@ function runMigrations(db: DatabaseHandle): void {
         const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
         if (!cols.some((c) => c.name === "promptProfile")) {
           db.exec(
-            "ALTER TABLE tasks ADD COLUMN promptProfile TEXT NOT NULL DEFAULT 'auto' CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs'))"
+            "ALTER TABLE tasks ADD COLUMN promptProfile TEXT NOT NULL DEFAULT 'auto' CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs'))",
           );
         }
       },
@@ -330,7 +334,12 @@ function runMigrations(db: DatabaseHandle): void {
           db.exec("ALTER TABLE tasks ADD COLUMN archivedAt TEXT DEFAULT NULL");
         }
         // Rebuild table to update CHECK constraint to include 'archived'
-        const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+        const tableSql =
+          (
+            db
+              .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+              .get() as any
+          )?.sql || "";
         if (tableSql.includes("'archived'")) return;
 
         db.exec("PRAGMA foreign_keys = OFF");
@@ -377,7 +386,9 @@ function runMigrations(db: DatabaseHandle): void {
       up: () => {
         const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
         if (!cols.some((c) => c.name === "parentTaskId")) {
-          db.exec("ALTER TABLE tasks ADD COLUMN parentTaskId TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL");
+          db.exec(
+            "ALTER TABLE tasks ADD COLUMN parentTaskId TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL",
+          );
           db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parentTaskId ON tasks (parentTaskId)");
         }
       },
@@ -415,7 +426,9 @@ function runMigrations(db: DatabaseHandle): void {
       name: "add-knowledge-graph",
       up: () => {
         const nodesExist = db
-          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_graph_nodes'")
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='project_graph_nodes'",
+          )
           .get();
         if (!nodesExist) {
           db.exec(`
@@ -491,7 +504,9 @@ function runMigrations(db: DatabaseHandle): void {
         if (!cols.some((c) => c.name === "notionPageId")) {
           db.exec("ALTER TABLE tasks ADD COLUMN notionPageId TEXT DEFAULT NULL");
         }
-        db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_notionPageId ON tasks (projectId, notionPageId)");
+        db.exec(
+          "CREATE INDEX IF NOT EXISTS idx_tasks_notionPageId ON tasks (projectId, notionPageId)",
+        );
       },
     },
     {
@@ -624,21 +639,45 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 25,
+      name: "add-task-ai-findings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_ai_findings (
+            id          TEXT PRIMARY KEY,
+            runId       TEXT NOT NULL,
+            taskId      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            kind        TEXT NOT NULL
+              CHECK (kind IN ('EXFIL', 'PROMPT-INJECTED', 'TAMPERED', 'SPRAWL', 'PREFLIGHT-RED')),
+            detail      TEXT DEFAULT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_runId ON task_ai_findings (runId);
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_taskId ON task_ai_findings (taskId);
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_projectId ON task_ai_findings (projectId);
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_kind ON task_ai_findings (kind);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {
     if (migration.version > currentVersion) {
       if (migration.noTransaction) {
         migration.up();
-        db.prepare(
-          "INSERT INTO _migrations (version, name) VALUES (?, ?)",
-        ).run(migration.version, migration.name);
+        db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
+          migration.version,
+          migration.name,
+        );
       } else {
         db.transaction(() => {
           migration.up();
-          db.prepare(
-            "INSERT INTO _migrations (version, name) VALUES (?, ?)",
-          ).run(migration.version, migration.name);
+          db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
+            migration.version,
+            migration.name,
+          );
         })();
       }
     }

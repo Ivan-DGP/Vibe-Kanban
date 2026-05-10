@@ -147,4 +147,22 @@ CREATE TABLE IF NOT EXISTS task_ai_runs (
 CREATE INDEX IF NOT EXISTS idx_task_ai_runs_projectId ON task_ai_runs (projectId);
 CREATE INDEX IF NOT EXISTS idx_task_ai_runs_taskId ON task_ai_runs (taskId);
 CREATE INDEX IF NOT EXISTS idx_task_ai_runs_createdAt ON task_ai_runs (createdAt DESC);
+
+CREATE TABLE IF NOT EXISTS task_ai_findings (
+  id          TEXT PRIMARY KEY,
+  runId       TEXT NOT NULL,
+  taskId      TEXT NOT NULL
+    REFERENCES tasks(id) ON DELETE CASCADE,
+  projectId   TEXT NOT NULL
+    REFERENCES projects(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL
+    CHECK (kind IN ('EXFIL', 'PROMPT-INJECTED', 'TAMPERED', 'SPRAWL', 'PREFLIGHT-RED')),
+  detail      TEXT DEFAULT NULL,
+  createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_ai_findings_runId ON task_ai_findings (runId);
+CREATE INDEX IF NOT EXISTS idx_task_ai_findings_taskId ON task_ai_findings (taskId);
+CREATE INDEX IF NOT EXISTS idx_task_ai_findings_projectId ON task_ai_findings (projectId);
+CREATE INDEX IF NOT EXISTS idx_task_ai_findings_kind ON task_ai_findings (kind);
 `;
