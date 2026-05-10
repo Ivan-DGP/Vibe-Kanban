@@ -131,6 +131,7 @@ subcommands:
   aggregate              roll-up all results/*.json (solve-rate by fixture/model/week + cost)
   compare <a> <b>        diff two report .json files; highlights regressions + improvements
   calibrate              flag fixtures whose rolling solve-rate drifts past trivial/harder thresholds
+  preflight              verify each fixture's baseline (target fails, regression passes) without AI; exits 1 on rot
 
 flags (default subcommand):
   --mode=<m>       harness (default) — direct claude CLI on a copy
@@ -1039,6 +1040,89 @@ async function runReplaySubcommand(args: string[]): Promise<void> {
   }
 }
 
+/**
+ * `preflight` runs each fixture's baseline tests with no AI invocation
+ * and no mockFix — target must FAIL (the bug must reproduce) and
+ * regression must PASS (the invariant must hold). Catches fixture rot
+ * that `--mock` masks because mockFix is applied before preflight in
+ * a normal run. Exits non-zero if any fixture is rotted.
+ */
+async function runPreflightSubcommand(args: string[]): Promise<void> {
+  const fixtures: string[] = [];
+  let timeoutMs = 60_000;
+  for (const a of args) {
+    if (a.startsWith("--fixture=")) fixtures.push(a.slice("--fixture=".length));
+    else if (a.startsWith("--timeout=")) {
+      const n = Number.parseInt(a.slice("--timeout=".length), 10);
+      if (Number.isFinite(n) && n > 0) timeoutMs = n;
+    } else if (a === "-h" || a === "--help") {
+      console.log(
+        "usage: bun benchmarks/harness/run.ts preflight [--fixture=<id>...] [--timeout=<ms>]\n\n" +
+          "Verify each fixture's baseline state without invoking the AI:\n" +
+          "  - target test must FAIL (bug must reproduce)\n" +
+          "  - regression test must PASS (invariant must hold)\n\n" +
+          "Exits 1 if any fixture is rotted.",
+      );
+      return;
+    } else {
+      console.error(`unknown flag: ${a}`);
+      process.exit(2);
+    }
+  }
+
+  const allSpecs = loadFixtureSpecs(FIXTURES_DIR);
+  const requested =
+    fixtures.length > 0
+      ? fixtures
+          .map((id) => allSpecs.get(id))
+          .filter((s): s is BenchSpec => {
+            if (!s) console.error(`unknown fixture: skipping`);
+            return Boolean(s);
+          })
+      : Array.from(allSpecs.values());
+
+  // Preflight semantics ("target fails baseline + regression passes baseline")
+  // only apply to codebase-mode fixtures. server-integration fixtures use
+  // an HTTP-script harness with their own preflight, and their bun-test files
+  // are stubs that don't follow the same contract — skip them here.
+  const skipped = requested.filter((s) => s.pipelineMode === "server-integration");
+  const selectedSpecs = requested.filter((s) => s.pipelineMode !== "server-integration");
+
+  if (selectedSpecs.length === 0) {
+    console.error("no codebase-mode fixtures matched");
+    process.exit(1);
+  }
+
+  fs.mkdirSync(RUNS_DIR, { recursive: true });
+  let rotCount = 0;
+  for (const spec of selectedSpecs) {
+    const workDir = path.join(RUNS_DIR, `preflight-${spec.id}-${crypto.randomUUID().slice(0, 8)}`);
+    try {
+      copyDirSync(path.join(FIXTURES_DIR, spec.id), workDir, (rel) => rel === "bench.json");
+      const targetRes = await runCmd(["bun", "test", spec.targetTestPath], workDir, timeoutMs);
+      const regRes = await runCmd(["bun", "test", spec.regressionTestPath], workDir, timeoutMs);
+      const m = detectMisFixture(targetRes.exitCode, regRes.exitCode);
+      if (m.misFixture) {
+        rotCount++;
+        console.log(`[ROT] ${spec.id.padEnd(36)} ${m.reason}`);
+      } else {
+        console.log(`[OK]  ${spec.id.padEnd(36)} target-fails reg-passes`);
+      }
+    } finally {
+      if (fs.existsSync(workDir)) fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  }
+  console.log("");
+  if (skipped.length > 0) {
+    console.log(`skipped ${skipped.length} server-integration fixture(s) (own preflight contract)`);
+  }
+  if (rotCount > 0) {
+    console.log(`${rotCount}/${selectedSpecs.length} fixture${rotCount === 1 ? "" : "s"} rotted`);
+    process.exit(1);
+  }
+  console.log(`all ${selectedSpecs.length} fixtures preflight OK`);
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const sub = argv[0];
@@ -1046,6 +1130,7 @@ async function main(): Promise<void> {
   if (sub === "compare") return runCompareSubcommand(argv.slice(1));
   if (sub === "calibrate") return runCalibrateSubcommand(argv.slice(1));
   if (sub === "replay") return runReplaySubcommand(argv.slice(1));
+  if (sub === "preflight") return runPreflightSubcommand(argv.slice(1));
 
   const opts = parseArgs(argv);
   const all = listFixtures();

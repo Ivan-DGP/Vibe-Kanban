@@ -69,6 +69,10 @@ jobs:
           echo "baseline-path=$BASELINE_FILE" >> "$GITHUB_OUTPUT"
           echo "Using baseline: $BASELINE_FILE"
 
+      - name: Preflight fixture baselines
+        run: |
+          bun benchmarks/harness/run.ts preflight
+
       - name: Run bench (mock harness)
         run: |
           bun run bench --mode=harness --mock --ci \

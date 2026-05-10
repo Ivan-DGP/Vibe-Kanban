@@ -303,13 +303,14 @@ Existing code under: `benchmarks/{fixtures,harness,results}` and production at `
 - **Dependencies:** Phase F
 - **Files:**
   - `.github/workflows/bench.yml` (new)
-  - `benchmarks/harness/run.ts` (CI flag for non-interactive output + exit code semantics)
+  - `benchmarks/harness/run.ts` (CI flag for non-interactive output + exit code semantics; `preflight` subcommand)
   - `benchmarks/harness/aggregate.ts` (compare-against-main helper)
 - **Work items:**
   - [ ] P1: PR workflow runs `bun run bench --mode=harness --mock` on every PR; download main's latest aggregate; fail PR if any fixture regressed (status worsened)
   - [ ] P2: Nightly real-claude run on a cost-capped subset (e.g. fixtures 01/02/03 + a hard fixture); compare emits week-over-week trend
   - [ ] P3: PR comment posts bench delta table (added/regressed/improved fixtures + cost delta)
-- **Notes:** Turns the harness into a regression watch — its calibration value comes alive only when CI gates on it.
+  - [x] P4: Raw-baseline preflight gate — `bun benchmarks/harness/run.ts preflight` runs each codebase fixture's target + regression test on the unmodified baseline (target must FAIL, regression must PASS) and exits non-zero on rot. Wired before the mock harness step so fixture rot fails fast in CI without burning real-claude budget. Server-integration fixtures auto-skipped (HTTP-script harness has its own preflight contract).
+- **Notes:** Turns the harness into a regression watch — its calibration value comes alive only when CI gates on it. P4 closes the K4-style failure mode where two fixtures (37, 39) had pre-existing baseline rot that `--mock` masked because mockFix is applied before preflight in a normal run; only real-claude exposed them. The new preflight subcommand runs no AI, no mockFix, no diff scoring — just the bare baseline contract — so fixture rot surfaces in seconds on every PR.
 
 ### Phase Q: frontier-calibrated hard fixtures
 
