@@ -5,6 +5,7 @@ import { log } from "../lib/logger";
 import { spawnHeadlessClaude } from "./headlessClaude";
 import { writeTempMcpConfig, cleanupMcpConfig } from "./mcpConfigWriter";
 import { getSpawnConfig } from "./taskSpawnRegistry";
+import { maybeRunPreflight } from "./taskPreflight";
 
 function projectFromRow(row: any): Project | null {
   if (!row) return null;
@@ -45,9 +46,7 @@ async function runSpawn(task: Task): Promise<void> {
   if (!config) return;
 
   const db = getDb();
-  const projectRow = db
-    .prepare("SELECT * FROM projects WHERE id = ?")
-    .get(task.projectId);
+  const projectRow = db.prepare("SELECT * FROM projects WHERE id = ?").get(task.projectId);
   const project = projectFromRow(projectRow);
   if (!project) {
     log("warn", "claude", `taskSpawner: project not found`, {
@@ -86,6 +85,14 @@ async function runSpawn(task: Task): Promise<void> {
       profile: config.profile,
     });
 
+    const runId = crypto.randomUUID();
+    await maybeRunPreflight({
+      runId,
+      taskId: task.id,
+      projectId: project.id,
+      cwd: project.path,
+    }).catch(() => null);
+
     await spawnHeadlessClaude({
       prompt,
       taskId: task.id,
@@ -94,6 +101,7 @@ async function runSpawn(task: Task): Promise<void> {
       cwd: project.path,
       profile: config.profile,
       timeoutMs: config.timeoutMs,
+      runId,
     });
   } catch (err) {
     log("error", "claude", `taskSpawner failed`, {

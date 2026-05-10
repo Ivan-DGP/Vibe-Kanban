@@ -18,6 +18,13 @@ export interface HeadlessClaudeOptions {
   cwd: string;
   profile?: string;
   timeoutMs?: number;
+  /**
+   * Caller-supplied run id. Lets a pre-spawn step (e.g. preflight test
+   * runner) record `task_ai_findings` under the same id used to persist
+   * `task_ai_runs`, so findings and the run row are joinable. Falls back
+   * to a fresh UUID when omitted.
+   */
+  runId?: string;
 }
 
 export interface HeadlessClaudeResult {
@@ -102,7 +109,7 @@ export async function spawnHeadlessClaude(
 
   await acquireSlot();
   const started = Date.now();
-  const runId = crypto.randomUUID();
+  const runId = opts.runId ?? crypto.randomUUID();
 
   let preSnapshot: PreSpawnSnapshot = { preSha: null };
 
