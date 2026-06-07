@@ -153,12 +153,13 @@ describe("anonymizePayload", () => {
       },
       outcomeSummary: null,
     });
-    const md = out.task.metadata as Record<string, any>;
+    const md = out.task.metadata as Record<string, unknown>;
     expect(md.type).toBe("qa-test");
     expect(md.parent_task).toBe("abc");
     expect(md.apiKey).toBe("<redacted>");
-    expect(md.nested.token).toBe("<redacted>");
-    expect(md.nested.note).toBe("keep");
+    const nested = md.nested as Record<string, unknown>;
+    expect(nested.token).toBe("<redacted>");
+    expect(nested.note).toBe("keep");
   });
 
   test("redacts secrets in summary alongside path scrubbing", () => {

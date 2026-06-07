@@ -48,11 +48,16 @@ describe("GET /api/claude/runs", () => {
   test("lists runs for a project with status/cost fields", async () => {
     const res = await app.inject({ method: "GET", url: `/api/claude/runs?projectId=${projectId}` });
     expect(res.statusCode).toBe(200);
-    const runs = res.json().runs as any[];
+    const runs = res.json().runs as Array<{
+      id: string;
+      status: string;
+      totalCostUsd: number;
+      durationMs: number;
+    }>;
     const ids = runs.map((r) => r.id);
     expect(ids).toContain(runA);
     expect(ids).toContain(runB);
-    const a = runs.find((r) => r.id === runA);
+    const a = runs.find((r) => r.id === runA)!;
     expect(a.status).toBe("succeeded");
     expect(a.totalCostUsd).toBe(0.0123);
     expect(a.durationMs).toBe(1234);
@@ -60,7 +65,7 @@ describe("GET /api/claude/runs", () => {
 
   test("filters by taskId", async () => {
     const res = await app.inject({ method: "GET", url: `/api/claude/runs?taskId=${taskId}` });
-    const runs = res.json().runs as any[];
+    const runs = res.json().runs as Array<{ id: string; taskId: string }>;
     expect(runs.every((r) => r.taskId === taskId)).toBe(true);
     expect(runs.some((r) => r.id === runA)).toBe(true);
     expect(runs.some((r) => r.id === runB)).toBe(false);

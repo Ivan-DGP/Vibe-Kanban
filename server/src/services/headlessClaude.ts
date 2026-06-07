@@ -144,7 +144,7 @@ export function markInterruptedRuns(): void {
     const res = db
       .prepare("UPDATE task_ai_runs SET status = 'failed', finishedAt = ? WHERE status = 'running'")
       .run(new Date().toISOString());
-    const changes = (res as any)?.changes ?? 0;
+    const changes = (res as { changes?: number })?.changes ?? 0;
     if (changes > 0) log("warn", "claude", `marked ${changes} interrupted task_ai_run(s) failed`);
   } catch (e) {
     log("error", "claude", "failed to reconcile interrupted runs", { error: String(e) });

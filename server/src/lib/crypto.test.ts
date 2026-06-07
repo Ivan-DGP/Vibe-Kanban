@@ -75,7 +75,7 @@ describe("crypto", () => {
 
     test("rejects non-string / empty input instead of crashing on internals", () => {
       expect(() => decrypt("")).toThrow();
-      expect(() => decrypt(undefined as any)).toThrow();
+      expect(() => decrypt(undefined as unknown as string)).toThrow();
     });
 
     test("tampered ciphertext fails authentication (does not return plaintext)", () => {
