@@ -62,12 +62,14 @@ jobs:
             BASELINE_FILE=$(ls -t benchmarks/results/aggregate-*.json 2>/dev/null | head -1 || true)
           fi
           if [ -z "$BASELINE_FILE" ]; then
-            echo "no baseline available - synthesising from in-tree results"
-            bun run bench aggregate
-            BASELINE_FILE=$(ls -t benchmarks/results/aggregate-*.json | head -1)
+            # Bootstrap: no main artifact yet (main hasn't run bench.yml) and no
+            # in-tree aggregate (benchmarks/results is gitignored). Run the PR
+            # gate without a baseline — the harness falls back to a solved-count
+            # gate. Once main uploads bench-main-aggregate, PRs get real deltas.
+            echo "no baseline available - running PR gate without a baseline (solved-count gate)"
           fi
           echo "baseline-path=$BASELINE_FILE" >> "$GITHUB_OUTPUT"
-          echo "Using baseline: $BASELINE_FILE"
+          echo "Using baseline: ${BASELINE_FILE:-<none>}"
 
       - name: Preflight fixture baselines
         run: |
@@ -75,9 +77,13 @@ jobs:
 
       - name: Run bench (mock harness)
         run: |
-          bun run bench --mode=harness --mock --ci \
-            --baseline="${{ steps.baseline.outputs.baseline-path }}" \
-            --comment-out=/tmp/bench-comment.md
+          set -euo pipefail
+          ARGS=(--mode=harness --mock --ci --comment-out=/tmp/bench-comment.md)
+          BASELINE="${{ steps.baseline.outputs.baseline-path }}"
+          if [ -n "$BASELINE" ]; then
+            ARGS+=(--baseline="$BASELINE")
+          fi
+          bun run bench "${ARGS[@]}"
 
       - name: Render comment header
         if: always()
