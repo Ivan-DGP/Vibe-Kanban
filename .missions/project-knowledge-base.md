@@ -5,11 +5,13 @@
 **Status:** completed
 
 ## Context
+
 Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — architecture docs, research notes, MER diagrams, UAT checklists, roadmaps, and concept maps. Each project should get its own knowledge store (files + structured data) with three new views: an artifact file manager, a visual roadmap, and a force-directed knowledge graph. This transforms Vibe-Kanban from a task tracker into a project intelligence hub.
 
 ## Phases
 
 ### Phase 1: Foundation — Schema, Data Dir, Shared Types
+
 - **Status:** completed
 - **Dependencies:** none
 - **Files:**
@@ -25,6 +27,7 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Notes:** All 3 migrations tested on fresh DB — 17 total migrations, all tables created correctly. Typecheck passes.
 
 ### Phase 2: Artifacts Backend API
+
 - **Status:** pending
 - **Dependencies:** Phase 1
 - **Files:**
@@ -40,6 +43,7 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Notes:**
 
 ### Phase 3: Artifacts Frontend — Tab System + File Manager
+
 - **Status:** pending
 - **Dependencies:** Phase 2
 - **Files:**
@@ -59,6 +63,7 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Notes:**
 
 ### Phase 4: Roadmap Backend + Frontend
+
 - **Status:** pending
 - **Dependencies:** Phase 1, Phase 3 (needs tab container)
 - **Files:**
@@ -78,6 +83,7 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Notes:**
 
 ### Phase 5: Knowledge Graph Backend + Frontend
+
 - **Status:** pending
 - **Dependencies:** Phase 1, Phase 3 (needs tab container)
 - **Files:**
@@ -96,6 +102,7 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Notes:**
 
 ### Phase 6: AI Context Integration
+
 - **Status:** completed
 - **Dependencies:** Phase 2 (artifacts API must exist)
 - **Files:**
@@ -109,6 +116,7 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Notes:**
 
 ## Risks & Open Questions
+
 - **File upload size limits** — need to set reasonable max (10MB?) to prevent disk bloat
 - **Image storage** — store originals or also generate thumbnails?
 - **Graph layout persistence** — save node positions or let force-layout recalculate each time? (Plan: save x,y positions in DB)
@@ -117,9 +125,11 @@ Vibe-Kanban tracks tasks/milestones but lacks a layer for project knowledge — 
 - **Graph performance** — force-directed graph with 500+ nodes could be slow. Add viewport culling if needed.
 
 ## Completion Summary
+
 All 6 phases implemented and tested. 784 unit/integration tests pass (0 fail), including 44 new tests covering all knowledge base features. E2E test file written for Playwright.
 
 ### What was built:
+
 - **3 DB migrations** (v15-17): project_artifacts, project_graph_nodes/edges, roadmap_items
 - **3 new API route files**: artifacts.ts, roadmap.ts, graph.ts — full CRUD
 - **3 MCP tools**: list_artifacts, read_artifact, list_graph_nodes

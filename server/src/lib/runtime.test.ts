@@ -47,10 +47,9 @@ describe("spawnProcess", () => {
   });
 
   test("non-existent command returns exitCode != 0 or stderr", async () => {
-    const result = await spawnProcess(
-      ["bash", "-c", "command_that_does_not_exist_xyz_42"],
-      { cwd: tempDir },
-    );
+    const result = await spawnProcess(["bash", "-c", "command_that_does_not_exist_xyz_42"], {
+      cwd: tempDir,
+    });
     // Either exit code is non-zero or stderr is non-empty
     const failed = result.exitCode !== 0 || result.stderr.length > 0;
     expect(failed).toBe(true);
@@ -99,10 +98,7 @@ describe("spawnProcessSync", () => {
   });
 
   test("non-existent command returns exitCode != 0", () => {
-    const result = spawnProcessSync(
-      ["bash", "-c", "command_that_does_not_exist_xyz_42"],
-      {},
-    );
+    const result = spawnProcessSync(["bash", "-c", "command_that_does_not_exist_xyz_42"], {});
     expect(result.exitCode).not.toBe(0);
   });
 });

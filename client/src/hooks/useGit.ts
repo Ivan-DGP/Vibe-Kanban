@@ -37,8 +37,15 @@ export function useGitDiff(projectId: string | undefined, file?: string, subPath
 export function useStageFiles() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, files, subPath }: { projectId: string; files: string[]; subPath?: string }) =>
-      api.git.stage(projectId, files, subPath),
+    mutationFn: ({
+      projectId,
+      files,
+      subPath,
+    }: {
+      projectId: string;
+      files: string[];
+      subPath?: string;
+    }) => api.git.stage(projectId, files, subPath),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["git-status"] }),
   });
 }
@@ -46,8 +53,15 @@ export function useStageFiles() {
 export function useUnstageFiles() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, files, subPath }: { projectId: string; files: string[]; subPath?: string }) =>
-      api.git.unstage(projectId, files, subPath),
+    mutationFn: ({
+      projectId,
+      files,
+      subPath,
+    }: {
+      projectId: string;
+      files: string[];
+      subPath?: string;
+    }) => api.git.unstage(projectId, files, subPath),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["git-status"] }),
   });
 }
@@ -55,8 +69,15 @@ export function useUnstageFiles() {
 export function useCommit() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, message, subPath }: { projectId: string; message: string; subPath?: string }) =>
-      api.git.commit(projectId, message, subPath),
+    mutationFn: ({
+      projectId,
+      message,
+      subPath,
+    }: {
+      projectId: string;
+      message: string;
+      subPath?: string;
+    }) => api.git.commit(projectId, message, subPath),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["git-status"] });
       qc.invalidateQueries({ queryKey: ["git-log"] });
@@ -88,8 +109,15 @@ export function usePull() {
 export function useDiscard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, files, subPath }: { projectId: string; files: string[]; subPath?: string }) =>
-      api.git.discard(projectId, files, subPath),
+    mutationFn: ({
+      projectId,
+      files,
+      subPath,
+    }: {
+      projectId: string;
+      files: string[];
+      subPath?: string;
+    }) => api.git.discard(projectId, files, subPath),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["git-status"] }),
   });
 }
@@ -109,8 +137,17 @@ export function useUndoCommit() {
 export function useCreateBranch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, branch, baseBranch, subPath }: { projectId: string; branch: string; baseBranch?: string; subPath?: string }) =>
-      api.git.createBranch(projectId, branch, baseBranch, subPath),
+    mutationFn: ({
+      projectId,
+      branch,
+      baseBranch,
+      subPath,
+    }: {
+      projectId: string;
+      branch: string;
+      baseBranch?: string;
+      subPath?: string;
+    }) => api.git.createBranch(projectId, branch, baseBranch, subPath),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["git-status"] });
       qc.invalidateQueries({ queryKey: ["git-log"] });
@@ -122,8 +159,15 @@ export function useCreateBranch() {
 export function useCheckoutBranch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, branch, subPath }: { projectId: string; branch: string; subPath?: string }) =>
-      api.git.checkout(projectId, branch, subPath),
+    mutationFn: ({
+      projectId,
+      branch,
+      subPath,
+    }: {
+      projectId: string;
+      branch: string;
+      subPath?: string;
+    }) => api.git.checkout(projectId, branch, subPath),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["git-status"] });
       qc.invalidateQueries({ queryKey: ["git-log"] });

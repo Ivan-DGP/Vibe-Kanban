@@ -20,14 +20,20 @@ export default function EditorTabs() {
           )}
           onClick={() => setActiveTab(tab.filePath)}
           onMouseDown={(e) => {
-            if (e.button === 1) { e.preventDefault(); closeFile(tab.filePath); }
+            if (e.button === 1) {
+              e.preventDefault();
+              closeFile(tab.filePath);
+            }
           }}
         >
           {tab.dirty && <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />}
           <span>{tab.fileName}</span>
           <button
             className="ml-1 hover:text-destructive"
-            onClick={(e) => { e.stopPropagation(); closeFile(tab.filePath); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              closeFile(tab.filePath);
+            }}
           >
             <X className="h-3 w-3" />
           </button>

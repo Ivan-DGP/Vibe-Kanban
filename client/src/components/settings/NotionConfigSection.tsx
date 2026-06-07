@@ -14,9 +14,12 @@ export default function NotionConfigSection() {
 
   const handleSaveKey = () => {
     if (!apiKey.trim()) return;
-    updateSettings.mutate({ notionApiKey: apiKey.trim() }, {
-      onSuccess: () => setApiKey(""),
-    });
+    updateSettings.mutate(
+      { notionApiKey: apiKey.trim() },
+      {
+        onSuccess: () => setApiKey(""),
+      },
+    );
   };
 
   const handleClearKey = () => {
@@ -40,13 +43,15 @@ export default function NotionConfigSection() {
             <X className="h-3 w-3 mr-1" /> Invalid Token
           </Badge>
         ) : (
-          <Badge variant="outline" className="text-muted-foreground">Not Configured</Badge>
+          <Badge variant="outline" className="text-muted-foreground">
+            Not Configured
+          </Badge>
         )}
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Connect to Notion to pull databases and pages as context for your projects.
-        Create an integration at{" "}
+        Connect to Notion to pull databases and pages as context for your projects. Create an
+        integration at{" "}
         <a
           href="https://www.notion.so/my-integrations"
           target="_blank"
@@ -55,8 +60,8 @@ export default function NotionConfigSection() {
         >
           notion.so/my-integrations
           <ExternalLink className="h-2.5 w-2.5" />
-        </a>
-        {" "}and paste the Internal Integration Token below.
+        </a>{" "}
+        and paste the Internal Integration Token below.
       </p>
 
       <div className="flex gap-2">
@@ -67,12 +72,21 @@ export default function NotionConfigSection() {
           placeholder="ntn_..."
           className="flex-1"
         />
-        <Button size="sm" onClick={handleSaveKey} disabled={!apiKey.trim() || updateSettings.isPending}>
+        <Button
+          size="sm"
+          onClick={handleSaveKey}
+          disabled={!apiKey.trim() || updateSettings.isPending}
+        >
           {updateSettings.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
           Save
         </Button>
         {isConfigured && (
-          <Button size="sm" variant="outline" onClick={handleClearKey} disabled={updateSettings.isPending}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleClearKey}
+            disabled={updateSettings.isPending}
+          >
             Clear
           </Button>
         )}

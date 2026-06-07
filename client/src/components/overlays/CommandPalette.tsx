@@ -1,6 +1,20 @@
 import { useNavigate } from "react-router-dom";
-import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { LayoutDashboard, ListTodo, BarChart3, ScrollText, Settings, HelpCircle } from "lucide-react";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  LayoutDashboard,
+  ListTodo,
+  BarChart3,
+  ScrollText,
+  Settings,
+  HelpCircle,
+} from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { useProjects } from "@/hooks";
 
@@ -30,11 +44,7 @@ export default function CommandPalette() {
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Pages">
           {PAGES.map((page) => (
-            <CommandItem
-              key={page.path}
-              value={page.name}
-              onSelect={() => handleSelect(page.path)}
-            >
+            <CommandItem key={page.path} value={page.name} onSelect={() => handleSelect(page.path)}>
               <page.icon className="mr-2 h-4 w-4" />
               {page.name}
             </CommandItem>

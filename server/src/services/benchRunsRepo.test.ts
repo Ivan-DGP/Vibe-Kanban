@@ -41,7 +41,14 @@ describe("benchRunsRepo", () => {
 
   test("insert persists mock=false correctly (round-trip int 0 → bool false)", () => {
     const row = repo.insert(
-      { id: "no-mock", startedAt: "t", fixturesCsv: "", mode: "pipeline", mock: false, parallel: 1 },
+      {
+        id: "no-mock",
+        startedAt: "t",
+        fixturesCsv: "",
+        mode: "pipeline",
+        mock: false,
+        parallel: 1,
+      },
       db,
     );
     expect(row.mock).toBe(false);
@@ -52,14 +59,24 @@ describe("benchRunsRepo", () => {
   });
 
   test("getById returns the row after insert", () => {
-    repo.insert({ id: "x", startedAt: "t", fixturesCsv: "f", mode: "harness", mock: false, parallel: 1 }, db);
+    repo.insert(
+      { id: "x", startedAt: "t", fixturesCsv: "f", mode: "harness", mock: false, parallel: 1 },
+      db,
+    );
     const r = repo.getById("x", db);
     expect(r?.id).toBe("x");
   });
 
   test("updateOnFinish moves running → succeeded and stamps finished_at + result_file", () => {
     repo.insert(
-      { id: "r1", startedAt: "2099-01-01T00:00:00.000Z", fixturesCsv: "01", mode: "harness", mock: true, parallel: 1 },
+      {
+        id: "r1",
+        startedAt: "2099-01-01T00:00:00.000Z",
+        fixturesCsv: "01",
+        mode: "harness",
+        mock: true,
+        parallel: 1,
+      },
       db,
     );
     const updated = repo.updateOnFinish("r1", "succeeded", "results/2099-01-01.json", db);
@@ -83,16 +100,66 @@ describe("benchRunsRepo", () => {
   });
 
   test("list returns runs newest-first by started_at", () => {
-    repo.insert({ id: "old", startedAt: "2099-01-01T00:00:00.000Z", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
-    repo.insert({ id: "mid", startedAt: "2099-06-01T00:00:00.000Z", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
-    repo.insert({ id: "new", startedAt: "2099-12-01T00:00:00.000Z", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
+    repo.insert(
+      {
+        id: "old",
+        startedAt: "2099-01-01T00:00:00.000Z",
+        fixturesCsv: "",
+        mode: "harness",
+        mock: false,
+        parallel: 1,
+      },
+      db,
+    );
+    repo.insert(
+      {
+        id: "mid",
+        startedAt: "2099-06-01T00:00:00.000Z",
+        fixturesCsv: "",
+        mode: "harness",
+        mock: false,
+        parallel: 1,
+      },
+      db,
+    );
+    repo.insert(
+      {
+        id: "new",
+        startedAt: "2099-12-01T00:00:00.000Z",
+        fixturesCsv: "",
+        mode: "harness",
+        mock: false,
+        parallel: 1,
+      },
+      db,
+    );
     const rows = repo.list({}, db);
     expect(rows.map((r) => r.id)).toEqual(["new", "mid", "old"]);
   });
 
   test("list filters by status", () => {
-    repo.insert({ id: "r1", startedAt: "2099-01-01T00:00:00.000Z", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
-    repo.insert({ id: "r2", startedAt: "2099-01-02T00:00:00.000Z", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
+    repo.insert(
+      {
+        id: "r1",
+        startedAt: "2099-01-01T00:00:00.000Z",
+        fixturesCsv: "",
+        mode: "harness",
+        mock: false,
+        parallel: 1,
+      },
+      db,
+    );
+    repo.insert(
+      {
+        id: "r2",
+        startedAt: "2099-01-02T00:00:00.000Z",
+        fixturesCsv: "",
+        mode: "harness",
+        mock: false,
+        parallel: 1,
+      },
+      db,
+    );
     repo.updateOnFinish("r1", "succeeded", null, db);
     expect(repo.list({ status: "running" }, db).map((r) => r.id)).toEqual(["r2"]);
     expect(repo.list({ status: "succeeded" }, db).map((r) => r.id)).toEqual(["r1"]);
@@ -102,7 +169,14 @@ describe("benchRunsRepo", () => {
   test("list applies limit", () => {
     for (let i = 0; i < 5; i++) {
       repo.insert(
-        { id: `r${i}`, startedAt: `2099-01-0${i + 1}T00:00:00.000Z`, fixturesCsv: "", mode: "harness", mock: false, parallel: 1 },
+        {
+          id: `r${i}`,
+          startedAt: `2099-01-0${i + 1}T00:00:00.000Z`,
+          fixturesCsv: "",
+          mode: "harness",
+          mock: false,
+          parallel: 1,
+        },
         db,
       );
     }
@@ -110,9 +184,18 @@ describe("benchRunsRepo", () => {
   });
 
   test("markOrphans flips running rows to failed and returns the count", () => {
-    repo.insert({ id: "a", startedAt: "t1", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
-    repo.insert({ id: "b", startedAt: "t2", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
-    repo.insert({ id: "c", startedAt: "t3", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
+    repo.insert(
+      { id: "a", startedAt: "t1", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 },
+      db,
+    );
+    repo.insert(
+      { id: "b", startedAt: "t2", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 },
+      db,
+    );
+    repo.insert(
+      { id: "c", startedAt: "t3", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 },
+      db,
+    );
     repo.updateOnFinish("c", "succeeded", null, db);
 
     const flipped = repo.markOrphans(db);
@@ -127,7 +210,10 @@ describe("benchRunsRepo", () => {
   });
 
   test("markOrphans is idempotent — second call flips zero rows", () => {
-    repo.insert({ id: "a", startedAt: "t1", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 }, db);
+    repo.insert(
+      { id: "a", startedAt: "t1", fixturesCsv: "", mode: "harness", mock: false, parallel: 1 },
+      db,
+    );
     expect(repo.markOrphans(db)).toBe(1);
     expect(repo.markOrphans(db)).toBe(0);
   });
@@ -142,7 +228,9 @@ describe("benchRunsRepo", () => {
 
   test("started_at index exists for newest-first listing", () => {
     const idx = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_bench_runs_started_at'")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_bench_runs_started_at'",
+      )
       .get();
     expect(idx).toBeTruthy();
   });

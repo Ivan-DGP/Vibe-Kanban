@@ -14,9 +14,12 @@ export default function ClaudeConfigSection() {
 
   const handleSaveKey = () => {
     if (!apiKey.trim()) return;
-    updateSettings.mutate({ claudeApiKey: apiKey.trim() }, {
-      onSuccess: () => setApiKey(""),
-    });
+    updateSettings.mutate(
+      { claudeApiKey: apiKey.trim() },
+      {
+        onSuccess: () => setApiKey(""),
+      },
+    );
   };
 
   return (
@@ -24,18 +27,26 @@ export default function ClaudeConfigSection() {
       <div className="flex items-center gap-3">
         <Label>Claude CLI</Label>
         {status?.cliAvailable ? (
-          <Badge variant="outline" className="text-green-600 border-green-500/30"><Check className="h-3 w-3 mr-1" /> Available</Badge>
+          <Badge variant="outline" className="text-green-600 border-green-500/30">
+            <Check className="h-3 w-3 mr-1" /> Available
+          </Badge>
         ) : (
-          <Badge variant="outline" className="text-red-500 border-red-500/30"><X className="h-3 w-3 mr-1" /> Not Found</Badge>
+          <Badge variant="outline" className="text-red-500 border-red-500/30">
+            <X className="h-3 w-3 mr-1" /> Not Found
+          </Badge>
         )}
       </div>
 
       <div className="flex items-center gap-3">
         <Label>API Key</Label>
         {status?.apiKeyConfigured ? (
-          <Badge variant="outline" className="text-green-600 border-green-500/30"><Check className="h-3 w-3 mr-1" /> Configured</Badge>
+          <Badge variant="outline" className="text-green-600 border-green-500/30">
+            <Check className="h-3 w-3 mr-1" /> Configured
+          </Badge>
         ) : (
-          <Badge variant="outline" className="text-muted-foreground">Not Set</Badge>
+          <Badge variant="outline" className="text-muted-foreground">
+            Not Set
+          </Badge>
         )}
       </div>
 
@@ -47,7 +58,11 @@ export default function ClaudeConfigSection() {
           placeholder="sk-ant-..."
           className="flex-1"
         />
-        <Button size="sm" onClick={handleSaveKey} disabled={!apiKey.trim() || updateSettings.isPending}>
+        <Button
+          size="sm"
+          onClick={handleSaveKey}
+          disabled={!apiKey.trim() || updateSettings.isPending}
+        >
           {updateSettings.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
           Save
         </Button>

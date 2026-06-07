@@ -12,9 +12,7 @@ beforeAll(async () => {
   await app.ready();
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 describe("GitHub Accounts API", () => {
   const uniqueSuffix = Date.now();
@@ -402,7 +400,9 @@ describe("CI Status API — with mapping + git repo (GitHub API unreachable)", (
     });
     await app.inject({ method: "DELETE", url: `/api/github-accounts/${accountId}` });
     await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
   });
 
   test("GET ci-status — exercises token decrypt, repo detection, returns error from GitHub API", async () => {
@@ -543,7 +543,9 @@ describe("CI Status API — with mapping + git repo (GitHub API unreachable)", (
       payload: { subPath: "" },
     });
     await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
-    try { rmSync(nonGhDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(nonGhDir, { recursive: true, force: true });
+    } catch {}
   });
 
   test("GET ci-status — project path that does not exist (git fails) returns 404", async () => {
@@ -636,7 +638,9 @@ describe("CI Status API — success paths (mocked fetch + real git repo)", () =>
     });
     await app.inject({ method: "DELETE", url: `/api/github-accounts/${accountId}` });
     await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
   });
 
   afterEach(() => {
@@ -698,7 +702,13 @@ describe("CI Status API — success paths (mocked fetch + real git repo)", () =>
       new Response(
         JSON.stringify({
           workflow_runs: [
-            { status: "waiting", conclusion: null, name: "CI", html_url: "https://gh.com/run/2", updated_at: "2024-01-01T00:00:00Z" },
+            {
+              status: "waiting",
+              conclusion: null,
+              name: "CI",
+              html_url: "https://gh.com/run/2",
+              updated_at: "2024-01-01T00:00:00Z",
+            },
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -718,7 +728,13 @@ describe("CI Status API — success paths (mocked fetch + real git repo)", () =>
       new Response(
         JSON.stringify({
           workflow_runs: [
-            { status: "in_progress", conclusion: null, name: "Build", html_url: "https://gh.com/run/3", updated_at: "2024-01-01T00:00:00Z" },
+            {
+              status: "in_progress",
+              conclusion: null,
+              name: "Build",
+              html_url: "https://gh.com/run/3",
+              updated_at: "2024-01-01T00:00:00Z",
+            },
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -738,7 +754,13 @@ describe("CI Status API — success paths (mocked fetch + real git repo)", () =>
       new Response(
         JSON.stringify({
           workflow_runs: [
-            { status: "completed", conclusion: "success", name: "Tests", html_url: "https://gh.com/run/4", updated_at: "2024-01-02T00:00:00Z" },
+            {
+              status: "completed",
+              conclusion: "success",
+              name: "Tests",
+              html_url: "https://gh.com/run/4",
+              updated_at: "2024-01-02T00:00:00Z",
+            },
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
@@ -761,7 +783,13 @@ describe("CI Status API — success paths (mocked fetch + real git repo)", () =>
       new Response(
         JSON.stringify({
           workflow_runs: [
-            { status: "completed", conclusion: "failure", name: "Tests", html_url: "https://gh.com/run/5", updated_at: "2024-01-03T00:00:00Z" },
+            {
+              status: "completed",
+              conclusion: "failure",
+              name: "Tests",
+              html_url: "https://gh.com/run/5",
+              updated_at: "2024-01-03T00:00:00Z",
+            },
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },

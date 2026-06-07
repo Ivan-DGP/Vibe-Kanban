@@ -81,9 +81,7 @@ async function ensureLogsExist(page: Page): Promise<void> {
  */
 async function goToLogsPage(page: Page) {
   await page.goto("/logs", { waitUntil: "networkidle" });
-  await expect(
-    page.getByRole("heading", { name: /system logs/i })
-  ).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole("heading", { name: /system logs/i })).toBeVisible({ timeout: 10000 });
 }
 
 test.describe("Logs Page", () => {
@@ -98,9 +96,7 @@ test.describe("Logs Page", () => {
     await page.waitForTimeout(500);
   });
 
-  test("Logs page loads with heading and entries or empty state", async ({
-    page,
-  }) => {
+  test("Logs page loads with heading and entries or empty state", async ({ page }) => {
     await goToLogsPage(page);
 
     // The entries count text should be present (e.g. "X entries")
@@ -299,9 +295,7 @@ test.describe("Logs Page", () => {
     expect(entryText).toMatch(timePattern);
 
     // Verify the date group header exists above the entries
-    const groupHeaders = page.locator(
-      ".text-xs.font-medium.uppercase.tracking-wider"
-    );
+    const groupHeaders = page.locator(".text-xs.font-medium.uppercase.tracking-wider");
     const headerCount = await groupHeaders.count();
     expect(headerCount).toBeGreaterThan(0);
 
@@ -356,8 +350,6 @@ test.describe("Logs Page", () => {
     await expect(page.getByText("0 entries")).toBeVisible();
 
     // The Clear Logs button should now be disabled
-    await expect(
-      page.getByRole("button", { name: /clear logs/i })
-    ).toBeDisabled();
+    await expect(page.getByRole("button", { name: /clear logs/i })).toBeDisabled();
   });
 });

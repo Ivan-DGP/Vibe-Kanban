@@ -12,9 +12,9 @@ const MAX_MIGRATION_VERSION = 20;
 
 describe("migration versions are recorded", () => {
   test("all migration versions from 1 to MAX exist in _migrations table", () => {
-    const rows = db
-      .prepare("SELECT version FROM _migrations ORDER BY version")
-      .all() as { version: number }[];
+    const rows = db.prepare("SELECT version FROM _migrations ORDER BY version").all() as {
+      version: number;
+    }[];
 
     const versions = rows.map((r) => r.version);
     for (let v = 1; v <= MAX_MIGRATION_VERSION; v++) {
@@ -25,9 +25,10 @@ describe("migration versions are recorded", () => {
 
 describe("migration names are descriptive", () => {
   test("each migration has a non-empty name", () => {
-    const rows = db
-      .prepare("SELECT version, name FROM _migrations ORDER BY version")
-      .all() as { version: number; name: string }[];
+    const rows = db.prepare("SELECT version, name FROM _migrations ORDER BY version").all() as {
+      version: number;
+      name: string;
+    }[];
 
     expect(rows.length).toBeGreaterThanOrEqual(MAX_MIGRATION_VERSION);
     for (const row of rows) {
@@ -55,9 +56,9 @@ describe("migration timestamps are valid", () => {
 
 describe("migrations run in order", () => {
   test("versions are sequential (1, 2, 3, ...)", () => {
-    const rows = db
-      .prepare("SELECT version FROM _migrations ORDER BY version")
-      .all() as { version: number }[];
+    const rows = db.prepare("SELECT version FROM _migrations ORDER BY version").all() as {
+      version: number;
+    }[];
 
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
@@ -121,9 +122,9 @@ describe("schema has all expected columns on projects", () => {
 
 describe("index existence", () => {
   const getIndexNames = (): string[] => {
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index'")
-      .all() as { name: string }[];
+    const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as {
+      name: string;
+    }[];
     return indexes.map((i) => i.name);
   };
 
@@ -143,9 +144,7 @@ describe("index existence", () => {
 describe("task_ai_runs table exists with correct columns", () => {
   test("task_ai_runs table exists", () => {
     const table = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'",
-      )
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'")
       .get() as { name: string } | null;
     expect(table).toBeTruthy();
   });
@@ -183,13 +182,7 @@ describe("todos table has expected columns", () => {
     }[];
     const colNames = cols.map((c) => c.name);
 
-    const expectedColumns = [
-      "id",
-      "title",
-      "completed",
-      "linkedTaskId",
-      "sortOrder",
-    ];
+    const expectedColumns = ["id", "title", "completed", "linkedTaskId", "sortOrder"];
 
     for (const col of expectedColumns) {
       expect(colNames).toContain(col);
@@ -203,9 +196,11 @@ describe("foreign key constraint works", () => {
     const fakeTaskId = `task-${crypto.randomUUID()}`;
 
     expect(() => {
-      db.prepare(
-        "INSERT INTO tasks (id, projectId, title) VALUES (?, ?, ?)",
-      ).run(fakeTaskId, fakeProjectId, "should fail");
+      db.prepare("INSERT INTO tasks (id, projectId, title) VALUES (?, ?, ?)").run(
+        fakeTaskId,
+        fakeProjectId,
+        "should fail",
+      );
     }).toThrow();
   });
 });

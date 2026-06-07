@@ -72,9 +72,7 @@ test.describe.serial("Todos page", () => {
     await input.press("Enter");
 
     // Verify the new todo appears in the list
-    await expect(
-      page.getByText("E2E Todo Item", { exact: true })
-    ).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("E2E Todo Item", { exact: true })).toBeVisible({ timeout: 5000 });
   });
 
   test("Create a second todo", async () => {
@@ -83,12 +81,10 @@ test.describe.serial("Todos page", () => {
     await input.press("Enter");
 
     // Both todos should be visible
-    await expect(
-      page.getByText("Another E2E Todo", { exact: true })
-    ).toBeVisible({ timeout: 5000 });
-    await expect(
-      page.getByText("E2E Todo Item", { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("Another E2E Todo", { exact: true })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByText("E2E Todo Item", { exact: true })).toBeVisible();
   });
 
   test("Toggle todo completion", async () => {
@@ -136,14 +132,10 @@ test.describe.serial("Todos page", () => {
     await deleteBtn.click();
 
     // "Another E2E Todo" should disappear
-    await expect(
-      page.getByText("Another E2E Todo", { exact: true })
-    ).toBeHidden({ timeout: 5000 });
+    await expect(page.getByText("Another E2E Todo", { exact: true })).toBeHidden({ timeout: 5000 });
 
     // "E2E Todo Item" should still be present
-    await expect(
-      page.getByText("E2E Todo Item", { exact: true })
-    ).toBeVisible();
+    await expect(page.getByText("E2E Todo Item", { exact: true })).toBeVisible();
   });
 
   test("Clear completed", async () => {
@@ -155,8 +147,6 @@ test.describe.serial("Todos page", () => {
     await clearBtn.click();
 
     // The completed todo should be gone
-    await expect(
-      page.getByText("E2E Todo Item", { exact: true })
-    ).toBeHidden({ timeout: 5000 });
+    await expect(page.getByText("E2E Todo Item", { exact: true })).toBeHidden({ timeout: 5000 });
   });
 });

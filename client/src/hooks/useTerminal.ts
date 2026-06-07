@@ -1,6 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { CreateTerminalSessionInput, TerminalSessionInfo, BatchResolveInput } from "@vibe-kanban/shared";
+import type {
+  CreateTerminalSessionInput,
+  TerminalSessionInfo,
+  BatchResolveInput,
+} from "@vibe-kanban/shared";
 
 // ── React Query hooks ──────────────────────────────────────────
 
@@ -39,12 +43,13 @@ export function useKillTerminalSession() {
       await qc.cancelQueries({ queryKey: ["terminal", "sessions"] });
 
       // Snapshot all cached session queries for rollback
-      const previousQueries = qc.getQueriesData<TerminalSessionInfo[]>({ queryKey: ["terminal", "sessions"] });
+      const previousQueries = qc.getQueriesData<TerminalSessionInfo[]>({
+        queryKey: ["terminal", "sessions"],
+      });
 
       // Optimistically remove the killed session from all cached queries
-      qc.setQueriesData<TerminalSessionInfo[]>(
-        { queryKey: ["terminal", "sessions"] },
-        (old) => old?.filter((s) => s.id !== sessionId),
+      qc.setQueriesData<TerminalSessionInfo[]>({ queryKey: ["terminal", "sessions"] }, (old) =>
+        old?.filter((s) => s.id !== sessionId),
       );
 
       return { previousQueries };

@@ -8,7 +8,11 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 // but Bun's EventEmitter dispatch can re-throw async errors past a try/catch.
 process.on("uncaughtException", (err: Error) => {
   const msg = err?.message ?? String(err);
-  if (msg.includes("Socket is closed") || msg.includes("ERR_SOCKET_CLOSED") || msg.includes("AttachConsole")) {
+  if (
+    msg.includes("Socket is closed") ||
+    msg.includes("ERR_SOCKET_CLOSED") ||
+    msg.includes("AttachConsole")
+  ) {
     console.warn(`[terminal] Suppressed non-fatal PTY error: ${msg}`);
     return;
   }

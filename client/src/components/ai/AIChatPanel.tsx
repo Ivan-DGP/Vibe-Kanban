@@ -81,19 +81,25 @@ export default function AIChatPanel({ projectId }: AIChatPanelProps) {
         <div className="space-y-3">
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : ""}`}>
-              {msg.role === "assistant" && <Bot className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />}
-              <div className={`text-sm max-w-[85%] rounded-lg px-3 py-2 ${
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted prose prose-sm dark:prose-invert max-w-none"
-              }`}>
+              {msg.role === "assistant" && (
+                <Bot className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
+              )}
+              <div
+                className={`text-sm max-w-[85%] rounded-lg px-3 py-2 ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted prose prose-sm dark:prose-invert max-w-none"
+                }`}
+              >
                 {msg.role === "assistant" ? (
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                 ) : (
                   msg.content
                 )}
               </div>
-              {msg.role === "user" && <User className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />}
+              {msg.role === "user" && (
+                <User className="h-4 w-4 mt-1 shrink-0 text-muted-foreground" />
+              )}
             </div>
           ))}
           {streaming && messages[messages.length - 1]?.content === "" && (

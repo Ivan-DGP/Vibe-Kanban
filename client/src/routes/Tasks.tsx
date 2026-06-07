@@ -48,7 +48,9 @@ export default function Tasks() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
         <p className="text-sm text-muted-foreground/70 mt-0.5">
-          {allData ? `${allData.total} task${allData.total !== 1 ? "s" : ""} across all projects` : "All tasks across all projects"}
+          {allData
+            ? `${allData.total} task${allData.total !== 1 ? "s" : ""} across all projects`
+            : "All tasks across all projects"}
         </p>
       </div>
 
@@ -82,16 +84,20 @@ export default function Tasks() {
         </div>
       </div>
 
-      {isLoading && (
-        <p className="text-sm text-muted-foreground animate-pulse">Loading...</p>
-      )}
+      {isLoading && <p className="text-sm text-muted-foreground animate-pulse">Loading...</p>}
 
       {!isLoading && tasks.length > 0 ? (
         <div className="space-y-2">
           {tasks.map((task: Task & { projectName?: string }) => (
             <div key={task.id} className="flex items-center gap-2">
               <div className="flex-1">
-                <TaskCard task={task} onClick={() => { setSelectedTask(task); setViewerOpen(true); }} />
+                <TaskCard
+                  task={task}
+                  onClick={() => {
+                    setSelectedTask(task);
+                    setViewerOpen(true);
+                  }}
+                />
               </div>
               {task.projectName && (
                 <Badge
@@ -117,11 +123,7 @@ export default function Tasks() {
         </div>
       ) : null}
 
-      <TaskViewerDialog
-        open={viewerOpen}
-        onOpenChange={setViewerOpen}
-        task={selectedTask}
-      />
+      <TaskViewerDialog open={viewerOpen} onOpenChange={setViewerOpen} task={selectedTask} />
     </div>
   );
 }

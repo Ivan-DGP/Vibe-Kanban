@@ -31,8 +31,12 @@ const mockSpawnPty = mock((cmd: string, args: string[], opts: any) => {
     write: mock(() => {}),
     resize: mock(() => {}),
     kill: mock(() => {}),
-    onData: mock((cb: (data: string) => void) => { latestPtyOnData = cb; }),
-    onExit: mock((cb: (exitCode: number) => void) => { latestPtyOnExit = cb; }),
+    onData: mock((cb: (data: string) => void) => {
+      latestPtyOnData = cb;
+    }),
+    onExit: mock((cb: (exitCode: number) => void) => {
+      latestPtyOnExit = cb;
+    }),
   };
   return handle;
 });
@@ -100,8 +104,12 @@ function makeMockWs(readyState = 1) {
   return {
     readyState,
     sent: [] as string[],
-    send(data: string) { this.sent.push(data); },
-    close() { this.readyState = 3; },
+    send(data: string) {
+      this.sent.push(data);
+    },
+    close() {
+      this.readyState = 3;
+    },
   };
 }
 
@@ -421,7 +429,13 @@ describe("terminalService unit tests", () => {
       const killMock = mock(() => {});
       const session = makeMockSession({
         id: "k3",
-        proc: { write: mock(() => {}), resize: mock(() => {}), kill: killMock, onData: mock(() => {}), onExit: mock(() => {}) },
+        proc: {
+          write: mock(() => {}),
+          resize: mock(() => {}),
+          kill: killMock,
+          onData: mock(() => {}),
+          onExit: mock(() => {}),
+        },
       });
       sessions.set("k3", session);
       killSession("k3");
@@ -563,7 +577,13 @@ describe("terminalService unit tests", () => {
       const session = makeMockSession({
         id: "w3",
         alive: true,
-        proc: { write: writeMock, resize: mock(() => {}), kill: mock(() => {}), onData: mock(() => {}), onExit: mock(() => {}) },
+        proc: {
+          write: writeMock,
+          resize: mock(() => {}),
+          kill: mock(() => {}),
+          onData: mock(() => {}),
+          onExit: mock(() => {}),
+        },
       });
       sessions.set("w3", session);
       expect(writeToSession("w3", "hello")).toBe(true);
@@ -575,7 +595,9 @@ describe("terminalService unit tests", () => {
         id: "w4",
         alive: true,
         proc: {
-          write: () => { throw new Error("write failed"); },
+          write: () => {
+            throw new Error("write failed");
+          },
           resize: mock(() => {}),
           kill: mock(() => {}),
           onData: mock(() => {}),
@@ -605,7 +627,13 @@ describe("terminalService unit tests", () => {
       const session = makeMockSession({
         id: "r2",
         alive: true,
-        proc: { write: mock(() => {}), resize: resizeMock, kill: mock(() => {}), onData: mock(() => {}), onExit: mock(() => {}) },
+        proc: {
+          write: mock(() => {}),
+          resize: resizeMock,
+          kill: mock(() => {}),
+          onData: mock(() => {}),
+          onExit: mock(() => {}),
+        },
       });
       sessions.set("r2", session);
       expect(resizeSession("r2", 120, 40)).toBe(true);
@@ -618,7 +646,9 @@ describe("terminalService unit tests", () => {
         alive: true,
         proc: {
           write: mock(() => {}),
-          resize: () => { throw new Error("resize failed"); },
+          resize: () => {
+            throw new Error("resize failed");
+          },
           kill: mock(() => {}),
           onData: mock(() => {}),
           onExit: mock(() => {}),
@@ -740,9 +770,7 @@ describe("terminalService unit tests", () => {
       attachWs("int1", ws);
 
       // Buffer should be flushed to WS
-      ws.sent
-        .map((s) => JSON.parse(s))
-        .filter((m: any) => m.type === "output");
+      ws.sent.map((s) => JSON.parse(s)).filter((m: any) => m.type === "output");
       // scrollback also sent (empty in this case since emitData appended to scrollback)
       expect(session.outputBuffer).toHaveLength(0);
     });
@@ -1120,9 +1148,7 @@ describe("terminalService unit tests", () => {
       sessions.set("batch-s1", session);
 
       batchState.state = "running";
-      batchState.activeTasks = [
-        { taskId: "t1", taskTitle: "Task 1", sessionId: "batch-s1" },
-      ];
+      batchState.activeTasks = [{ taskId: "t1", taskTitle: "Task 1", sessionId: "batch-s1" }];
       batchState.currentSessionId = undefined;
 
       cancelBatchResolve();

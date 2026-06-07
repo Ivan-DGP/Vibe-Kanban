@@ -67,7 +67,9 @@ export function useReorderTasks() {
   });
 }
 
-export function useAllTasks(params: { status?: string; sort?: string; limit?: number; offset?: number } = {}) {
+export function useAllTasks(
+  params: { status?: string; sort?: string; limit?: number; offset?: number } = {},
+) {
   return useQuery({
     queryKey: ["tasks-all", params],
     queryFn: () => api.tasks.all(params),

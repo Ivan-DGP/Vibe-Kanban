@@ -11,7 +11,10 @@ export function chunkText(text: string, opts: ChunkOptions = {}): string[] {
   const trimmed = text.trim();
   if (trimmed.length === 0) return [];
 
-  const paragraphs = trimmed.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const paragraphs = trimmed
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
   const chunks: string[] = [];
   let buf = "";
 

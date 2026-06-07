@@ -31,7 +31,9 @@ describe("taskSpawnRegistry", () => {
       mcpServers: ["vibe-kanban"],
       profile: "dev",
     });
-    const names = listSpawnConfigs().map((c) => c.type).sort();
+    const names = listSpawnConfigs()
+      .map((c) => c.type)
+      .sort();
     expect(names).toEqual(["dev-fix", "qa-test"]);
   });
 

@@ -34,7 +34,9 @@ export default function CodeEditorPanel({ projectId }: CodeEditorPanelProps) {
     }
 
     try {
-      const { content } = await import("@/lib/api").then((m) => m.api.files.read(projectId, filePath));
+      const { content } = await import("@/lib/api").then((m) =>
+        m.api.files.read(projectId, filePath),
+      );
       const fileExt = fileName.split(".").pop()?.toLowerCase() ?? "";
       openFile(filePath, fileName, content, fileExt);
     } catch {

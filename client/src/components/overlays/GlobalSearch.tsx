@@ -18,9 +18,8 @@ export default function GlobalSearch() {
   const { data: projects } = useProjects();
   const { data: taskResults } = useSearchTasks(query);
 
-  const filteredProjects = projects?.filter((p) =>
-    p.name.toLowerCase().includes(query.toLowerCase()),
-  ) ?? [];
+  const filteredProjects =
+    projects?.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())) ?? [];
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -29,7 +28,13 @@ export default function GlobalSearch() {
   };
 
   return (
-    <Dialog open={globalSearchOpen} onOpenChange={(v) => { setGlobalSearchOpen(v); if (!v) setQuery(""); }}>
+    <Dialog
+      open={globalSearchOpen}
+      onOpenChange={(v) => {
+        setGlobalSearchOpen(v);
+        if (!v) setQuery("");
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Global Search</DialogTitle>
@@ -48,16 +53,24 @@ export default function GlobalSearch() {
 
         <Tabs defaultValue="all">
           <TabsList className="w-full">
-            <TabsTrigger value="all" className="flex-1">All</TabsTrigger>
-            <TabsTrigger value="projects" className="flex-1">Projects</TabsTrigger>
-            <TabsTrigger value="tasks" className="flex-1">Tasks</TabsTrigger>
+            <TabsTrigger value="all" className="flex-1">
+              All
+            </TabsTrigger>
+            <TabsTrigger value="projects" className="flex-1">
+              Projects
+            </TabsTrigger>
+            <TabsTrigger value="tasks" className="flex-1">
+              Tasks
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="all">
             <ScrollArea className="h-[300px]">
               {filteredProjects.length > 0 && (
                 <div className="mb-3">
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Projects</div>
+                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+                    Projects
+                  </div>
                   {filteredProjects.slice(0, 5).map((p) => (
                     <button
                       key={p.id}
@@ -71,7 +84,9 @@ export default function GlobalSearch() {
               )}
               {taskResults && taskResults.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Tasks</div>
+                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+                    Tasks
+                  </div>
                   {taskResults.slice(0, 10).map((task: Task) => (
                     <button
                       key={task.id}
@@ -84,9 +99,11 @@ export default function GlobalSearch() {
                   ))}
                 </div>
               )}
-              {query.length >= 2 && filteredProjects.length === 0 && (!taskResults || taskResults.length === 0) && (
-                <p className="text-sm text-muted-foreground text-center py-8">No results found</p>
-              )}
+              {query.length >= 2 &&
+                filteredProjects.length === 0 &&
+                (!taskResults || taskResults.length === 0) && (
+                  <p className="text-sm text-muted-foreground text-center py-8">No results found</p>
+                )}
             </ScrollArea>
           </TabsContent>
 
@@ -99,7 +116,9 @@ export default function GlobalSearch() {
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent text-left"
                 >
                   {p.name}
-                  {p.category && <span className="text-xs text-muted-foreground">{p.category}</span>}
+                  {p.category && (
+                    <span className="text-xs text-muted-foreground">{p.category}</span>
+                  )}
                 </button>
               ))}
             </ScrollArea>
@@ -117,7 +136,11 @@ export default function GlobalSearch() {
                   <PriorityBadge priority={task.priority} />
                 </button>
               ))}
-              {query.length < 2 && <p className="text-xs text-muted-foreground text-center py-4">Type at least 2 characters</p>}
+              {query.length < 2 && (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  Type at least 2 characters
+                </p>
+              )}
             </ScrollArea>
           </TabsContent>
         </Tabs>

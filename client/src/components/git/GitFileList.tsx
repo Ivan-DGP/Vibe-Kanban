@@ -20,7 +20,15 @@ interface GitFileListProps {
   type: "staged" | "unstaged";
 }
 
-export default function GitFileList({ files, selected, onToggle, onSelectAll, onDeselectAll, onFileClick, type }: GitFileListProps) {
+export default function GitFileList({
+  files,
+  selected,
+  onToggle,
+  onSelectAll,
+  onDeselectAll,
+  onFileClick,
+  type,
+}: GitFileListProps) {
   if (files.length === 0) return null;
 
   const allSelected = files.every((f) => selected.has(f.path));

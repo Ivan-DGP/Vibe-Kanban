@@ -6,7 +6,10 @@ interface TerminalSplitViewProps {
   splitSessionId: string;
 }
 
-export default function TerminalSplitView({ primarySessionId, splitSessionId }: TerminalSplitViewProps) {
+export default function TerminalSplitView({
+  primarySessionId,
+  splitSessionId,
+}: TerminalSplitViewProps) {
   return (
     <PanelGroup direction="horizontal">
       <Panel minSize={20}>

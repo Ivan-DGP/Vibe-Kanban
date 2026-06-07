@@ -8,15 +8,15 @@ Local development dashboard for managing projects, tasks, git, terminals, and AI
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Runtime** | [Bun](https://bun.sh) — runs TypeScript natively, built-in SQLite, built-in WebSocket |
-| **Frontend** | React 18 + Vite + Tailwind CSS v4 + shadcn/ui |
-| **Backend** | Fastify 5 + bun:sqlite |
-| **Terminal** | xterm.js over Bun WebSocket |
-| **Editor** | CodeMirror (@uiw/react-codemirror) |
-| **Drag & Drop** | @dnd-kit |
-| **AI** | Claude CLI (subprocess) + Claude API (SSE streaming) |
+| Layer           | Technology                                                                            |
+| --------------- | ------------------------------------------------------------------------------------- |
+| **Runtime**     | [Bun](https://bun.sh) — runs TypeScript natively, built-in SQLite, built-in WebSocket |
+| **Frontend**    | React 18 + Vite + Tailwind CSS v4 + shadcn/ui                                         |
+| **Backend**     | Fastify 5 + bun:sqlite                                                                |
+| **Terminal**    | xterm.js over Bun WebSocket                                                           |
+| **Editor**      | CodeMirror (@uiw/react-codemirror)                                                    |
+| **Drag & Drop** | @dnd-kit                                                                              |
+| **AI**          | Claude CLI (subprocess) + Claude API (SSE streaming)                                  |
 
 ## Quick Start
 
@@ -63,12 +63,14 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to the Fastify backend on 
 ## Features
 
 ### Project Management
+
 - Auto-discover projects by scanning directories (detects package.json, .git, Cargo.toml, go.mod, etc.)
 - Tech stack detection for 18+ frameworks (React, Vue, Next.js, Tailwind, Python, Go, Rust, etc.)
 - Project cards with tech badges, git branch, task counts, and favorites
 - Categories and external links per project
 
 ### Task Management
+
 - Three-column Kanban board (Inbox, In Progress, Done) with drag & drop
 - Priority levels (Urgent, High, Medium, Low) with color-coded indicators
 - Board/List view toggle with sort options
@@ -78,6 +80,7 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to the Fastify backend on 
 - Cascading timestamps: inboxAt → inProgressAt → doneAt
 
 ### Git Integration
+
 - Real-time git status with 5-second polling (staged, unstaged, untracked files)
 - Branch info with ahead/behind counts and branch switcher
 - Stage/unstage individual files or all at once
@@ -87,6 +90,7 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to the Fastify backend on 
 - GitHub account management with encrypted token storage (AES-256-CBC)
 
 ### Code Editor
+
 - CodeMirror with syntax highlighting for 30+ file types
 - Multi-tab editing with dirty-state indicators
 - File explorer tree with lazy-loaded directories
@@ -95,12 +99,14 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to the Fastify backend on 
 - Workspace mode toggle (Tasks vs Editor) per project
 
 ### Integrated Terminal
+
 - xterm.js terminal emulator over WebSocket
 - Multiple terminal sessions (Shell, Dev Server, Claude AI, AI Resolve)
 - Split view (side-by-side terminals)
 - Resizable and collapsible panel
 
 ### Claude AI Integration
+
 - **AI Resolve** — launch Claude CLI in a terminal to implement a specific task with full project context
 - **AI Bulk Import** — paste unstructured text and AI organizes it into tasks
 - **AI Task Manager** — send free-text instructions to manage tasks via Claude
@@ -108,28 +114,33 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to the Fastify backend on 
 - Falls back from Claude CLI to Claude API automatically
 
 ### MCP Server (Model Context Protocol)
+
 - Built-in MCP server for Claude and other AI tools
 - 10 tools: list_projects, get_project, list_tasks, get_task, create_task, update_task, delete_task, get_all_tasks, git_status, git_diff
 - JSON-RPC 2.0 endpoint (POST /mcp) + SSE endpoint (GET /mcp)
 - OAuth client registration and token management
 
 ### Reports
+
 - Time-filtered reports (Today, This Week, Last 30 Days, custom range)
 - Summary stats: total tasks completed, total hours, average hours per task
 - Grouped by project with per-project breakdowns
 - Copy as Markdown
 
 ### Search
+
 - **Command Palette** (Ctrl+K) — quick navigation to projects, pages, and tasks
 - **Global Search** (Ctrl+Shift+F) — search across projects, tasks, and files
 - **File Content Search** (Ctrl+Shift+G) — grep across file contents with line numbers
 
 ### Google Sheets Sync
+
 - Bidirectional sync via Apps Script proxy
 - Auto-push (2s debounce) and auto-pull (30s polling)
 - Anti-loop protection (10s guard after push)
 
 ### Additional
+
 - System logs viewer with level/category filters
 - Onboarding wizard for first-time setup
 - Export/import settings and data as JSON
@@ -137,10 +148,10 @@ The Vite dev server proxies `/api`, `/ws`, and `/mcp` to the Fastify backend on 
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+K | Command Palette |
-| Ctrl+Shift+F | Global Search |
+| Shortcut     | Action              |
+| ------------ | ------------------- |
+| Ctrl+K       | Command Palette     |
+| Ctrl+Shift+F | Global Search       |
 | Ctrl+Shift+G | File Content Search |
 
 ## Data Storage

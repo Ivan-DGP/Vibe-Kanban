@@ -30,7 +30,10 @@ export function useProjectStats(projectId: string | undefined) {
       let urgentCount = 0;
       if (backlogTotal > 0) {
         try {
-          const urgentData = await api.tasks.list(projectId!, { status: "backlog" as any, limit: 100 });
+          const urgentData = await api.tasks.list(projectId!, {
+            status: "backlog" as any,
+            limit: 100,
+          });
           urgentCount = urgentData.items.filter((t) => t.priority === "urgent").length;
         } catch {}
       }
@@ -43,7 +46,10 @@ export function useProjectStats(projectId: string | undefined) {
           approved: approvedTotal,
           urgent: urgentCount,
         },
-        gitBranch: gitStatus.status === "fulfilled" && gitStatus.value.branch ? gitStatus.value.branch : null,
+        gitBranch:
+          gitStatus.status === "fulfilled" && gitStatus.value.branch
+            ? gitStatus.value.branch
+            : null,
       };
     },
     enabled: !!projectId,

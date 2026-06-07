@@ -15,19 +15,27 @@ export default function Help() {
               </thead>
               <tbody>
                 <tr className="border-t">
-                  <td className="px-4 py-2"><kbd className="px-2 py-0.5 bg-muted rounded text-xs">Ctrl+K</kbd></td>
+                  <td className="px-4 py-2">
+                    <kbd className="px-2 py-0.5 bg-muted rounded text-xs">Ctrl+K</kbd>
+                  </td>
                   <td className="px-4 py-2">Command Palette</td>
                 </tr>
                 <tr className="border-t">
-                  <td className="px-4 py-2"><kbd className="px-2 py-0.5 bg-muted rounded text-xs">Ctrl+Shift+F</kbd></td>
+                  <td className="px-4 py-2">
+                    <kbd className="px-2 py-0.5 bg-muted rounded text-xs">Ctrl+Shift+F</kbd>
+                  </td>
                   <td className="px-4 py-2">Global Search</td>
                 </tr>
                 <tr className="border-t">
-                  <td className="px-4 py-2"><kbd className="px-2 py-0.5 bg-muted rounded text-xs">Ctrl+Shift+G</kbd></td>
+                  <td className="px-4 py-2">
+                    <kbd className="px-2 py-0.5 bg-muted rounded text-xs">Ctrl+Shift+G</kbd>
+                  </td>
                   <td className="px-4 py-2">File Content Search</td>
                 </tr>
                 <tr className="border-t">
-                  <td className="px-4 py-2"><kbd className="px-2 py-0.5 bg-muted rounded text-xs">1-9</kbd></td>
+                  <td className="px-4 py-2">
+                    <kbd className="px-2 py-0.5 bg-muted rounded text-xs">1-9</kbd>
+                  </td>
                   <td className="px-4 py-2">Switch tabs</td>
                 </tr>
               </tbody>

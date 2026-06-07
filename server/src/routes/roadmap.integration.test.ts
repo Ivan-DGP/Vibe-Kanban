@@ -149,7 +149,10 @@ describe("Roadmap API", () => {
       method: "POST",
       url: "/api/projects",
       headers: { "Content-Type": "application/json" },
-      payload: { name: `Cascade Roadmap ${Date.now()}`, path: `/tmp/cascade-roadmap-${Date.now()}` },
+      payload: {
+        name: `Cascade Roadmap ${Date.now()}`,
+        path: `/tmp/cascade-roadmap-${Date.now()}`,
+      },
     });
     const tempId = projRes.json().id;
 

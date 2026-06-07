@@ -10,9 +10,7 @@ beforeAll(async () => {
   await app.ready();
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 // ---------------------------------------------------------------------------
 // Unit tests for exported helpers
@@ -319,7 +317,11 @@ describe("POST /api/claude/chat — with project context", () => {
       method: "POST",
       url: "/api/projects",
       headers: { "Content-Type": "application/json" },
-      payload: { name: "Chat Context Project", path: `/tmp/test-chat-ctx-${Date.now()}`, techStack: "Node.js" },
+      payload: {
+        name: "Chat Context Project",
+        path: `/tmp/test-chat-ctx-${Date.now()}`,
+        techStack: "Node.js",
+      },
     });
     const projId = projRes.json().id;
 

@@ -37,8 +37,7 @@ export function useDeleteTodo() {
 export function useReorderTodos() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (todos: { id: string; sortOrder: number }[]) =>
-      api.todos.reorder(todos),
+    mutationFn: (todos: { id: string; sortOrder: number }[]) => api.todos.reorder(todos),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["todos"] }),
   });
 }

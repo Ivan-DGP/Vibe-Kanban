@@ -1,12 +1,5 @@
-import {
-  registerSpawnConfig,
-  _resetSpawnRegistry,
-} from "./taskSpawnRegistry";
-import {
-  buildQaTestPrompt,
-  buildDevFixPrompt,
-  buildBenchCodebasePrompt,
-} from "./spawnPrompts";
+import { registerSpawnConfig, _resetSpawnRegistry } from "./taskSpawnRegistry";
+import { buildQaTestPrompt, buildDevFixPrompt, buildBenchCodebasePrompt } from "./spawnPrompts";
 
 /**
  * Register the spawn configs the system knows how to dispatch.

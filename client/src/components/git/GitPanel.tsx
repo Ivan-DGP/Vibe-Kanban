@@ -4,7 +4,13 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronRight, GitFork } from "lucide-react";
-import { useGitStatus, useStageFiles, useUnstageFiles, useGitSubRepos, useGitDivergence } from "@/hooks";
+import {
+  useGitStatus,
+  useStageFiles,
+  useUnstageFiles,
+  useGitSubRepos,
+  useGitDivergence,
+} from "@/hooks";
 import GitBranchSwitcher from "./GitBranchSwitcher";
 import GitFileList from "./GitFileList";
 import GitCommitForm from "./GitCommitForm";
@@ -70,7 +76,8 @@ function GitPanelContent({ projectId, subPath }: GitPanelProps) {
         {divergence?.mainBranch && (divergence.ahead > 0 || divergence.behind > 0) && (
           <Badge variant="outline" className="text-[10px] gap-1">
             <GitFork className="h-3 w-3" />
-            {divergence.mainBranch}: {divergence.ahead > 0 && `${divergence.ahead}↑`}{divergence.behind > 0 && ` ${divergence.behind}↓`}
+            {divergence.mainBranch}: {divergence.ahead > 0 && `${divergence.ahead}↑`}
+            {divergence.behind > 0 && ` ${divergence.behind}↓`}
           </Badge>
         )}
       </div>
@@ -86,7 +93,10 @@ function GitPanelContent({ projectId, subPath }: GitPanelProps) {
       />
 
       {selectedStaged.size > 0 && (
-        <button onClick={handleUnstage} className="text-[10px] text-muted-foreground hover:text-foreground underline">
+        <button
+          onClick={handleUnstage}
+          className="text-[10px] text-muted-foreground hover:text-foreground underline"
+        >
           Unstage selected ({selectedStaged.size})
         </button>
       )}
@@ -105,20 +115,30 @@ function GitPanelContent({ projectId, subPath }: GitPanelProps) {
           setSelectedUnstaged(new Set(status.unstaged.map((f) => f.path)));
           setSelectedUntracked(new Set(status.untracked));
         }}
-        onDeselectAll={() => { setSelectedUnstaged(new Set()); setSelectedUntracked(new Set()); }}
+        onDeselectAll={() => {
+          setSelectedUnstaged(new Set());
+          setSelectedUntracked(new Set());
+        }}
         onFileClick={(p) => setDiffFile(p)}
         type="unstaged"
       />
 
       {(selectedUnstaged.size > 0 || selectedUntracked.size > 0) && (
-        <button onClick={handleStage} className="text-[10px] text-muted-foreground hover:text-foreground underline">
+        <button
+          onClick={handleStage}
+          className="text-[10px] text-muted-foreground hover:text-foreground underline"
+        >
           Stage selected ({selectedUnstaged.size + selectedUntracked.size})
         </button>
       )}
 
       <Separator />
 
-      <GitCommitForm projectId={projectId} subPath={subPath} hasStagedFiles={status.staged.length > 0} />
+      <GitCommitForm
+        projectId={projectId}
+        subPath={subPath}
+        hasStagedFiles={status.staged.length > 0}
+      />
 
       <GitActions
         projectId={projectId}
@@ -134,7 +154,10 @@ function GitPanelContent({ projectId, subPath }: GitPanelProps) {
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium">{diffFile}</span>
-              <button onClick={() => setDiffFile(undefined)} className="text-[10px] text-muted-foreground hover:text-foreground">
+              <button
+                onClick={() => setDiffFile(undefined)}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
                 Close
               </button>
             </div>

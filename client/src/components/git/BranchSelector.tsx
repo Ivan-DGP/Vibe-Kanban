@@ -13,15 +13,17 @@ interface BranchSelectorProps {
   disabled?: boolean;
 }
 
-export default function BranchSelector({ projectId, value, onSelect, disabled }: BranchSelectorProps) {
+export default function BranchSelector({
+  projectId,
+  value,
+  onSelect,
+  disabled,
+}: BranchSelectorProps) {
   const { data: branches } = useGitBranches(projectId);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
 
-  const localBranches = useMemo(
-    () => (branches?.filter((b) => !b.remote) ?? []),
-    [branches],
-  );
+  const localBranches = useMemo(() => branches?.filter((b) => !b.remote) ?? [], [branches]);
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return localBranches;
@@ -40,7 +42,13 @@ export default function BranchSelector({ projectId, value, onSelect, disabled }:
 
   return (
     <div className="flex items-center gap-2">
-      <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setFilter(""); }}>
+      <Popover
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          if (!v) setFilter("");
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -49,9 +57,7 @@ export default function BranchSelector({ projectId, value, onSelect, disabled }:
             disabled={disabled}
           >
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate font-mono">
-              {value || "Current branch"}
-            </span>
+            <span className="truncate font-mono">{value || "Current branch"}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-64 p-2" align="start">
@@ -69,9 +75,7 @@ export default function BranchSelector({ projectId, value, onSelect, disabled }:
               onClick={() => handleSelect(null)}
             >
               {value === null && <Check className="h-3 w-3" />}
-              <span className={value === null ? "font-medium" : "ml-5"}>
-                Current branch
-              </span>
+              <span className={value === null ? "font-medium" : "ml-5"}>Current branch</span>
             </button>
 
             {/* Existing local branches */}
@@ -87,7 +91,9 @@ export default function BranchSelector({ projectId, value, onSelect, disabled }:
                     onClick={() => handleSelect(b.name)}
                   >
                     {value === b.name && <Check className="h-3 w-3" />}
-                    <span className={`font-mono truncate ${value === b.name ? "font-medium" : "ml-5"}`}>
+                    <span
+                      className={`font-mono truncate ${value === b.name ? "font-medium" : "ml-5"}`}
+                    >
                       {b.name}
                     </span>
                   </button>

@@ -24,14 +24,22 @@ export default function FileContentSearch({ projectId }: FileContentSearchProps)
   );
 
   return (
-    <Dialog open={fileSearchOpen} onOpenChange={(v) => { setFileSearchOpen(v); if (!v) setQuery(""); }}>
+    <Dialog
+      open={fileSearchOpen}
+      onOpenChange={(v) => {
+        setFileSearchOpen(v);
+        if (!v) setQuery("");
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>File Content Search</DialogTitle>
         </DialogHeader>
 
         {!projectId ? (
-          <p className="text-sm text-muted-foreground">Open a project first to search file contents.</p>
+          <p className="text-sm text-muted-foreground">
+            Open a project first to search file contents.
+          </p>
         ) : (
           <>
             <div className="flex items-center gap-2">
@@ -52,25 +60,31 @@ export default function FileContentSearch({ projectId }: FileContentSearchProps)
                   onCheckedChange={setCaseSensitive}
                   className="h-4 w-8"
                 />
-                <Label htmlFor="case-sensitive" className="text-xs">Aa</Label>
+                <Label htmlFor="case-sensitive" className="text-xs">
+                  Aa
+                </Label>
               </div>
             </div>
 
             <ScrollArea className="h-[300px]">
               {Array.isArray(results) && results.length > 0 ? (
                 <div className="space-y-1">
-                  {(results as Array<{ file: string; line: number; content: string }>).map((result, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 px-2 py-1 text-xs rounded hover:bg-accent cursor-pointer"
-                    >
-                      <FileCode className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium truncate">{result.file}:{result.line}</div>
-                        <div className="text-muted-foreground truncate">{result.content}</div>
+                  {(results as Array<{ file: string; line: number; content: string }>).map(
+                    (result, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-2 px-2 py-1 text-xs rounded hover:bg-accent cursor-pointer"
+                      >
+                        <FileCode className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate">
+                            {result.file}:{result.line}
+                          </div>
+                          <div className="text-muted-foreground truncate">{result.content}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ),
+                  )}
                 </div>
               ) : query.length >= 2 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No results found</p>

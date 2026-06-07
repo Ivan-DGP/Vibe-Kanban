@@ -1,12 +1,6 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { getDb } from "../db";
-import {
-  registerClient,
-  issueToken,
-  validateToken,
-  isAuthRequired,
-  safeCompare,
-} from "./auth";
+import { registerClient, issueToken, validateToken, isAuthRequired, safeCompare } from "./auth";
 
 // Track keys we insert so we can clean up
 const settingsKeysToClean: string[] = [];
@@ -118,12 +112,16 @@ describe("validateToken", () => {
     const db = getDb();
     const pastDate = new Date(Date.now() - 3600_000).toISOString();
     const storedData = JSON.parse(
-      (db.query("SELECT value FROM settings WHERE key = ?").get(`mcp_token_${token!.accessToken}`) as any).value
+      (
+        db
+          .query("SELECT value FROM settings WHERE key = ?")
+          .get(`mcp_token_${token!.accessToken}`) as any
+      ).value,
     );
     storedData.expiresAt = pastDate;
     db.query("UPDATE settings SET value = ? WHERE key = ?").run(
       JSON.stringify(storedData),
-      `mcp_token_${token!.accessToken}`
+      `mcp_token_${token!.accessToken}`,
     );
 
     expect(validateToken(token!.accessToken)).toBe(false);
@@ -151,7 +149,7 @@ describe("isAuthRequired", () => {
     const db = getDb();
     db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
       AUTH_SETTING_KEY,
-      JSON.stringify(false)
+      JSON.stringify(false),
     );
 
     expect(isAuthRequired()).toBe(false);
@@ -164,7 +162,7 @@ describe("isAuthRequired", () => {
     const db = getDb();
     db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
       AUTH_SETTING_KEY,
-      JSON.stringify(true)
+      JSON.stringify(true),
     );
 
     expect(isAuthRequired()).toBe(true);

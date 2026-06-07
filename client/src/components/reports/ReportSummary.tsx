@@ -7,11 +7,20 @@ interface ReportSummaryProps {
   avgHoursPerTask: number;
 }
 
-export default function ReportSummary({ totalTasks, totalHours, avgHoursPerTask }: ReportSummaryProps) {
+export default function ReportSummary({
+  totalTasks,
+  totalHours,
+  avgHoursPerTask,
+}: ReportSummaryProps) {
   const stats = [
     { label: "Tasks Completed", value: totalTasks, icon: CheckCircle2, color: "text-green-500" },
     { label: "Total Hours", value: totalHours.toFixed(1), icon: Clock, color: "text-blue-500" },
-    { label: "Avg Hours/Task", value: avgHoursPerTask.toFixed(1), icon: TrendingUp, color: "text-purple-500" },
+    {
+      label: "Avg Hours/Task",
+      value: avgHoursPerTask.toFixed(1),
+      icon: TrendingUp,
+      color: "text-purple-500",
+    },
   ];
 
   return (

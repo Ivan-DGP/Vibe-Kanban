@@ -55,6 +55,7 @@ Adding shadcn/ui components: `cd client && bunx shadcn@latest add <component>`
 ### Task Timestamp Cascade
 
 When tasks change status, timestamps cascade forward (never removed):
+
 - `inboxAt` set on backlog/todo entry
 - `inProgressAt` set on in_progress (also sets `inboxAt` if missing)
 - `doneAt` set on done (also sets `inboxAt` + `inProgressAt` if missing)

@@ -17,9 +17,11 @@ const MILESTONE_ID = crypto.randomUUID();
 const TASK_ID_WITH_MILESTONE = crypto.randomUUID();
 
 // Insert test project and tasks
-db.prepare(
-  "INSERT INTO projects (id, name, path) VALUES (?, ?, ?)",
-).run(PROJECT_ID, "Snapshot Test Project", `/tmp/test-snapshot-${PROJECT_ID}`);
+db.prepare("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run(
+  PROJECT_ID,
+  "Snapshot Test Project",
+  `/tmp/test-snapshot-${PROJECT_ID}`,
+);
 
 db.prepare(
   `INSERT INTO tasks (id, projectId, title, status, priority, sortOrder, taskNumber)
@@ -32,9 +34,11 @@ db.prepare(
 ).run(TASK_ID_2, PROJECT_ID, "Task Beta", "in_progress", "medium", 2, 2);
 
 // Insert a milestone and a task with that milestone
-db.prepare(
-  "INSERT INTO milestones (id, projectId, name) VALUES (?, ?, ?)",
-).run(MILESTONE_ID, PROJECT_ID, "v1.0 Release");
+db.prepare("INSERT INTO milestones (id, projectId, name) VALUES (?, ?, ?)").run(
+  MILESTONE_ID,
+  PROJECT_ID,
+  "v1.0 Release",
+);
 
 db.prepare(
   `INSERT INTO tasks (id, projectId, milestoneId, title, status, priority, sortOrder, taskNumber)

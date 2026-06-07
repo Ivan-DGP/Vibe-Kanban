@@ -86,7 +86,8 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── REST: List AI sessions (sessions with a taskId) ──────────
   fastify.get("/terminal/ai-sessions", async () => {
-    return termService.listSessions()
+    return termService
+      .listSessions()
       .filter((s) => s.taskId)
       .map((s) => ({
         id: s.id,
@@ -101,12 +102,22 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── REST: Batch AI Resolve ─────────────────────────────────
   fastify.post("/terminal/batch-resolve", async (request, reply) => {
-    const { projectId, taskIds, concurrency, overrideBranch } = request.body as { projectId: string; taskIds: string[]; concurrency?: number; overrideBranch?: string };
+    const { projectId, taskIds, concurrency, overrideBranch } = request.body as {
+      projectId: string;
+      taskIds: string[];
+      concurrency?: number;
+      overrideBranch?: string;
+    };
     if (!projectId || !taskIds?.length) {
       return reply.code(400).send({ error: "projectId and taskIds are required" });
     }
     try {
-      const status = await termService.startBatchResolve(projectId, taskIds, concurrency, overrideBranch);
+      const status = await termService.startBatchResolve(
+        projectId,
+        taskIds,
+        concurrency,
+        overrideBranch,
+      );
       return status;
     } catch (err: any) {
       return reply.code(409).send({ error: err.message });

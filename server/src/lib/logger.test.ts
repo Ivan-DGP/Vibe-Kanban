@@ -5,15 +5,15 @@ import { log } from "./logger";
 describe("logger", () => {
   test("log writes to system_logs table", () => {
     const db = getDb();
-    const before = db
-      .prepare("SELECT COUNT(*) as count FROM system_logs")
-      .get() as { count: number };
+    const before = db.prepare("SELECT COUNT(*) as count FROM system_logs").get() as {
+      count: number;
+    };
 
     log("info", "server", "test log message", { key: "value" });
 
-    const after = db
-      .prepare("SELECT COUNT(*) as count FROM system_logs")
-      .get() as { count: number };
+    const after = db.prepare("SELECT COUNT(*) as count FROM system_logs").get() as {
+      count: number;
+    };
     expect(after.count).toBeGreaterThan(before.count);
   });
 
@@ -22,9 +22,12 @@ describe("logger", () => {
     const uniqueMsg = `test-${Date.now()}-${Math.random()}`;
     log("warn", "git", uniqueMsg, { detail: "test" });
 
-    const row = db
-      .prepare("SELECT * FROM system_logs WHERE message = ?")
-      .get(uniqueMsg) as { level: string; category: string; message: string; details: string };
+    const row = db.prepare("SELECT * FROM system_logs WHERE message = ?").get(uniqueMsg) as {
+      level: string;
+      category: string;
+      message: string;
+      details: string;
+    };
 
     expect(row).toBeTruthy();
     expect(row.level).toBe("warn");
@@ -38,9 +41,9 @@ describe("logger", () => {
     const uniqueMsg = `no-detail-${Date.now()}-${Math.random()}`;
     log("error", "tasks", uniqueMsg);
 
-    const row = db
-      .prepare("SELECT * FROM system_logs WHERE message = ?")
-      .get(uniqueMsg) as { details: string | null };
+    const row = db.prepare("SELECT * FROM system_logs WHERE message = ?").get(uniqueMsg) as {
+      details: string | null;
+    };
 
     expect(row).toBeTruthy();
     expect(row.details).toBeNull();

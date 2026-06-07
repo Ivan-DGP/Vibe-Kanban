@@ -32,16 +32,20 @@ beforeAll(() => {
   db = getDb();
 
   // Insert test project
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
     VALUES (?, ?, ?, 0, '["TypeScript","React"]', '[]', 'stage', 3)
-  `).run(TEST_PROJECT_ID, "Test Builder Project", PROJECT_PATH);
+  `,
+  ).run(TEST_PROJECT_ID, "Test Builder Project", PROJECT_PATH);
 
   // Insert test task
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR REPLACE INTO tasks (id, projectId, title, description, prompt, status, priority, promptProfile, taskNumber, sortOrder)
     VALUES (?, ?, ?, ?, ?, 'todo', 'medium', 'auto', 1, 0)
-  `).run(
+  `,
+  ).run(
     TEST_TASK_ID,
     TEST_PROJECT_ID,
     "Add widget feature to dashboard",
@@ -50,16 +54,20 @@ beforeAll(() => {
   );
 
   // Insert extra project for isolated tests (aiCommitMode variants, AI run stats)
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth, aiInstructions)
     VALUES (?, ?, ?, 0, '["TypeScript"]', '[]', 'commit', 3, 'Always write tests.')
-  `).run(EXTRA_PROJECT_ID, "Extra Builder Project", PROJECT_PATH + "/extra-test");
+  `,
+  ).run(EXTRA_PROJECT_ID, "Extra Builder Project", PROJECT_PATH + "/extra-test");
 
   // Insert a milestone with aiInstructions for the extra project
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR REPLACE INTO milestones (id, projectId, name, aiInstructions)
     VALUES (?, ?, ?, ?)
-  `).run(MILESTONE_ID, EXTRA_PROJECT_ID, "Test Milestone", "Focus on performance.");
+  `,
+  ).run(MILESTONE_ID, EXTRA_PROJECT_ID, "Test Milestone", "Focus on performance.");
 });
 
 afterAll(() => {
@@ -98,7 +106,9 @@ describe("buildAnalyzePrompt", () => {
 
   test("with non-existent projectId, throws error", async () => {
     const task = getTestTask();
-    expect(buildAnalyzePrompt(task, TEST_PROJECT_NONEXISTENT_ID)).rejects.toThrow("Project not found");
+    expect(buildAnalyzePrompt(task, TEST_PROJECT_NONEXISTENT_ID)).rejects.toThrow(
+      "Project not found",
+    );
   });
 });
 
@@ -281,16 +291,20 @@ describe("buildAnalyzePrompt - AI instructions in context", () => {
 
   beforeAll(() => {
     // Insert milestone with AI instructions on the extra project
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO milestones (id, projectId, name, aiInstructions)
       VALUES (?, ?, ?, ?)
-    `).run(AI_MILESTONE_ID, EXTRA_PROJECT_ID, "AI Test Milestone", "Only use async/await.");
+    `,
+    ).run(AI_MILESTONE_ID, EXTRA_PROJECT_ID, "AI Test Milestone", "Only use async/await.");
 
     // Insert task linked to that milestone
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, milestoneId, title, description, prompt, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, ?, ?, ?, 'todo', 'medium', 'feature', 99, 0)
-    `).run(
+    `,
+    ).run(
       AI_TASK_ID,
       EXTRA_PROJECT_ID,
       AI_MILESTONE_ID,
@@ -337,24 +351,39 @@ describe("buildAnalyzePrompt - other tasks mixing related and unrelated", () => 
   const UNRELATED_TASK_ID = `__test_unrelated_task_${crypto.randomUUID()}__`;
 
   beforeAll(() => {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, description, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, ?, 'in_progress', 'high', 'feature', 10, 0)
-    `).run(MIX_TASK_ID, TEST_PROJECT_ID, "Add widget component to sidebar", "Widget implementation task");
+    `,
+    ).run(
+      MIX_TASK_ID,
+      TEST_PROJECT_ID,
+      "Add widget component to sidebar",
+      "Widget implementation task",
+    );
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, 'todo', 'medium', 'feature', 11, 1)
-    `).run(RELATED_TASK_ID, TEST_PROJECT_ID, "Refactor widget sidebar layout");
+    `,
+    ).run(RELATED_TASK_ID, TEST_PROJECT_ID, "Refactor widget sidebar layout");
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, 'todo', 'low', 'feature', 12, 2)
-    `).run(UNRELATED_TASK_ID, TEST_PROJECT_ID, "Update database schema migrations");
+    `,
+    ).run(UNRELATED_TASK_ID, TEST_PROJECT_ID, "Update database schema migrations");
   });
 
   afterAll(() => {
-    db.prepare("DELETE FROM tasks WHERE id IN (?, ?, ?)").run(MIX_TASK_ID, RELATED_TASK_ID, UNRELATED_TASK_ID);
+    db.prepare("DELETE FROM tasks WHERE id IN (?, ?, ?)").run(
+      MIX_TASK_ID,
+      RELATED_TASK_ID,
+      UNRELATED_TASK_ID,
+    );
   });
 
   test("includes both related and unrelated tasks in output", async () => {
@@ -384,25 +413,37 @@ describe("buildAiResolvePrompt - aiCommitMode variants", () => {
 
   beforeAll(() => {
     // Use unique subpaths to avoid UNIQUE(path) conflicts with other test projects
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
       VALUES (?, ?, ?, 0, '[]', '[]', 'none', 2)
-    `).run(NONE_PROJECT_ID, "None-commit Project", PROJECT_PATH + "/none-test-" + NONE_PROJECT_ID);
+    `,
+    ).run(NONE_PROJECT_ID, "None-commit Project", PROJECT_PATH + "/none-test-" + NONE_PROJECT_ID);
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
       VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 2)
-    `).run(STAGE_PROJECT_ID, "Stage-commit Project", PROJECT_PATH + "/stage-test-" + STAGE_PROJECT_ID);
+    `,
+    ).run(
+      STAGE_PROJECT_ID,
+      "Stage-commit Project",
+      PROJECT_PATH + "/stage-test-" + STAGE_PROJECT_ID,
+    );
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, 'todo', 'medium', 'quick-fix', 1, 0)
-    `).run(NONE_TASK_ID, NONE_PROJECT_ID, "Fix typo in header");
+    `,
+    ).run(NONE_TASK_ID, NONE_PROJECT_ID, "Fix typo in header");
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, 'todo', 'medium', 'quick-fix', 1, 0)
-    `).run(STAGE_TASK_ID, STAGE_PROJECT_ID, "Fix typo in footer");
+    `,
+    ).run(STAGE_TASK_ID, STAGE_PROJECT_ID, "Fix typo in footer");
   });
 
   afterAll(() => {
@@ -444,23 +485,29 @@ describe("buildAiResolvePrompt - otherTasks and AI run stats", () => {
 
   beforeAll(() => {
     // aiInstructions set so line 714-716 (project_ai_instructions in buildAiResolvePrompt) is covered
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth, aiInstructions)
       VALUES (?, ?, ?, 0, '["TypeScript"]', '[]', 'commit', 2, 'Always write tests.')
-    `).run(STATS_PROJECT_ID, "Stats Test Project", PROJECT_PATH + "/stats-test-" + STATS_PROJECT_ID);
+    `,
+    ).run(STATS_PROJECT_ID, "Stats Test Project", PROJECT_PATH + "/stats-test-" + STATS_PROJECT_ID);
 
     // Milestone with aiInstructions so line 718-720 (milestone_ai_instructions) is covered
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO milestones (id, projectId, name, aiInstructions)
       VALUES (?, ?, ?, ?)
-    `).run(STATS_MILESTONE_ID, STATS_PROJECT_ID, "Stats Milestone", "Prefer functional components.");
+    `,
+    ).run(STATS_MILESTONE_ID, STATS_PROJECT_ID, "Stats Milestone", "Prefer functional components.");
 
     // Task with feature profile (includes otherTasks).
     // Description must be >= 100 chars (no prompt) to get medium complexity and includeOtherTasks=true.
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, milestoneId, title, description, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, ?, ?, 'in_progress', 'high', 'feature', 1, 0)
-    `).run(
+    `,
+    ).run(
       STATS_TASK_ID,
       STATS_PROJECT_ID,
       STATS_MILESTONE_ID,
@@ -469,28 +516,36 @@ describe("buildAiResolvePrompt - otherTasks and AI run stats", () => {
     );
 
     // Related task (keyword overlap with "widget component")
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, 'todo', 'medium', 'feature', 2, 1)
-    `).run(RELATED2_TASK_ID, STATS_PROJECT_ID, "Test widget component rendering");
+    `,
+    ).run(RELATED2_TASK_ID, STATS_PROJECT_ID, "Test widget component rendering");
 
     // Unrelated task
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO tasks (id, projectId, title, status, priority, promptProfile, taskNumber, sortOrder)
       VALUES (?, ?, ?, 'todo', 'low', 'feature', 3, 2)
-    `).run(UNRELATED2_TASK_ID, STATS_PROJECT_ID, "Database migration scripts cleanup");
+    `,
+    ).run(UNRELATED2_TASK_ID, STATS_PROJECT_ID, "Database migration scripts cleanup");
 
     // Insert AI run stats
     const aiRunId1 = crypto.randomUUID();
     const aiRunId2 = crypto.randomUUID();
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO task_ai_runs (id, taskId, projectId, profile, complexity, success, exitCode)
       VALUES (?, ?, ?, 'feature', 'medium', 1, 0)
-    `).run(aiRunId1, STATS_TASK_ID, STATS_PROJECT_ID);
-    db.prepare(`
+    `,
+    ).run(aiRunId1, STATS_TASK_ID, STATS_PROJECT_ID);
+    db.prepare(
+      `
       INSERT INTO task_ai_runs (id, taskId, projectId, profile, complexity, success, exitCode)
       VALUES (?, ?, ?, 'feature', 'medium', 0, 1)
-    `).run(aiRunId2, STATS_TASK_ID, STATS_PROJECT_ID);
+    `,
+    ).run(aiRunId2, STATS_TASK_ID, STATS_PROJECT_ID);
   });
 
   afterAll(() => {

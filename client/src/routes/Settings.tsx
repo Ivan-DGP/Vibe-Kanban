@@ -2,7 +2,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSettings, useUpdateSettings } from "@/hooks";
 import ProjectScanSection from "@/components/settings/ProjectScanSection";
 import ClaudeConfigSection from "@/components/settings/ClaudeConfigSection";
@@ -42,7 +48,9 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <div>
                 <Label>MCP Server</Label>
-                <p className="text-xs text-muted-foreground">Expose data via Model Context Protocol</p>
+                <p className="text-xs text-muted-foreground">
+                  Expose data via Model Context Protocol
+                </p>
               </div>
               <Switch
                 checked={settings?.mcpEnabled ?? false}
@@ -54,7 +62,9 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div>
                     <Label>Require Auth</Label>
-                    <p className="text-xs text-muted-foreground">Require OAuth for MCP connections</p>
+                    <p className="text-xs text-muted-foreground">
+                      Require OAuth for MCP connections
+                    </p>
                   </div>
                   <Switch
                     checked={settings?.mcpAuthRequired ?? false}
@@ -63,10 +73,14 @@ export default function Settings() {
                 </div>
                 <div className="rounded border p-3 text-xs space-y-2">
                   <div className="font-medium">MCP Endpoint</div>
-                  <code className="block bg-muted px-2 py-1 rounded text-[11px]">POST http://localhost:3001/mcp</code>
+                  <code className="block bg-muted px-2 py-1 rounded text-[11px]">
+                    POST http://localhost:3001/mcp
+                  </code>
                   <p className="text-muted-foreground">
-                    Register OAuth clients via <code className="bg-muted px-1 rounded">POST /mcp/oauth/register</code> with a <code className="bg-muted px-1 rounded">redirect_uri</code>.
-                    Get tokens via <code className="bg-muted px-1 rounded">POST /mcp/oauth/token</code>.
+                    Register OAuth clients via{" "}
+                    <code className="bg-muted px-1 rounded">POST /mcp/oauth/register</code> with a{" "}
+                    <code className="bg-muted px-1 rounded">redirect_uri</code>. Get tokens via{" "}
+                    <code className="bg-muted px-1 rounded">POST /mcp/oauth/token</code>.
                   </p>
                 </div>
               </>

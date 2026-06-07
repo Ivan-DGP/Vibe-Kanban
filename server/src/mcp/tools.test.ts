@@ -35,19 +35,38 @@ const REPO_ROOT = new URL("../../..", import.meta.url).pathname.replace(/\/$/, "
 beforeAll(() => {
   const db = getDb();
 
-  db.query(
-    "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
-  ).run(TEST_PROJECT_ID, TEST_PROJECT_NAME, `/tmp/test-project-${Date.now()}`, '["TypeScript","Bun"]', 1);
+  db.query("INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)").run(
+    TEST_PROJECT_ID,
+    TEST_PROJECT_NAME,
+    `/tmp/test-project-${Date.now()}`,
+    '["TypeScript","Bun"]',
+    1,
+  );
 
   // Project pointing at the real git repo for gitStatus / gitDiff tests
-  db.query(
-    "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
-  ).run(GIT_PROJECT_ID, GIT_PROJECT_NAME, REPO_ROOT, '["TypeScript","Bun"]', 0);
+  db.query("INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)").run(
+    GIT_PROJECT_ID,
+    GIT_PROJECT_NAME,
+    REPO_ROOT,
+    '["TypeScript","Bun"]',
+    0,
+  );
 
   const now = new Date().toISOString();
   db.query(
-    "INSERT INTO tasks (id, projectId, title, description, status, priority, sortOrder, createdAt, updatedAt, inboxAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(TEST_TASK_ID, TEST_PROJECT_ID, TEST_TASK_TITLE, "Test description", "backlog", "medium", 1, now, now, now);
+    "INSERT INTO tasks (id, projectId, title, description, status, priority, sortOrder, createdAt, updatedAt, inboxAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    TEST_TASK_ID,
+    TEST_PROJECT_ID,
+    TEST_TASK_TITLE,
+    "Test description",
+    "backlog",
+    "medium",
+    1,
+    now,
+    now,
+    now,
+  );
 });
 
 afterAll(() => {
@@ -290,8 +309,18 @@ describe("MCP tools - listArtifacts", () => {
     const db = getDb();
     const now = new Date().toISOString();
     db.query(
-      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(artifactId, TEST_PROJECT_ID, "test-doc.md", "document", '["test"]', 100, "text/markdown", now, now);
+      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      artifactId,
+      TEST_PROJECT_ID,
+      "test-doc.md",
+      "document",
+      '["test"]',
+      100,
+      "text/markdown",
+      now,
+      now,
+    );
 
     // Create file on disk
     const dir = getProjectArtifactsDir(TEST_PROJECT_ID);
@@ -325,8 +354,18 @@ describe("MCP tools - readArtifact", () => {
     const db = getDb();
     const now = new Date().toISOString();
     db.query(
-      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(artifactId, TEST_PROJECT_ID, "readable.md", "document", '[]', 50, "text/markdown", now, now);
+      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      artifactId,
+      TEST_PROJECT_ID,
+      "readable.md",
+      "document",
+      "[]",
+      50,
+      "text/markdown",
+      now,
+      now,
+    );
 
     const dir = getProjectArtifactsDir(TEST_PROJECT_ID);
     fs.writeFileSync(path.join(dir, artifactId + ".md"), "# Readable content");
@@ -356,8 +395,8 @@ describe("MCP tools - listGraphNodes", () => {
     const db = getDb();
     const now = new Date().toISOString();
     db.query(
-      "INSERT INTO project_graph_nodes (id, projectId, label, type, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(nodeId, TEST_PROJECT_ID, "Test Node", "concept", '{}', now, now);
+      "INSERT INTO project_graph_nodes (id, projectId, label, type, metadata, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(nodeId, TEST_PROJECT_ID, "Test Node", "concept", "{}", now, now);
   });
 
   afterAll(() => {
@@ -422,7 +461,7 @@ describe("MCP tools - gitDiff (via toolMap)", () => {
 
     const tinyProjectId = crypto.randomUUID();
     db.query(
-      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
     ).run(tinyProjectId, `__tiny_diff_${Date.now()}`, tinyRepoDir, "[]", 0);
 
     try {
@@ -466,7 +505,7 @@ describe("MCP tools - gitDiff (via toolMap)", () => {
     const db = getDb();
     const largeProjectId = crypto.randomUUID();
     db.query(
-      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
     ).run(largeProjectId, `__large_diff_${Date.now()}`, largeRepoDir, "[]", 0);
 
     try {
@@ -489,7 +528,7 @@ describe("MCP tools - gitDiff (via toolMap)", () => {
     const fs = await import("node:fs");
     fs.mkdirSync(nonGitDir, { recursive: true });
     db.query(
-      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
     ).run(badProjectId, `__bad_git_${Date.now()}`, nonGitDir, "[]", 0);
 
     try {
@@ -508,8 +547,14 @@ describe("MCP tools - gitDiff (via toolMap)", () => {
     const db = getDb();
     const throwProjectId = crypto.randomUUID();
     db.query(
-      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)"
-    ).run(throwProjectId, `__throw_git_${Date.now()}`, "/nonexistent/path/that/cannot/exist/ever", "[]", 0);
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
+    ).run(
+      throwProjectId,
+      `__throw_git_${Date.now()}`,
+      "/nonexistent/path/that/cannot/exist/ever",
+      "[]",
+      0,
+    );
 
     try {
       const handler = toolMap.get("git_diff")!.handler;

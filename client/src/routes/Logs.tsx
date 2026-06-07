@@ -46,7 +46,7 @@ export default function Logs() {
   }, [logs]);
 
   const handleClear = async () => {
-    if (!await confirm({ title: "Clear Logs", description: "Clear all logs?" })) return;
+    if (!(await confirm({ title: "Clear Logs", description: "Clear all logs?" }))) return;
     clearLogs.mutate();
   };
 
@@ -57,7 +57,12 @@ export default function Logs() {
           <h1 className="text-2xl font-bold tracking-tight">System Logs</h1>
           <p className="text-sm text-muted-foreground/70 mt-0.5">{total} entries</p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleClear} disabled={clearLogs.isPending || total === 0}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleClear}
+          disabled={clearLogs.isPending || total === 0}
+        >
           <Trash2 className="h-4 w-4 mr-1" />
           Clear Logs
         </Button>

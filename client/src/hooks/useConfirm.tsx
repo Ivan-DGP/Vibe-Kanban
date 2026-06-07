@@ -49,8 +49,7 @@ export function useConfirm() {
 }
 
 export function ConfirmDialog() {
-  const { open, title, description, handleConfirm, handleCancel } =
-    useConfirmStore();
+  const { open, title, description, handleConfirm, handleCancel } = useConfirmStore();
 
   return (
     <AlertDialog open={open} onOpenChange={(o) => !o && handleCancel()}>

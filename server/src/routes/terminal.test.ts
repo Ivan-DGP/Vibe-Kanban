@@ -43,7 +43,6 @@ afterAll(async () => {
   }
   // Clean up test project
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  
 
   // Remove test directory
   try {
@@ -470,7 +469,12 @@ describe("Batch Resolve", () => {
       method: "POST",
       url: "/api/terminal/batch-resolve",
       headers: { "Content-Type": "application/json" },
-      payload: { projectId, taskIds: ["task-x"], concurrency: 2, overrideBranch: "feature/override" },
+      payload: {
+        projectId,
+        taskIds: ["task-x"],
+        concurrency: 2,
+        overrideBranch: "feature/override",
+      },
     });
 
     expect(res.statusCode).toBe(200);

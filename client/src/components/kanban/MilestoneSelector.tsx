@@ -23,12 +23,15 @@ export default function MilestoneSelector({ projectId }: MilestoneSelectorProps)
 
   const handleCreate = () => {
     if (!newName.trim()) return;
-    createMilestone.mutate({ name: newName.trim() }, {
-      onSuccess: (m) => {
-        setActiveMilestone(projectId, m.id);
-        setNewName("");
+    createMilestone.mutate(
+      { name: newName.trim() },
+      {
+        onSuccess: (m) => {
+          setActiveMilestone(projectId, m.id);
+          setNewName("");
+        },
       },
-    });
+    );
   };
 
   return (
@@ -42,23 +45,31 @@ export default function MilestoneSelector({ projectId }: MilestoneSelectorProps)
       <PopoverContent className="w-56 p-2" align="start">
         <div className="space-y-1">
           <button
-            onClick={() => { setActiveMilestone(projectId, null); setOpen(false); }}
+            onClick={() => {
+              setActiveMilestone(projectId, null);
+              setOpen(false);
+            }}
             className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent"
           >
             {activeMilestoneId === null && <Check className="h-3.5 w-3.5" />}
             <span className={activeMilestoneId === null ? "" : "ml-5"}>General</span>
           </button>
 
-          {milestones?.filter((m) => m.status === "active").map((m) => (
-            <button
-              key={m.id}
-              onClick={() => { setActiveMilestone(projectId, m.id); setOpen(false); }}
-              className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent"
-            >
-              {activeMilestoneId === m.id && <Check className="h-3.5 w-3.5" />}
-              <span className={activeMilestoneId === m.id ? "" : "ml-5"}>{m.name}</span>
-            </button>
-          ))}
+          {milestones
+            ?.filter((m) => m.status === "active")
+            .map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  setActiveMilestone(projectId, m.id);
+                  setOpen(false);
+                }}
+                className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent"
+              >
+                {activeMilestoneId === m.id && <Check className="h-3.5 w-3.5" />}
+                <span className={activeMilestoneId === m.id ? "" : "ml-5"}>{m.name}</span>
+              </button>
+            ))}
         </div>
 
         <Separator className="my-2" />
@@ -71,7 +82,13 @@ export default function MilestoneSelector({ projectId }: MilestoneSelectorProps)
             placeholder="New milestone..."
             className="h-7 text-xs"
           />
-          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={handleCreate} disabled={!newName.trim()}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0"
+            onClick={handleCreate}
+            disabled={!newName.trim()}
+          >
             <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>

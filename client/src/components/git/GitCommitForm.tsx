@@ -15,9 +15,12 @@ export default function GitCommitForm({ projectId, subPath, hasStagedFiles }: Gi
 
   const handleCommit = () => {
     if (!message.trim() || !hasStagedFiles) return;
-    commit.mutate({ projectId, message: message.trim(), subPath }, {
-      onSuccess: () => setMessage(""),
-    });
+    commit.mutate(
+      { projectId, message: message.trim(), subPath },
+      {
+        onSuccess: () => setMessage(""),
+      },
+    );
   };
 
   return (

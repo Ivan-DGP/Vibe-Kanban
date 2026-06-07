@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Sparkles, Check, X } from "lucide-react";
@@ -13,7 +19,11 @@ interface AIBulkImportDialogProps {
   projectId: string;
 }
 
-export default function AIBulkImportDialog({ open, onOpenChange, projectId }: AIBulkImportDialogProps) {
+export default function AIBulkImportDialog({
+  open,
+  onOpenChange,
+  projectId,
+}: AIBulkImportDialogProps) {
   const [text, setText] = useState("");
   const [parsed, setParsed] = useState<CreateTaskInput[] | null>(null);
   const aiImport = useBulkImportAI(projectId);
@@ -61,8 +71,16 @@ export default function AIBulkImportDialog({ open, onOpenChange, projectId }: AI
               className="w-full min-h-[200px] rounded-md border bg-background px-3 py-2 text-sm"
               rows={8}
             />
-            <Button onClick={handleAnalyze} disabled={!text.trim() || aiImport.isPending} className="w-full">
-              {aiImport.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
+            <Button
+              onClick={handleAnalyze}
+              disabled={!text.trim() || aiImport.isPending}
+              className="w-full"
+            >
+              {aiImport.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4 mr-1" />
+              )}
               Analyze with AI
             </Button>
           </div>
@@ -77,12 +95,19 @@ export default function AIBulkImportDialog({ open, onOpenChange, projectId }: AI
                   <div key={i} className="flex items-start gap-2 p-2 border rounded">
                     <div className="flex-1">
                       <div className="text-sm font-medium">{task.title}</div>
-                      {task.description && <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>}
+                      {task.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>
+                      )}
                       <div className="flex gap-1 mt-1">
                         {task.priority && <PriorityBadge priority={task.priority} />}
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => removeTask(i)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => removeTask(i)}
+                    >
                       <X className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -95,9 +120,15 @@ export default function AIBulkImportDialog({ open, onOpenChange, projectId }: AI
         <DialogFooter>
           {parsed && (
             <>
-              <Button variant="outline" onClick={() => setParsed(null)}>Back</Button>
+              <Button variant="outline" onClick={() => setParsed(null)}>
+                Back
+              </Button>
               <Button onClick={handleImport} disabled={parsed.length === 0 || bulkImport.isPending}>
-                {bulkImport.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}
+                {bulkImport.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4 mr-1" />
+                )}
                 Import {parsed.length} Tasks
               </Button>
             </>

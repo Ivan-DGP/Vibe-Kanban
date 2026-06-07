@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +23,8 @@ export default function Reports() {
   const [to, setTo] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const params = period === "custom"
-    ? { period, from: from || undefined, to: to || undefined }
-    : { period };
+  const params =
+    period === "custom" ? { period, from: from || undefined, to: to || undefined } : { period };
 
   const { data: report, isLoading } = useReport(params);
 
@@ -34,7 +39,12 @@ export default function Reports() {
     <div className="p-6 max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Reports</h1>
-        <Button variant="outline" size="sm" onClick={handleCopy} disabled={!report || report.totalTasks === 0}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleCopy}
+          disabled={!report || report.totalTasks === 0}
+        >
           {copied ? <Check className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
           {copied ? "Copied!" : "Copy as Markdown"}
         </Button>
@@ -44,10 +54,14 @@ export default function Reports() {
         <div className="space-y-1">
           <Label className="text-xs">Period</Label>
           <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               {PERIOD_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -56,11 +70,21 @@ export default function Reports() {
           <>
             <div className="space-y-1">
               <Label className="text-xs">From</Label>
-              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[160px]" />
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="w-[160px]"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">To</Label>
-              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[160px]" />
+              <Input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="w-[160px]"
+              />
             </div>
           </>
         )}
@@ -69,7 +93,9 @@ export default function Reports() {
       {isLoading ? (
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20" />)}
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-20" />
+            ))}
           </div>
           <Skeleton className="h-40" />
         </div>

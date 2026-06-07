@@ -8,7 +8,11 @@ const PRIORITY_HOURS: Record<string, number> = {
   low: 1,
 };
 
-export function getDateRange(period: string, from?: string, to?: string): { from: string; to: string } {
+export function getDateRange(
+  period: string,
+  from?: string,
+  to?: string,
+): { from: string; to: string } {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -26,18 +30,30 @@ export function getDateRange(period: string, from?: string, to?: string): { from
     }
     case "this-month": {
       const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from: firstOfMonth.toISOString(), to: new Date(now.getTime() + 86400000).toISOString() };
+      return {
+        from: firstOfMonth.toISOString(),
+        to: new Date(now.getTime() + 86400000).toISOString(),
+      };
     }
     case "last-7": {
       const sevenDaysAgo = new Date(today.getTime() - 7 * 86400000);
-      return { from: sevenDaysAgo.toISOString(), to: new Date(now.getTime() + 86400000).toISOString() };
+      return {
+        from: sevenDaysAgo.toISOString(),
+        to: new Date(now.getTime() + 86400000).toISOString(),
+      };
     }
     case "last-30": {
       const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400000);
-      return { from: thirtyDaysAgo.toISOString(), to: new Date(now.getTime() + 86400000).toISOString() };
+      return {
+        from: thirtyDaysAgo.toISOString(),
+        to: new Date(now.getTime() + 86400000).toISOString(),
+      };
     }
     case "custom":
-      return { from: from || today.toISOString(), to: to || new Date(now.getTime() + 86400000).toISOString() };
+      return {
+        from: from || today.toISOString(),
+        to: to || new Date(now.getTime() + 86400000).toISOString(),
+      };
     default:
       return { from: today.toISOString(), to: new Date(now.getTime() + 86400000).toISOString() };
   }
@@ -70,7 +86,10 @@ const reportRoutes: FastifyPluginAsync = async (fastify) => {
       )
       .all(range.from, range.to) as any[];
 
-    const byProject: Record<string, { projectId: string; projectName: string; tasks: any[]; totalHours: number }> = {};
+    const byProject: Record<
+      string,
+      { projectId: string; projectName: string; tasks: any[]; totalHours: number }
+    > = {};
 
     let totalHours = 0;
 

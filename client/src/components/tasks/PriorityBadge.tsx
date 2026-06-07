@@ -9,7 +9,10 @@ interface PriorityBadgeProps {
 
 export default function PriorityBadge({ priority, className }: PriorityBadgeProps) {
   return (
-    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${PRIORITY_COLORS[priority]} ${className ?? ""}`}>
+    <Badge
+      variant="outline"
+      className={`text-[10px] px-1.5 py-0 ${PRIORITY_COLORS[priority]} ${className ?? ""}`}
+    >
       {PRIORITY_LABELS[priority]}
     </Badge>
   );

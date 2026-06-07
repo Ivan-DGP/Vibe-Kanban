@@ -8,9 +8,7 @@ beforeAll(async () => {
   await app.ready();
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 describe("API Client — Collections CRUD", () => {
   const uniqueSuffix = Date.now();
@@ -371,10 +369,11 @@ describe("API Client — Execute Request (Proxy)", () => {
           });
         }
         if (url.pathname === "/echo-post" && req.method === "POST") {
-          return req.text().then((body) =>
-            new Response(JSON.stringify({ method: "POST", receivedBody: body }), {
-              headers: { "Content-Type": "application/json" },
-            }),
+          return req.text().then(
+            (body) =>
+              new Response(JSON.stringify({ method: "POST", receivedBody: body }), {
+                headers: { "Content-Type": "application/json" },
+              }),
           );
         }
         return new Response("not found", { status: 404 });

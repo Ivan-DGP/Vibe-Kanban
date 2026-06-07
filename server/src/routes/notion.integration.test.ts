@@ -424,10 +424,10 @@ describe("Notion API — success paths (mocked fetch)", () => {
 
   test("GET /api/notion/databases — returns empty array when no databases", async () => {
     globalThis.fetch = (async (_url: any, _init: any) =>
-      new Response(
-        JSON.stringify({ results: [] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )) as unknown as typeof fetch;
+      new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
 
     const res = await app.inject({
       method: "GET",
@@ -488,8 +488,14 @@ describe("Notion API — success paths (mocked fetch)", () => {
         return new Response(
           JSON.stringify({
             results: [
-              { type: "paragraph", paragraph: { rich_text: [{ plain_text: "Hello world", annotations: {} }] } },
-              { type: "heading_1", heading_1: { rich_text: [{ plain_text: "Title", annotations: {} }] } },
+              {
+                type: "paragraph",
+                paragraph: { rich_text: [{ plain_text: "Hello world", annotations: {} }] },
+              },
+              {
+                type: "heading_1",
+                heading_1: { rich_text: [{ plain_text: "Title", annotations: {} }] },
+              },
             ],
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -526,10 +532,10 @@ describe("Notion API — success paths (mocked fetch)", () => {
   test("notionFetch success path — res.json() is called (line 99 covered)", async () => {
     // Directly verify the notionFetch success branch by calling a route that exercises it
     globalThis.fetch = (async (_url: any, _init: any) =>
-      new Response(
-        JSON.stringify({ results: [] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )) as unknown as typeof fetch;
+      new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
 
     // Any successful Notion API call covers the res.json() return in notionFetch
     const res = await app.inject({

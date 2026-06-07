@@ -13,7 +13,11 @@ interface MilestoneManagerDialogProps {
   projectId: string;
 }
 
-export default function MilestoneManagerDialog({ open, onOpenChange, projectId }: MilestoneManagerDialogProps) {
+export default function MilestoneManagerDialog({
+  open,
+  onOpenChange,
+  projectId,
+}: MilestoneManagerDialogProps) {
   const { data: milestones } = useMilestones(projectId);
   const createMilestone = useCreateMilestone(projectId);
   const updateMilestone = useUpdateMilestone();
@@ -37,13 +41,19 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
 
   const saveEdit = () => {
     if (!editingId || !editName.trim()) return;
-    updateMilestone.mutate({ id: editingId, input: { name: editName.trim() } }, {
-      onSuccess: () => setEditingId(null),
-    });
+    updateMilestone.mutate(
+      { id: editingId, input: { name: editName.trim() } },
+      {
+        onSuccess: () => setEditingId(null),
+      },
+    );
   };
 
   const toggleStatus = (id: string, currentStatus: "active" | "closed") => {
-    updateMilestone.mutate({ id, input: { status: currentStatus === "active" ? "closed" : "active" } });
+    updateMilestone.mutate({
+      id,
+      input: { status: currentStatus === "active" ? "closed" : "active" },
+    });
   };
 
   const toggleInstructions = (id: string, current: string | null) => {
@@ -56,13 +66,22 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
   };
 
   const saveInstructions = (id: string) => {
-    updateMilestone.mutate({ id, input: { aiInstructions: instructionsText.trim() || null } }, {
-      onSuccess: () => setInstructionsId(null),
-    });
+    updateMilestone.mutate(
+      { id, input: { aiInstructions: instructionsText.trim() || null } },
+      {
+        onSuccess: () => setInstructionsId(null),
+      },
+    );
   };
 
   const handleDelete = async (id: string) => {
-    if (!await confirm({ title: "Delete Milestone", description: "Delete this milestone? Tasks will be moved to General." })) return;
+    if (
+      !(await confirm({
+        title: "Delete Milestone",
+        description: "Delete this milestone? Tasks will be moved to General.",
+      }))
+    )
+      return;
     deleteMilestone.mutate(id);
   };
 
@@ -81,7 +100,9 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
             placeholder="New milestone name..."
             className="h-8 text-sm"
           />
-          <Button size="sm" onClick={handleCreate} disabled={!newName.trim()}>Add</Button>
+          <Button size="sm" onClick={handleCreate} disabled={!newName.trim()}>
+            Add
+          </Button>
         </div>
 
         <div className="space-y-2 max-h-[300px] overflow-y-auto">
@@ -99,26 +120,59 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={saveEdit}>
                     <Check className="h-3.5 w-3.5" />
                   </Button>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingId(null)}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => setEditingId(null)}
+                  >
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </>
               ) : (
                 <>
                   <span className="text-sm flex-1">{m.name}</span>
-                  <Badge variant={m.status === "active" ? "default" : "secondary"} className="text-[10px]">
+                  <Badge
+                    variant={m.status === "active" ? "default" : "secondary"}
+                    className="text-[10px]"
+                  >
                     {m.status}
                   </Badge>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(m.id, m.name)}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => startEdit(m.id, m.name)}
+                  >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => toggleStatus(m.id, m.status)}>
-                    {m.status === "active" ? <Archive className="h-3.5 w-3.5" /> : <ArchiveRestore className="h-3.5 w-3.5" />}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7"
+                    onClick={() => toggleStatus(m.id, m.status)}
+                  >
+                    {m.status === "active" ? (
+                      <Archive className="h-3.5 w-3.5" />
+                    ) : (
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    )}
                   </Button>
-                  <Button size="icon" variant="ghost" className={`h-7 w-7 ${m.aiInstructions ? "text-blue-500" : ""}`} onClick={() => toggleInstructions(m.id, m.aiInstructions)} title="AI Instructions">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className={`h-7 w-7 ${m.aiInstructions ? "text-blue-500" : ""}`}
+                    onClick={() => toggleInstructions(m.id, m.aiInstructions)}
+                    title="AI Instructions"
+                  >
                     <Bot className="h-3.5 w-3.5" />
                   </Button>
-                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => handleDelete(m.id)}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 text-destructive"
+                    onClick={() => handleDelete(m.id)}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </>
@@ -133,8 +187,21 @@ export default function MilestoneManagerDialog({ open, onOpenChange, projectId }
                     rows={2}
                   />
                   <div className="flex gap-1 justify-end">
-                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setInstructionsId(null)}>Cancel</Button>
-                    <Button size="sm" className="h-6 text-xs" onClick={() => saveInstructions(m.id)}>Save</Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs"
+                      onClick={() => setInstructionsId(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => saveInstructions(m.id)}
+                    >
+                      Save
+                    </Button>
                   </div>
                 </div>
               )}

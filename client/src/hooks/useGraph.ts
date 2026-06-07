@@ -1,6 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { CreateGraphNodeInput, UpdateGraphNodeInput, CreateGraphEdgeInput } from "@vibe-kanban/shared";
+import type {
+  CreateGraphNodeInput,
+  UpdateGraphNodeInput,
+  CreateGraphEdgeInput,
+} from "@vibe-kanban/shared";
 
 export function useGraph(projectId: string | undefined) {
   return useQuery({

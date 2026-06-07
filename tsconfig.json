@@ -12,9 +12,5 @@
     "declaration": true,
     "declarationMap": true
   },
-  "references": [
-    { "path": "./client" },
-    { "path": "./server" },
-    { "path": "./shared" }
-  ]
+  "references": [{ "path": "./client" }, { "path": "./server" }, { "path": "./shared" }]
 }

@@ -364,7 +364,11 @@ describe("POST /api/claude/gather-context — SSE streaming (mocked CLI)", () =>
       method: "POST",
       url: "/api/claude/gather-context",
       headers: { "Content-Type": "application/json" },
-      payload: { taskTitle: "New feature", taskDescription: "Build something", projectId: "proj-1" },
+      payload: {
+        taskTitle: "New feature",
+        taskDescription: "Build something",
+        projectId: "proj-1",
+      },
     });
 
     const events = parseSSE(res.body);
@@ -503,7 +507,8 @@ describe("POST /api/claude/bulk-import — with mocked CLI", () => {
 
   test("extracts JSON array embedded in surrounding text", async () => {
     nextSpawnResult = {
-      stdout: 'Here are the tasks:\n[{"title":"Embedded","description":null,"priority":"medium","status":"backlog"}]\nDone!',
+      stdout:
+        'Here are the tasks:\n[{"title":"Embedded","description":null,"priority":"medium","status":"backlog"}]\nDone!',
       stderr: "",
       exitCode: 0,
     };
@@ -799,7 +804,11 @@ describe("API fallback — stream parsing with mocked fetch", () => {
     // Mock fetch to return a non-streaming response (bulk-import doesn't stream)
     globalThis.fetch = (async () => ({
       json: async () => ({
-        content: [{ text: '[{"title":"API Task","description":null,"priority":"high","status":"backlog"}]' }],
+        content: [
+          {
+            text: '[{"title":"API Task","description":null,"priority":"high","status":"backlog"}]',
+          },
+        ],
       }),
       ok: true,
       status: 200,

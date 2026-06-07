@@ -7,7 +7,12 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, Settings2, Plus, Download, Loader2, BarChart3, Zap } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { tasksToCSV, tasksToJSON, tasksToMarkdown, downloadFile } from "@/lib/task-export";
 import { api } from "@/lib/api";
 import TaskSortSelect from "@/components/tasks/TaskSortSelect";
@@ -53,18 +58,26 @@ export default function KanbanToolbar({
     try {
       const data = await api.tasks.list(projectId, { limit: 1000 });
       const tasks = data.items;
-      const summary = tasks.map((t) =>
-        `- [${t.status}][${t.priority}] ${t.title}${t.description ? `: ${t.description.slice(0, 100)}` : ""}`
-      ).join("\n");
+      const summary = tasks
+        .map(
+          (t) =>
+            `- [${t.status}][${t.priority}] ${t.title}${t.description ? `: ${t.description.slice(0, 100)}` : ""}`,
+        )
+        .join("\n");
 
-      const statusCounts = tasks.reduce((acc, t) => {
-        acc[t.status] = (acc[t.status] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
+      const statusCounts = tasks.reduce(
+        (acc, t) => {
+          acc[t.status] = (acc[t.status] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
 
       const prompt = `You are analyzing a project called "${projectName || "Unknown"}". Here are its tasks (${tasks.length} total):
 
-Status breakdown: ${Object.entries(statusCounts).map(([s, c]) => `${s}: ${c}`).join(", ")}
+Status breakdown: ${Object.entries(statusCounts)
+        .map(([s, c]) => `${s}: ${c}`)
+        .join(", ")}
 
 ${summary}
 
@@ -126,8 +139,15 @@ Be direct and practical. Output plain text, no markdown headers.`;
 
         <div className="flex items-center gap-2 ml-auto">
           <div className="flex items-center gap-1.5">
-            <Label htmlFor="list-view" className="text-xs text-muted-foreground">List</Label>
-            <Switch id="list-view" checked={listView} onCheckedChange={onListViewChange} className="h-4 w-8" />
+            <Label htmlFor="list-view" className="text-xs text-muted-foreground">
+              List
+            </Label>
+            <Switch
+              id="list-view"
+              checked={listView}
+              onCheckedChange={onListViewChange}
+              className="h-4 w-8"
+            />
           </div>
 
           <Separator orientation="vertical" className="h-5 mx-1" />
@@ -139,18 +159,38 @@ Be direct and practical. Output plain text, no markdown headers.`;
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={async () => {
-                const data = await api.tasks.list(projectId, { limit: 1000 });
-                downloadFile(tasksToCSV(data.items), `tasks-${projectId}.csv`, "text/csv");
-              }}>Export CSV</DropdownMenuItem>
-              <DropdownMenuItem onClick={async () => {
-                const data = await api.tasks.list(projectId, { limit: 1000 });
-                downloadFile(tasksToJSON(data.items), `tasks-${projectId}.json`, "application/json");
-              }}>Export JSON</DropdownMenuItem>
-              <DropdownMenuItem onClick={async () => {
-                const data = await api.tasks.list(projectId, { limit: 1000 });
-                downloadFile(tasksToMarkdown(data.items, projectName), `tasks-${projectId}.md`, "text/markdown");
-              }}>Export Markdown</DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  downloadFile(tasksToCSV(data.items), `tasks-${projectId}.csv`, "text/csv");
+                }}
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  downloadFile(
+                    tasksToJSON(data.items),
+                    `tasks-${projectId}.json`,
+                    "application/json",
+                  );
+                }}
+              >
+                Export JSON
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  downloadFile(
+                    tasksToMarkdown(data.items, projectName),
+                    `tasks-${projectId}.md`,
+                    "text/markdown",
+                  );
+                }}
+              >
+                Export Markdown
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -161,11 +201,20 @@ Be direct and practical. Output plain text, no markdown headers.`;
             onClick={handleProjectSize}
             disabled={sizeLoading}
           >
-            {sizeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BarChart3 className="h-3.5 w-3.5" />}
+            {sizeLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <BarChart3 className="h-3.5 w-3.5" />
+            )}
             Project Size
           </Button>
 
-          <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => setMilestoneManagerOpen(true)}>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-8 w-8"
+            onClick={() => setMilestoneManagerOpen(true)}
+          >
             <Settings2 className="h-3.5 w-3.5" />
           </Button>
 
@@ -177,7 +226,11 @@ Be direct and practical. Output plain text, no markdown headers.`;
               onClick={onBatchResolve}
               disabled={batchResolveRunning}
             >
-              {batchResolveRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+              {batchResolveRunning ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Zap className="h-3.5 w-3.5" />
+              )}
               Resolve All
             </Button>
           )}

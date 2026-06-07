@@ -52,7 +52,9 @@ export default function InlineTaskCreate({ projectId, defaultStatus }: InlineTas
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        onBlur={() => { if (!value.trim()) setIsOpen(false); }}
+        onBlur={() => {
+          if (!value.trim()) setIsOpen(false);
+        }}
         placeholder="Task title... (Enter to add)"
         className="h-8 text-xs bg-background/50"
         autoFocus

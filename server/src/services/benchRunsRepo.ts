@@ -54,7 +54,14 @@ export function insert(input: InsertBenchRunInput, db: DatabaseHandle = getDb())
   db.prepare(
     `INSERT INTO bench_runs (id, started_at, fixtures_csv, mode, mock, parallel, status)
      VALUES (?, ?, ?, ?, ?, ?, 'running')`,
-  ).run(input.id, input.startedAt, input.fixturesCsv, input.mode, input.mock ? 1 : 0, input.parallel);
+  ).run(
+    input.id,
+    input.startedAt,
+    input.fixturesCsv,
+    input.mode,
+    input.mock ? 1 : 0,
+    input.parallel,
+  );
   const row = db.prepare("SELECT * FROM bench_runs WHERE id = ?").get(input.id) as RawRow;
   return fromRaw(row);
 }
@@ -65,9 +72,12 @@ export function updateOnFinish(
   resultFile?: string | null,
   db: DatabaseHandle = getDb(),
 ): BenchRunRow | null {
-  db.prepare(
-    `UPDATE bench_runs SET status = ?, finished_at = ?, result_file = ? WHERE id = ?`,
-  ).run(status, new Date().toISOString(), resultFile ?? null, id);
+  db.prepare(`UPDATE bench_runs SET status = ?, finished_at = ?, result_file = ? WHERE id = ?`).run(
+    status,
+    new Date().toISOString(),
+    resultFile ?? null,
+    id,
+  );
   const row = db.prepare("SELECT * FROM bench_runs WHERE id = ?").get(id) as RawRow | undefined;
   return row ? fromRaw(row) : null;
 }
@@ -84,7 +94,8 @@ export interface ListOpts {
 
 export function list(opts: ListOpts = {}, db: DatabaseHandle = getDb()): BenchRunRow[] {
   const where = opts.status ? "WHERE status = ?" : "";
-  const limit = typeof opts.limit === "number" && opts.limit > 0 ? `LIMIT ${Math.floor(opts.limit)}` : "";
+  const limit =
+    typeof opts.limit === "number" && opts.limit > 0 ? `LIMIT ${Math.floor(opts.limit)}` : "";
   const sql = `SELECT * FROM bench_runs ${where} ORDER BY started_at DESC ${limit}`.trim();
   const stmt = db.prepare(sql);
   const rows = (opts.status ? stmt.all(opts.status) : stmt.all()) as RawRow[];
@@ -93,7 +104,11 @@ export function list(opts: ListOpts = {}, db: DatabaseHandle = getDb()): BenchRu
 
 export function markOrphans(db: DatabaseHandle = getDb()): number {
   const finishedAt = new Date().toISOString();
-  const before = (db.prepare("SELECT COUNT(*) as c FROM bench_runs WHERE status = 'running'").get() as { c: number }).c;
+  const before = (
+    db.prepare("SELECT COUNT(*) as c FROM bench_runs WHERE status = 'running'").get() as {
+      c: number;
+    }
+  ).c;
   db.prepare(
     `UPDATE bench_runs SET status = 'failed', finished_at = COALESCE(finished_at, ?) WHERE status = 'running'`,
   ).run(finishedAt);

@@ -31,9 +31,7 @@ describe("getDb", () => {
 describe("database schema", () => {
   test("has the expected tables", () => {
     const tables = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
-      )
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as { name: string }[];
 
     const tableNames = tables.map((t) => t.name);
@@ -57,9 +55,10 @@ describe("database schema", () => {
   });
 
   test("the _migrations table has entries (at least version 1)", () => {
-    const rows = db
-      .prepare("SELECT version, name FROM _migrations ORDER BY version")
-      .all() as { version: number; name: string }[];
+    const rows = db.prepare("SELECT version, name FROM _migrations ORDER BY version").all() as {
+      version: number;
+      name: string;
+    }[];
 
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows[0].version).toBe(1);
@@ -90,9 +89,11 @@ describe("basic CRUD on settings table", () => {
       "test-value-42",
     );
 
-    const row = db.prepare("SELECT * FROM settings WHERE key = ?").get(
-      TEST_SETTINGS_KEY,
-    ) as { key: string; value: string; updatedAt: string } | null;
+    const row = db.prepare("SELECT * FROM settings WHERE key = ?").get(TEST_SETTINGS_KEY) as {
+      key: string;
+      value: string;
+      updatedAt: string;
+    } | null;
 
     expect(row).toBeTruthy();
     expect(row!.key).toBe(TEST_SETTINGS_KEY);
@@ -106,9 +107,9 @@ describe("basic CRUD on settings table", () => {
       TEST_SETTINGS_KEY,
     );
 
-    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(
-      TEST_SETTINGS_KEY,
-    ) as { value: string };
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(TEST_SETTINGS_KEY) as {
+      value: string;
+    };
 
     expect(row.value).toBe("updated-value-99");
   });
@@ -116,9 +117,7 @@ describe("basic CRUD on settings table", () => {
   test("delete a setting", () => {
     db.prepare("DELETE FROM settings WHERE key = ?").run(TEST_SETTINGS_KEY);
 
-    const row = db.prepare("SELECT * FROM settings WHERE key = ?").get(
-      TEST_SETTINGS_KEY,
-    );
+    const row = db.prepare("SELECT * FROM settings WHERE key = ?").get(TEST_SETTINGS_KEY);
 
     expect(row).toBeFalsy();
   });

@@ -33,11 +33,30 @@ import {
 describe("terminalService - getSafeEnv logic", () => {
   // Since getSafeEnv is not exported, we verify the filtering concept
   const SAFE_ENV_KEYS = new Set([
-    "PATH", "HOME", "HOMEDRIVE", "HOMEPATH", "USERPROFILE",
-    "USER", "USERNAME", "SHELL", "TERM", "LANG", "LC_ALL",
-    "TMPDIR", "TEMP", "TMP", "NODE_ENV", "EDITOR",
-    "SYSTEMROOT", "WINDIR", "COMSPEC", "PSModulePath",
-    "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA",
+    "PATH",
+    "HOME",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "USERPROFILE",
+    "USER",
+    "USERNAME",
+    "SHELL",
+    "TERM",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "NODE_ENV",
+    "EDITOR",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PSModulePath",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMFILES",
+    "PROGRAMDATA",
   ]);
 
   function getSafeEnv(env: Record<string, string | undefined>): Record<string, string> {
@@ -443,8 +462,12 @@ function makeMockWs(readyState = 1) {
   return {
     readyState,
     sent: [] as string[],
-    send(data: string) { this.sent.push(data); },
-    close() { this.readyState = 3; },
+    send(data: string) {
+      this.sent.push(data);
+    },
+    close() {
+      this.readyState = 3;
+    },
   };
 }
 
@@ -541,7 +564,8 @@ describe("terminalService module — generateId / _resetIdCounter", () => {
   });
 
   test("_resetIdCounter resets the counter", () => {
-    generateId(); generateId();
+    generateId();
+    generateId();
     _resetIdCounter();
     const id = generateId();
     expect(id.split("-")[1]).toBe("1");
@@ -694,7 +718,9 @@ describe("terminalService module — killSession", () => {
       proc: {
         write: () => {},
         resize: () => {},
-        kill: () => { killed = true; },
+        kill: () => {
+          killed = true;
+        },
         onData: () => {},
         onExit: () => {},
       },
@@ -818,7 +844,9 @@ describe("terminalService module — writeToSession / resizeSession", () => {
       id: "w3",
       alive: true,
       proc: {
-        write: (d: string) => { written = d; },
+        write: (d: string) => {
+          written = d;
+        },
         resize: () => {},
         kill: () => {},
         onData: () => {},
@@ -835,7 +863,9 @@ describe("terminalService module — writeToSession / resizeSession", () => {
       id: "w4",
       alive: true,
       proc: {
-        write: () => { throw new Error("io error"); },
+        write: () => {
+          throw new Error("io error");
+        },
         resize: () => {},
         kill: () => {},
         onData: () => {},
@@ -863,7 +893,9 @@ describe("terminalService module — writeToSession / resizeSession", () => {
       alive: true,
       proc: {
         write: () => {},
-        resize: (c: number, r: number) => { resized = { cols: c, rows: r }; },
+        resize: (c: number, r: number) => {
+          resized = { cols: c, rows: r };
+        },
         kill: () => {},
         onData: () => {},
         onExit: () => {},
@@ -880,7 +912,9 @@ describe("terminalService module — writeToSession / resizeSession", () => {
       alive: true,
       proc: {
         write: () => {},
-        resize: () => { throw new Error("resize error"); },
+        resize: () => {
+          throw new Error("resize error");
+        },
         kill: () => {},
         onData: () => {},
         onExit: () => {},

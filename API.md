@@ -69,16 +69,16 @@ curl -X POST http://localhost:3001/api/projects/{projectId}/tasks \
 
 **Fields:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `title` | string | yes | Task name |
-| `description` | string | no | Human-readable description |
-| `prompt` | string | no | Instructions for AI resolve |
-| `branch` | string | no | Git branch for this task |
-| `promptProfile` | string | no | AI profile (e.g. `careful`, `fast`) |
-| `status` | string | no | `backlog`, `todo`, `in_progress`, `done` (default: `backlog`) |
-| `priority` | string | no | `low`, `medium`, `high`, `urgent` (default: `medium`) |
-| `milestoneId` | string | no | Assign to a milestone |
+| Field           | Type   | Required | Description                                                   |
+| --------------- | ------ | -------- | ------------------------------------------------------------- |
+| `title`         | string | yes      | Task name                                                     |
+| `description`   | string | no       | Human-readable description                                    |
+| `prompt`        | string | no       | Instructions for AI resolve                                   |
+| `branch`        | string | no       | Git branch for this task                                      |
+| `promptProfile` | string | no       | AI profile (e.g. `careful`, `fast`)                           |
+| `status`        | string | no       | `backlog`, `todo`, `in_progress`, `done` (default: `backlog`) |
+| `priority`      | string | no       | `low`, `medium`, `high`, `urgent` (default: `medium`)         |
+| `milestoneId`   | string | no       | Assign to a milestone                                         |
 
 ### Update a Task
 
@@ -178,12 +178,12 @@ curl -X POST http://localhost:3001/api/terminal/batch-resolve \
 
 **Fields:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `projectId` | string | yes | Project to resolve tasks in |
-| `taskIds` | string[] | yes | Array of task IDs to resolve |
-| `concurrency` | number | no | How many tasks to run in parallel (default: 1) |
-| `overrideBranch` | string | no | Use this branch instead of task-specific branches |
+| Field            | Type     | Required | Description                                       |
+| ---------------- | -------- | -------- | ------------------------------------------------- |
+| `projectId`      | string   | yes      | Project to resolve tasks in                       |
+| `taskIds`        | string[] | yes      | Array of task IDs to resolve                      |
+| `concurrency`    | number   | no       | How many tasks to run in parallel (default: 1)    |
+| `overrideBranch` | string   | no       | Use this branch instead of task-specific branches |
 
 ### Check Batch Resolve Status
 
@@ -202,9 +202,7 @@ Response:
   "concurrency": 2,
   "currentTaskId": "task-2",
   "activeTasks": ["task-2", "task-3"],
-  "taskResults": [
-    {"taskId": "task-1", "success": true}
-  ]
+  "taskResults": [{ "taskId": "task-1", "success": true }]
 }
 ```
 

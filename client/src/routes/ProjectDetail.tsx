@@ -4,7 +4,17 @@ import { useAppStore } from "@/stores/appStore";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, GitBranch, Code, ListTodo, GitPullRequest, Settings2, FolderOpen, NotebookPen, BookOpen } from "lucide-react";
+import {
+  ArrowLeft,
+  GitBranch,
+  Code,
+  ListTodo,
+  GitPullRequest,
+  Settings2,
+  FolderOpen,
+  NotebookPen,
+  BookOpen,
+} from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TECH_STACK_COLORS } from "@/lib/constants";
 import { useGitStatus } from "@/hooks";
@@ -41,7 +51,9 @@ export default function ProjectDetail() {
     return (
       <div className="p-6">
         <p className="text-muted-foreground">Project not found.</p>
-        <Button variant="link" onClick={() => navigate("/")}>Go to Dashboard</Button>
+        <Button variant="link" onClick={() => navigate("/")}>
+          Go to Dashboard
+        </Button>
       </div>
     );
   }
@@ -50,7 +62,12 @@ export default function ProjectDetail() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 px-6 py-3 border-b border-border/60 bg-card/30">
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => navigate("/")}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={() => navigate("/")}
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
 
@@ -63,7 +80,9 @@ export default function ProjectDetail() {
                 <span className="truncate font-mono">{project.path}</span>
               </div>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="font-mono text-xs">{project.path}</TooltipContent>
+            <TooltipContent side="bottom" className="font-mono text-xs">
+              {project.path}
+            </TooltipContent>
           </Tooltip>
         </div>
 
@@ -92,7 +111,12 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSettingsOpen(true)}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setSettingsOpen(true)}
+        >
           <Settings2 className="h-4 w-4" />
         </Button>
 
@@ -169,11 +193,7 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      <ProjectSettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        project={project}
-      />
+      <ProjectSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} project={project} />
     </div>
   );
 }

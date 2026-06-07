@@ -9,13 +9,15 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/projects/:projectId/graph", async (request) => {
     const { projectId } = request.params as any;
 
-    const nodes = (db.prepare(
-      "SELECT * FROM project_graph_nodes WHERE projectId = ? ORDER BY createdAt ASC"
-    ).all(projectId) as any[]).map(parseNodeRow);
+    const nodes = (
+      db
+        .prepare("SELECT * FROM project_graph_nodes WHERE projectId = ? ORDER BY createdAt ASC")
+        .all(projectId) as any[]
+    ).map(parseNodeRow);
 
-    const edges = db.prepare(
-      "SELECT * FROM project_graph_edges WHERE projectId = ? ORDER BY createdAt ASC"
-    ).all(projectId) as any[];
+    const edges = db
+      .prepare("SELECT * FROM project_graph_edges WHERE projectId = ? ORDER BY createdAt ASC")
+      .all(projectId) as any[];
 
     return { nodes, edges };
   });
@@ -29,13 +31,24 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
 
     db.prepare(
       `INSERT INTO project_graph_nodes (id, projectId, label, type, description, x, y, metadata, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, projectId, label, type, description || null, x ?? null, y ?? null, JSON.stringify(metadata), now, now);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      projectId,
+      label,
+      type,
+      description || null,
+      x ?? null,
+      y ?? null,
+      JSON.stringify(metadata),
+      now,
+      now,
+    );
 
     embedGraphNodeInBackground({ projectId, nodeId: id, label, type, description });
 
     return parseNodeRow(
-      db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as any
+      db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as any,
     );
   });
 
@@ -51,12 +64,30 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
     const values: unknown[] = [];
     const now = new Date().toISOString();
 
-    if (body.label !== undefined) { fields.push("label = ?"); values.push(body.label); }
-    if (body.type !== undefined) { fields.push("type = ?"); values.push(body.type); }
-    if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description); }
-    if (body.x !== undefined) { fields.push("x = ?"); values.push(body.x); }
-    if (body.y !== undefined) { fields.push("y = ?"); values.push(body.y); }
-    if (body.metadata !== undefined) { fields.push("metadata = ?"); values.push(JSON.stringify(body.metadata)); }
+    if (body.label !== undefined) {
+      fields.push("label = ?");
+      values.push(body.label);
+    }
+    if (body.type !== undefined) {
+      fields.push("type = ?");
+      values.push(body.type);
+    }
+    if (body.description !== undefined) {
+      fields.push("description = ?");
+      values.push(body.description);
+    }
+    if (body.x !== undefined) {
+      fields.push("x = ?");
+      values.push(body.x);
+    }
+    if (body.y !== undefined) {
+      fields.push("y = ?");
+      values.push(body.y);
+    }
+    if (body.metadata !== undefined) {
+      fields.push("metadata = ?");
+      values.push(JSON.stringify(body.metadata));
+    }
 
     if (fields.length) {
       fields.push("updatedAt = ?");
@@ -67,11 +98,7 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
 
     const updated = db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as any;
 
-    if (
-      body.label !== undefined ||
-      body.type !== undefined ||
-      body.description !== undefined
-    ) {
+    if (body.label !== undefined || body.type !== undefined || body.description !== undefined) {
       embedGraphNodeInBackground({
         projectId: updated.projectId,
         nodeId: id,
@@ -104,8 +131,12 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // Verify nodes exist and belong to project
-    const source = db.prepare("SELECT id FROM project_graph_nodes WHERE id = ? AND projectId = ?").get(sourceNodeId, projectId);
-    const target = db.prepare("SELECT id FROM project_graph_nodes WHERE id = ? AND projectId = ?").get(targetNodeId, projectId);
+    const source = db
+      .prepare("SELECT id FROM project_graph_nodes WHERE id = ? AND projectId = ?")
+      .get(sourceNodeId, projectId);
+    const target = db
+      .prepare("SELECT id FROM project_graph_nodes WHERE id = ? AND projectId = ?")
+      .get(targetNodeId, projectId);
     if (!source || !target) {
       return reply.code(400).send({ error: "Source or target node not found in this project" });
     }
@@ -115,7 +146,7 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
 
     db.prepare(
       `INSERT INTO project_graph_edges (id, projectId, sourceNodeId, targetNodeId, label, type, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, projectId, sourceNodeId, targetNodeId, label || null, type, now);
 
     return db.prepare("SELECT * FROM project_graph_edges WHERE id = ?").get(id);

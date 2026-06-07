@@ -5,8 +5,7 @@ const logRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
 
   fastify.get("/logs", async (request) => {
-    const { level, category, limit = "100", offset = "0" } =
-      request.query as any;
+    const { level, category, limit = "100", offset = "0" } = request.query as any;
 
     let sql = "SELECT * FROM system_logs";
     const conditions: string[] = [];

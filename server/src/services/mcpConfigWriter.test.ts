@@ -119,10 +119,7 @@ describe("buildMcpConfig", () => {
       project: baseProject,
       servers: ["vibe-kanban", "qa-agent"],
     });
-    expect(Object.keys(config.mcpServers).sort()).toEqual([
-      "qa-agent",
-      "vibe-kanban",
-    ]);
+    expect(Object.keys(config.mcpServers).sort()).toEqual(["qa-agent", "vibe-kanban"]);
   });
 });
 

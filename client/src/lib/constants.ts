@@ -84,7 +84,14 @@ export const LOG_LEVEL_COLORS = {
 };
 
 export const LOG_CATEGORIES = [
-  "server", "git", "claude", "sync", "terminal", "mcp", "tasks", "files",
+  "server",
+  "git",
+  "claude",
+  "sync",
+  "terminal",
+  "mcp",
+  "tasks",
+  "files",
 ] as const;
 
 export const PAGE_SIZE = 15;

@@ -9,9 +9,21 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { useTasks, useReorderTasks, useCreateTask, useDeleteTask, useBatchCIStatus, useArchiveApproved } from "@/hooks";
+import {
+  useTasks,
+  useReorderTasks,
+  useCreateTask,
+  useDeleteTask,
+  useBatchCIStatus,
+  useArchiveApproved,
+} from "@/hooks";
 import { useAppStore } from "@/stores/appStore";
-import { useCreateTerminalSession, useBatchResolve, useBatchResolveStatus, useCancelBatchResolve } from "@/hooks/useTerminal";
+import {
+  useCreateTerminalSession,
+  useBatchResolve,
+  useBatchResolveStatus,
+  useCancelBatchResolve,
+} from "@/hooks/useTerminal";
 import type { CICheckResult } from "@vibe-kanban/shared";
 import { useConfirm } from "@/hooks/useConfirm";
 import { api } from "@/lib/api";
@@ -75,23 +87,46 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
     sort: sort as TaskFilters["sort"],
   };
 
-  const { data: inboxData } = useTasks(projectId, { ...baseFilters, status: "backlog" as TaskStatus, limit: inboxLimit });
-  const { data: todoData } = useTasks(projectId, { ...baseFilters, status: "todo" as TaskStatus, limit: inboxLimit });
-  const { data: ipData } = useTasks(projectId, { ...baseFilters, status: "in_progress" as TaskStatus, limit: ipLimit });
-  const { data: doneData } = useTasks(projectId, { ...baseFilters, status: "done" as TaskStatus, limit: doneLimit });
-  const { data: approvedData } = useTasks(projectId, { ...baseFilters, status: "approved" as TaskStatus, limit: approvedLimit });
+  const { data: inboxData } = useTasks(projectId, {
+    ...baseFilters,
+    status: "backlog" as TaskStatus,
+    limit: inboxLimit,
+  });
+  const { data: todoData } = useTasks(projectId, {
+    ...baseFilters,
+    status: "todo" as TaskStatus,
+    limit: inboxLimit,
+  });
+  const { data: ipData } = useTasks(projectId, {
+    ...baseFilters,
+    status: "in_progress" as TaskStatus,
+    limit: ipLimit,
+  });
+  const { data: doneData } = useTasks(projectId, {
+    ...baseFilters,
+    status: "done" as TaskStatus,
+    limit: doneLimit,
+  });
+  const { data: approvedData } = useTasks(projectId, {
+    ...baseFilters,
+    status: "approved" as TaskStatus,
+    limit: approvedLimit,
+  });
 
-  const inboxTasks = useMemo(() => [
-    ...(inboxData?.items ?? []),
-    ...(todoData?.items ?? []),
-  ], [inboxData, todoData]);
+  const inboxTasks = useMemo(
+    () => [...(inboxData?.items ?? []), ...(todoData?.items ?? [])],
+    [inboxData, todoData],
+  );
   const inboxTotal = (inboxData?.total ?? 0) + (todoData?.total ?? 0);
 
   const ipTasks = ipData?.items ?? [];
   const doneTasks = doneData?.items ?? [];
   const approvedTasks = approvedData?.items ?? [];
 
-  const allTasks = useMemo(() => [...inboxTasks, ...ipTasks, ...doneTasks, ...approvedTasks], [inboxTasks, ipTasks, doneTasks, approvedTasks]);
+  const allTasks = useMemo(
+    () => [...inboxTasks, ...ipTasks, ...doneTasks, ...approvedTasks],
+    [inboxTasks, ipTasks, doneTasks, approvedTasks],
+  );
 
   // CI/CD status: collect unique branches and batch-query
   const allBranches = useMemo(() => {
@@ -113,9 +148,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
     return map;
   }, [ciResults]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const findTask = useCallback((id: string) => allTasks.find((t) => t.id === id), [allTasks]);
 
@@ -153,13 +186,17 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
     const task = findTask(taskId);
     if (!task) return;
 
-    const statusChanged = task.status !== newStatus && !(targetColumn === "inbox" && (task.status === "backlog" || task.status === "todo"));
+    const statusChanged =
+      task.status !== newStatus &&
+      !(targetColumn === "inbox" && (task.status === "backlog" || task.status === "todo"));
 
-    reorderTasks.mutate([{
-      id: taskId,
-      sortOrder: task.sortOrder,
-      ...(statusChanged ? { status: newStatus } : {}),
-    }]);
+    reorderTasks.mutate([
+      {
+        id: taskId,
+        sortOrder: task.sortOrder,
+        ...(statusChanged ? { status: newStatus } : {}),
+      },
+    ]);
   };
 
   const handleTaskClick = (task: Task) => {
@@ -273,14 +310,20 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   };
 
   const handleDelete = async (task: Task) => {
-    if (!await confirm({ title: "Delete Task", description: `Delete "${task.title}"?` })) return;
+    if (!(await confirm({ title: "Delete Task", description: `Delete "${task.title}"?` }))) return;
     deleteTaskMut.mutate(task.id);
   };
 
   const handleArchiveApproved = async () => {
     const count = approvedData?.total ?? 0;
     if (count === 0) return;
-    if (!await confirm({ title: "Archive Approved", description: `Archive ${count} approved task${count !== 1 ? "s" : ""}? They will be hidden from the board but not deleted.` })) return;
+    if (
+      !(await confirm({
+        title: "Archive Approved",
+        description: `Archive ${count} approved task${count !== 1 ? "s" : ""}? They will be hidden from the board but not deleted.`,
+      }))
+    )
+      return;
     archiveApproved.mutate();
   };
 
@@ -309,17 +352,23 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
             <div className="text-sm font-medium">
               Resolving {batchStatus.completedTasks}/{batchStatus.totalTasks}
               {(batchStatus.concurrency ?? 1) > 1 && (
-                <span className="text-muted-foreground font-normal ml-1.5">({batchStatus.activeTasks?.length ?? 0} active)</span>
+                <span className="text-muted-foreground font-normal ml-1.5">
+                  ({batchStatus.activeTasks?.length ?? 0} active)
+                </span>
               )}
             </div>
             {(batchStatus.concurrency ?? 1) <= 1 && batchStatus.currentTaskTitle && (
-              <div className="text-xs text-muted-foreground truncate">{batchStatus.currentTaskTitle}</div>
-            )}
-            {(batchStatus.concurrency ?? 1) > 1 && batchStatus.activeTasks && batchStatus.activeTasks.length > 0 && (
               <div className="text-xs text-muted-foreground truncate">
-                {batchStatus.activeTasks.map((t) => t.taskTitle).join(", ")}
+                {batchStatus.currentTaskTitle}
               </div>
             )}
+            {(batchStatus.concurrency ?? 1) > 1 &&
+              batchStatus.activeTasks &&
+              batchStatus.activeTasks.length > 0 && (
+                <div className="text-xs text-muted-foreground truncate">
+                  {batchStatus.activeTasks.map((t) => t.taskTitle).join(", ")}
+                </div>
+              )}
           </div>
           <div className="w-32 h-1.5 rounded-full bg-secondary overflow-hidden">
             <div
@@ -336,7 +385,9 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       {batchStatus && batchStatus.state === "completed" && batchStatus.totalTasks > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-2 text-sm">
           <span className="text-green-400">Batch resolve complete:</span>
-          <span>{batchStatus.completedTasks}/{batchStatus.totalTasks} tasks processed</span>
+          <span>
+            {batchStatus.completedTasks}/{batchStatus.totalTasks} tasks processed
+          </span>
         </div>
       )}
 
@@ -436,7 +487,12 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
           </div>
 
           <DragOverlay>
-            {activeTask && <TaskCard task={activeTask} className="shadow-xl shadow-primary/10 rotate-[2deg] ring-2 ring-primary/20" />}
+            {activeTask && (
+              <TaskCard
+                task={activeTask}
+                className="shadow-xl shadow-primary/10 rotate-[2deg] ring-2 ring-primary/20"
+              />
+            )}
           </DragOverlay>
         </DndContext>
       )}
@@ -503,7 +559,9 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
               {Array.from(batchBranchGroups).map(([branch, count]) => (
                 <div key={branch} className="flex items-center justify-between text-xs px-1">
                   <span className="font-mono truncate">{branch}</span>
-                  <span className="text-muted-foreground">{count} task{count !== 1 ? "s" : ""}</span>
+                  <span className="text-muted-foreground">
+                    {count} task{count !== 1 ? "s" : ""}
+                  </span>
                 </div>
               ))}
               <p className="text-[11px] text-muted-foreground">
@@ -515,14 +573,20 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
           {/* Override branch for all */}
           <div className="space-y-1.5 py-1">
             <label className="text-sm font-medium">Override branch (optional)</label>
-            <BranchSelector projectId={projectId} value={batchOverrideBranch} onSelect={setBatchOverrideBranch} />
+            <BranchSelector
+              projectId={projectId}
+              value={batchOverrideBranch}
+              onSelect={setBatchOverrideBranch}
+            />
             <p className="text-[11px] text-muted-foreground">
               Run all tasks on a specific branch instead of their assigned branches.
             </p>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBatchDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setBatchDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleBatchConfirm}>Start</Button>
           </DialogFooter>
         </DialogContent>
