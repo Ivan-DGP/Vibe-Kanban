@@ -7,12 +7,14 @@ data/
 .env
 .env.*
 !.env.example
+.encryption-key
 .DS_Store
 Thumbs.db
 
 # Coverage
 server/coverage/
 e2e-results.json
+client/e2e/playwright-report/
 
 # Mutation testing
 server/.stryker-tmp/
@@ -30,6 +32,7 @@ server/pty-test.ts
 check_positions.mjs
 inspect_*.mjs
 verify_*.mjs
+bench_verify.mjs
 
 # System packages downloaded for Playwright deps
 *.deb
