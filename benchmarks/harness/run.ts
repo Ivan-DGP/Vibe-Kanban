@@ -1184,6 +1184,15 @@ async function main(): Promise<void> {
       );
       continue;
     }
+    if (opts.mock && spec.injection) {
+      // Failure-injection fixtures grade on infra resilience (INJECTED-PASS/FAIL)
+      // and carry no mockFix — they need the real/pipeline harness to actually
+      // inject the failure. In --mock they'd just error on "no mockFix", so skip.
+      console.log(
+        `[skipped] ${fixtureId.padEnd(30)} failure-injection fixture; needs real/pipeline run`,
+      );
+      continue;
+    }
     fixturesToRun.push({ id: fixtureId, spec });
   }
 
