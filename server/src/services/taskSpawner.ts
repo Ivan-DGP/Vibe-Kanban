@@ -2,10 +2,29 @@ import fs from "node:fs";
 import type { Task, Project } from "@vibe-kanban/shared";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
-import { spawnHeadlessClaude } from "./headlessClaude";
+import { spawnHeadlessClaude, hasRunningRun } from "./headlessClaude";
 import { writeTempMcpConfig, cleanupMcpConfig } from "./mcpConfigWriter";
-import { getSpawnConfig } from "./taskSpawnRegistry";
+import { getSpawnConfig, type SpawnConfig } from "./taskSpawnRegistry";
 import { maybeRunPreflight } from "./taskPreflight";
+
+const DEFAULT_MAX_ATTEMPTS = 2;
+
+/** Resolve attempt count: env override > per-config > default. Clamped to 1..5. */
+export function maxAttemptsFor(config: Pick<SpawnConfig, "maxAttempts">): number {
+  const fromEnv = Number(process.env.VK_TASK_MAX_ATTEMPTS);
+  const raw =
+    Number.isFinite(fromEnv) && fromEnv > 0
+      ? fromEnv
+      : (config.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
+  return Math.min(Math.max(Math.floor(raw), 1), 5);
+}
+
+/** Exponential backoff between attempts: 2s, 4s, 8s … capped at 30s. */
+export function retryDelayMs(attempt: number): number {
+  return Math.min(30_000, 2_000 * 2 ** (attempt - 1));
+}
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function projectFromRow(row: any): Project | null {
   if (!row) return null;
@@ -58,6 +77,13 @@ async function runSpawn(task: Task): Promise<void> {
 
   if (!project.autoSpawnEnabled) return;
 
+  // Idempotency: don't fire a second run for a task that already has one in
+  // flight (rapid successive PATCHes would otherwise double-spawn).
+  if (hasRunningRun(task.id)) {
+    log("info", "claude", `taskSpawner: skip — run already in flight`, { taskId: task.id });
+    return;
+  }
+
   // Bun.spawn surfaces a missing cwd as a misleading
   // `posix_spawn '<cmd>' ENOENT` — gate it cleanly here.
   if (!project.path || !fs.existsSync(project.path)) {
@@ -69,47 +95,73 @@ async function runSpawn(task: Task): Promise<void> {
     return;
   }
 
-  let mcpConfigPath: string | null = null;
-  try {
-    mcpConfigPath = await writeTempMcpConfig({
-      project,
-      servers: config.mcpServers,
-    });
+  const prompt = config.buildPrompt({ task, project });
+  const maxAttempts = maxAttemptsFor(config);
 
-    const prompt = config.buildPrompt({ task, project });
+  log("info", "claude", `taskSpawner dispatching`, {
+    taskId: task.id,
+    projectId: project.id,
+    type: metadataType,
+    profile: config.profile,
+    maxAttempts,
+  });
 
-    log("info", "claude", `taskSpawner dispatching`, {
-      taskId: task.id,
-      projectId: project.id,
-      type: metadataType,
-      profile: config.profile,
-    });
-
+  // Retry on failure: each attempt gets a fresh runId (and thus a fresh per-run
+  // MCP config + worktree), so a failed attempt's worktree is discarded and the
+  // retry starts clean. Every attempt is recorded as its own task_ai_runs row.
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // runId is generated up front so the MCP config can point the agent at this
+    // run's per-run endpoint (/mcp/run/<runId>).
     const runId = crypto.randomUUID();
-    await maybeRunPreflight({
-      runId,
-      taskId: task.id,
-      projectId: project.id,
-      cwd: project.path,
-    }).catch(() => null);
+    let mcpConfigPath: string | null = null;
+    try {
+      mcpConfigPath = await writeTempMcpConfig({
+        project,
+        servers: config.mcpServers,
+        runId,
+      });
 
-    await spawnHeadlessClaude({
-      prompt,
-      taskId: task.id,
-      projectId: project.id,
-      mcpConfigPath,
-      cwd: project.path,
-      profile: config.profile,
-      timeoutMs: config.timeoutMs,
-      runId,
-    });
-  } catch (err) {
-    log("error", "claude", `taskSpawner failed`, {
-      taskId: task.id,
-      type: metadataType,
-      error: String(err),
-    });
-  } finally {
-    if (mcpConfigPath) cleanupMcpConfig(mcpConfigPath);
+      await maybeRunPreflight({
+        runId,
+        taskId: task.id,
+        projectId: project.id,
+        cwd: project.path,
+      }).catch(() => null);
+
+      const result = await spawnHeadlessClaude({
+        prompt,
+        taskId: task.id,
+        projectId: project.id,
+        mcpConfigPath,
+        cwd: project.path,
+        profile: config.profile,
+        timeoutMs: config.timeoutMs,
+        runId,
+      });
+
+      if (result.exitCode === 0) return; // success — done
+      log("warn", "claude", `taskSpawner attempt failed`, {
+        taskId: task.id,
+        attempt,
+        maxAttempts,
+        exitCode: result.exitCode,
+      });
+    } catch (err) {
+      log("error", "claude", `taskSpawner attempt errored`, {
+        taskId: task.id,
+        attempt,
+        error: String(err),
+      });
+    } finally {
+      if (mcpConfigPath) cleanupMcpConfig(mcpConfigPath);
+    }
+
+    if (attempt < maxAttempts) await delay(retryDelayMs(attempt));
   }
+
+  log("warn", "claude", `taskSpawner exhausted retries`, {
+    taskId: task.id,
+    type: metadataType,
+    maxAttempts,
+  });
 }

@@ -33,19 +33,31 @@ const TAR_EXCLUDE_PATTERNS = [
   "build",
   "*.log",
   ".DS_Store",
+  // Secret-bearing files: defense-in-depth so a captured tarball never archives
+  // credentials even when capture is explicitly enabled.
+  "*.pem",
+  "*.key",
+  "*.p12",
+  "*.pfx",
+  "id_rsa*",
+  "id_ed25519*",
+  ".ssh",
+  ".npmrc",
+  ".netrc",
+  "*.db",
+  "*.sqlite",
+  "credentials*",
+  "secrets*",
 ];
 
 const MAX_TEXT_LEN = 32_000;
 const TAR_TIMEOUT_MS = 60_000;
 
 export function isCaptureEnabled(): boolean {
-  if (process.env.VK_BENCH_CAPTURE === "0") return false;
-  if (process.env.VK_BENCH_CAPTURE === "1") return true;
-  // Default: ON in dev (any non-production NODE_ENV), OFF in production.
-  // Bun sets NODE_ENV=development for `bun run` by default, so a normal
-  // `bun run dev` session captures replays without ceremony. Production
-  // deploys are expected to set NODE_ENV=production.
-  return process.env.NODE_ENV !== "production";
+  // Default OFF everywhere. Capture writes prompts + a working-tree snapshot to
+  // disk, so it requires explicit opt-in via VK_BENCH_CAPTURE=1 (no silent
+  // default-on in dev).
+  return process.env.VK_BENCH_CAPTURE === "1";
 }
 
 export function getReplayDir(): string {

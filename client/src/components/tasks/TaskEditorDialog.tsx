@@ -1,24 +1,52 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, FileSearch, Wand2, Image as ImageIcon, X, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { useCreateTask, useUpdateTask, useMilestones, useUploadArtifact, useUpdateArtifact } from "@/hooks";
+import {
+  useCreateTask,
+  useUpdateTask,
+  useMilestones,
+  useUploadArtifact,
+  useUpdateArtifact,
+} from "@/hooks";
 import BranchSelector from "@/components/git/BranchSelector";
 import GatherContextModal from "./GatherContextModal";
 import { api } from "@/lib/api";
-import type { Task, TaskStatus, TaskPriority, PromptProfile, CreateTaskInput, Artifact } from "@vibe-kanban/shared";
+import type {
+  Task,
+  TaskStatus,
+  TaskPriority,
+  PromptProfile,
+  CreateTaskInput,
+  Artifact,
+} from "@vibe-kanban/shared";
 
 function slugifyForFilename(s: string): string {
-  return s.toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .slice(0, 40) || "screenshot";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .slice(0, 40) || "screenshot"
+  );
 }
 
 interface TaskEditorDialogProps {
@@ -28,7 +56,12 @@ interface TaskEditorDialogProps {
   task?: Task | null;
 }
 
-export default function TaskEditorDialog({ open, onOpenChange, projectId, task }: TaskEditorDialogProps) {
+export default function TaskEditorDialog({
+  open,
+  onOpenChange,
+  projectId,
+  task,
+}: TaskEditorDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -37,7 +70,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const [milestoneId, setMilestoneId] = useState<string>("none");
   const [branch, setBranch] = useState<string | null>(null);
   const [promptProfile, setPromptProfile] = useState<PromptProfile>("auto");
-  const [spawnType, setSpawnType] = useState<"" | "qa-test" | "dev-fix">("");
+  const [spawnType, setSpawnType] = useState<"" | "qa-test" | "dev-fix">("dev-fix");
   const [qaTargetUrl, setQaTargetUrl] = useState("");
 
   const [activeTab, setActiveTab] = useState("description");
@@ -50,7 +83,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
   const isEditing = !!task;
   const [aiLoading, setAiLoading] = useState<"context" | "improve" | null>(null);
   const [gatherModalOpen, setGatherModalOpen] = useState(false);
-  const [pastedArtifacts, setPastedArtifacts] = useState<Array<{ id: string; filename: string; renaming: boolean }>>([]);
+  const [pastedArtifacts, setPastedArtifacts] = useState<
+    Array<{ id: string; filename: string; renaming: boolean }>
+  >([]);
 
   const streamAI = async (systemPrompt: string): Promise<string> => {
     const controller = new AbortController();
@@ -75,7 +110,10 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             try {
               const d = JSON.parse(line.slice(6));
               if (d.type === "delta" && d.text) text += d.text;
-              if (d.type === "done") { streamDone = true; break; }
+              if (d.type === "done") {
+                streamDone = true;
+                break;
+              }
               if (d.type === "error") throw new Error(d.message || "AI error");
             } catch (e) {
               if (e instanceof SyntaxError) continue;
@@ -101,22 +139,39 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
     try {
       const aiPrompt = `Generate a short, descriptive filename for a screenshot attached to this task. Use kebab-case, 3-6 words, no extension, no path. Output ONLY the filename.\n\n${parts.join("\n")}`;
       const raw = await streamAI(aiPrompt);
-      const cleaned = raw.trim().split("\n")[0].replace(/\.[^.]*$/, "").replace(/[^a-z0-9-]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "").slice(0, 60);
+      const cleaned = raw
+        .trim()
+        .split("\n")[0]
+        .replace(/\.[^.]*$/, "")
+        .replace(/[^a-z0-9-]+/gi, "-")
+        .toLowerCase()
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
       if (cleaned.length < 3) return;
       const newFilename = `${cleaned}.${ext}`;
       updateArtifact.mutate(
         { id: artifact.id, input: { filename: newFilename } },
         {
           onSuccess: (updated) => {
-            setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { id: updated.id, filename: updated.filename, renaming: false } : a));
+            setPastedArtifacts((prev) =>
+              prev.map((a) =>
+                a.id === artifact.id
+                  ? { id: updated.id, filename: updated.filename, renaming: false }
+                  : a,
+              ),
+            );
           },
           onError: () => {
-            setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+            setPastedArtifacts((prev) =>
+              prev.map((a) => (a.id === artifact.id ? { ...a, renaming: false } : a)),
+            );
           },
         },
       );
     } catch {
-      setPastedArtifacts((prev) => prev.map((a) => a.id === artifact.id ? { ...a, renaming: false } : a));
+      setPastedArtifacts((prev) =>
+        prev.map((a) => (a.id === artifact.id ? { ...a, renaming: false } : a)),
+      );
     }
   };
 
@@ -133,7 +188,10 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
         const file = new File([blob], `${baseName}-${Date.now()}.${ext}`, { type: blob.type });
         uploadArtifact.mutate(file, {
           onSuccess: (artifact) => {
-            setPastedArtifacts((prev) => [...prev, { id: artifact.id, filename: artifact.filename, renaming: true }]);
+            setPastedArtifacts((prev) => [
+              ...prev,
+              { id: artifact.id, filename: artifact.filename, renaming: true },
+            ]);
             toast.success(`Saved as artifact: ${artifact.filename}`);
             renameArtifactWithAI(artifact);
           },
@@ -169,7 +227,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       else if (prompt.trim()) parts.push(`Prompt: ${prompt}`);
 
       const result = await streamAI(
-        `Improve the writing of this task. Make it clearer, more structured, and actionable. Keep the same intent.${title.trim() && (description.trim() || prompt.trim()) ? `\nOutput format (use exactly these labels on separate lines):\nTitle: <improved title>\n${description.trim() ? "Description" : "Prompt"}: <improved text>` : title.trim() ? "\nOutput ONLY the improved title, no explanation." : `\nOutput ONLY the improved ${description ? "description" : "prompt"}, no explanation.`}\n\n${parts.join("\n")}`
+        `Improve the writing of this task. Make it clearer, more structured, and actionable. Keep the same intent.${title.trim() && (description.trim() || prompt.trim()) ? `\nOutput format (use exactly these labels on separate lines):\nTitle: <improved title>\n${description.trim() ? "Description" : "Prompt"}: <improved text>` : title.trim() ? "\nOutput ONLY the improved title, no explanation." : `\nOutput ONLY the improved ${description ? "description" : "prompt"}, no explanation.`}\n\n${parts.join("\n")}`,
       );
 
       if (title.trim() && (description.trim() || prompt.trim())) {
@@ -189,7 +247,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to improve writing");
-    } finally { setAiLoading(null); }
+    } finally {
+      setAiLoading(null);
+    }
   };
 
   useEffect(() => {
@@ -205,7 +265,11 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       const md = task.metadata ?? {};
       const t = (md as { type?: unknown }).type;
       setSpawnType(t === "qa-test" || t === "dev-fix" ? t : "");
-      setQaTargetUrl(typeof (md as { qa_target_url?: unknown }).qa_target_url === "string" ? (md as { qa_target_url: string }).qa_target_url : "");
+      setQaTargetUrl(
+        typeof (md as { qa_target_url?: unknown }).qa_target_url === "string"
+          ? (md as { qa_target_url: string }).qa_target_url
+          : "",
+      );
     } else {
       setTitle("");
       setDescription("");
@@ -215,7 +279,7 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
       setMilestoneId("none");
       setBranch(null);
       setPromptProfile("auto");
-      setSpawnType("");
+      setSpawnType("dev-fix");
       setQaTargetUrl("");
     }
     setActiveTab("description");
@@ -250,7 +314,10 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
     };
 
     if (isEditing) {
-      updateTask.mutate({ id: task.id, input: { ...input, branch } }, { onSuccess: () => onOpenChange(false) });
+      updateTask.mutate(
+        { id: task.id, input: { ...input, branch } },
+        { onSuccess: () => onOpenChange(false) },
+      );
     } else {
       createTask.mutate(input, { onSuccess: () => onOpenChange(false) });
     }
@@ -268,13 +335,22 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" autoFocus />
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Task title"
+              autoFocus
+            />
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="w-full">
-              <TabsTrigger value="description" className="flex-1">Description</TabsTrigger>
-              <TabsTrigger value="prompt" className="flex-1">Prompt</TabsTrigger>
+              <TabsTrigger value="description" className="flex-1">
+                Description
+              </TabsTrigger>
+              <TabsTrigger value="prompt" className="flex-1">
+                Prompt
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="description" className="mt-2">
               <textarea
@@ -314,20 +390,33 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
               size="sm"
               className="h-7 text-xs gap-1"
               onClick={handleImproveWriting}
-              disabled={aiLoading !== null || (!title.trim() && !description.trim() && !prompt.trim())}
+              disabled={
+                aiLoading !== null || (!title.trim() && !description.trim() && !prompt.trim())
+              }
             >
-              {aiLoading === "improve" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+              {aiLoading === "improve" ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Wand2 className="h-3 w-3" />
+              )}
               AI Improve Writing
             </Button>
-            <span className="text-[10px] text-muted-foreground ml-auto">Paste a screenshot to attach</span>
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              Paste a screenshot to attach
+            </span>
           </div>
 
           {(uploadArtifact.isPending || pastedArtifacts.length > 0) && (
             <div className="flex flex-wrap gap-1.5">
               {pastedArtifacts.map((a) => (
-                <div key={a.id} className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
+                <div
+                  key={a.id}
+                  className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+                >
                   <ImageIcon className="h-3 w-3 text-muted-foreground" />
-                  <span className="font-mono truncate max-w-[200px]" title={a.filename}>{a.filename}</span>
+                  <span className="font-mono truncate max-w-[200px]" title={a.filename}>
+                    {a.filename}
+                  </span>
                   {a.renaming && <Sparkles className="h-3 w-3 text-blue-500 animate-pulse" />}
                   <button
                     type="button"
@@ -352,7 +441,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             <div className="space-y-2">
               <Label>Priority</Label>
               <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="urgent">Urgent</SelectItem>
                   <SelectItem value="high">High</SelectItem>
@@ -364,7 +455,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             <div className="space-y-2">
               <Label>Status</Label>
               <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todo">Inbox</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
@@ -377,11 +470,15 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             <div className="space-y-2">
               <Label>Milestone</Label>
               <Select value={milestoneId} onValueChange={setMilestoneId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">General</SelectItem>
                   {milestones?.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -395,8 +492,13 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
             </div>
             <div className="space-y-2">
               <Label>AI Profile</Label>
-              <Select value={promptProfile} onValueChange={(v) => setPromptProfile(v as PromptProfile)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={promptProfile}
+                onValueChange={(v) => setPromptProfile(v as PromptProfile)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto-detect</SelectItem>
                   <SelectItem value="quick-fix">Quick Fix</SelectItem>
@@ -412,8 +514,15 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
           <div className="space-y-2 rounded-md border p-3">
             <div className="space-y-1">
               <Label className="text-sm">Auto-spawn type</Label>
-              <Select value={spawnType || "__none__"} onValueChange={(v) => setSpawnType(v === "__none__" ? "" : (v as "qa-test" | "dev-fix"))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={spawnType || "__none__"}
+                onValueChange={(v) =>
+                  setSpawnType(v === "__none__" ? "" : (v as "qa-test" | "dev-fix"))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">None (manual task)</SelectItem>
                   <SelectItem value="qa-test">qa-test — run browser QA via qa-agent</SelectItem>
@@ -421,7 +530,8 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
                 </SelectContent>
               </Select>
               <p className="text-[10px] text-muted-foreground">
-                Triggers a headless Claude session when the task is created. Project must have auto-spawn enabled.
+                Triggers a headless Claude session when the task is created. Project must have
+                auto-spawn enabled.
               </p>
             </div>
             {spawnType === "qa-test" && (
@@ -439,7 +549,9 @@ export default function TaskEditorDialog({ open, onOpenChange, projectId, task }
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={handleSubmit} disabled={isPending || !title.trim()}>
             {isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
             {isEditing ? "Save" : "Create"}

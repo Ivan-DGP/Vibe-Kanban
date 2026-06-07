@@ -14,15 +14,22 @@ import { createHash } from "node:crypto";
  */
 export function scrubPath(p: string, cwd: string, extraPrefixes: string[] = []): string {
   if (!p) return p;
-  const prefixes = [cwd, ...extraPrefixes].filter(Boolean).sort((a, b) => b.length - a.length);
+  // Normalize separators so a backslash path matches a forward-slash prefix, and
+  // compare case-insensitively so a case-mismatched prefix still strips.
+  const norm = (s: string) => s.replaceAll("\\", "/");
+  const np = norm(p);
+  const prefixes = [cwd, ...extraPrefixes]
+    .filter(Boolean)
+    .map(norm)
+    .sort((a, b) => b.length - a.length);
   for (const prefix of prefixes) {
-    if (p === prefix) return ".";
+    if (np.toLowerCase() === prefix.toLowerCase()) return ".";
     const withSep = prefix.endsWith("/") ? prefix : prefix + "/";
-    if (p.startsWith(withSep)) return p.slice(withSep.length).replaceAll("\\", "/");
+    if (np.toLowerCase().startsWith(withSep.toLowerCase())) return np.slice(withSep.length);
   }
   // Looks like an absolute path but matched no prefix — anonymize it entirely.
-  if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) return "<absolute>";
-  return p.replaceAll("\\", "/");
+  if (np.startsWith("/") || /^[A-Za-z]:\//.test(np)) return "<absolute>";
+  return np;
 }
 
 const SECRET_PATTERNS: RegExp[] = [
@@ -35,6 +42,15 @@ const SECRET_PATTERNS: RegExp[] = [
   /\b(Bearer|Token)\s+[A-Za-z0-9._-]{16,}/gi,
   // sk-/pk-prefixed keys (OpenAI/Anthropic-style); allow _ in the body
   /\b(sk|pk)[-_][A-Za-z0-9_]{16,}/gi,
+  // provider-specific token formats
+  /\bghp_[A-Za-z0-9]{36}\b/g, // GitHub personal access token
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, // GitHub fine-grained PAT
+  /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/gi, // Slack token
+  /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key
+  // lowercase/camelCase secret-bearing key = value (value charset excludes '<'
+  // so an already-substituted "<redacted>" is not re-matched)
+  /\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|auth[_-]?token|password|passwd|secret)\s*[:=]\s*["']?[^\s"',}<]+/gi,
 ];
 
 const EMAIL_PATTERN = /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/gi;
@@ -97,6 +113,8 @@ export interface AnonymizedPayload {
  * and the system cwd are scrubbed from text fields; secrets/UUIDs/emails
  * redacted; project name is replaced by a short stable hash.
  */
+const SECRET_KEY_RE = /key|token|secret|password|passwd|credential|auth|bearer/i;
+
 export function anonymizePayload(input: AnonymizePayloadInput): AnonymizedPayload {
   const prefixes = [input.cwd, input.projectPath].filter(Boolean);
   const scrub = (s: string | null | undefined): string | null => {
@@ -108,13 +126,30 @@ export function anonymizePayload(input: AnonymizePayloadInput): AnonymizedPayloa
     }
     return redactSecrets(out);
   };
+  // Recursively scrub metadata: redact secret-named keys, path-strip + secret-scrub
+  // string values. Metadata is attacker-influenceable (qa-test fields etc.) and
+  // must not leak secrets/paths into the replay sidecar.
+  const scrubValue = (v: unknown): unknown => {
+    if (typeof v === "string") return scrub(v);
+    if (Array.isArray(v)) return v.map(scrubValue);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = SECRET_KEY_RE.test(k) ? "<redacted>" : scrubValue(val);
+      }
+      return out;
+    }
+    return v;
+  };
   return {
     project: { nameHash: hashIdentifier(input.projectName) },
     task: {
       title: scrub(input.taskTitle) ?? "",
       description: scrub(input.taskDescription),
       prompt: scrub(input.taskPrompt),
-      metadata: input.taskMetadata,
+      metadata: input.taskMetadata
+        ? (scrubValue(input.taskMetadata) as Record<string, unknown>)
+        : null,
     },
     outcome: { summary: scrub(input.outcomeSummary) },
   };

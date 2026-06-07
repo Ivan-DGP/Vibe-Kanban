@@ -661,16 +661,62 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 26,
+      name: "add-task-ai-run-lifecycle",
+      up: () => {
+        // Durable run lifecycle: a row is now inserted as 'running' up front and
+        // finalized on completion, so in-flight/interrupted runs are visible and
+        // recoverable (previously the row was written only after the run ended).
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        const has = (n: string) => cols.some((c) => c.name === n);
+        if (!has("status")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'succeeded'");
+          // Backfill historical rows from their success flag.
+          db.exec(
+            "UPDATE task_ai_runs SET status = CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END",
+          );
+        }
+        if (!has("startedAt"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN startedAt TEXT DEFAULT NULL");
+        if (!has("finishedAt"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN finishedAt TEXT DEFAULT NULL");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_task_ai_runs_status ON task_ai_runs (status)");
+      },
+    },
+    {
+      version: 27,
+      name: "add-task-ai-run-cost",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "totalCostUsd")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN totalCostUsd REAL DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {
     if (migration.version > currentVersion) {
       if (migration.noTransaction) {
-        migration.up();
-        db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
-          migration.version,
-          migration.name,
-        );
+        // These migrations rebuild the tasks table with FK enforcement off.
+        // PRAGMA foreign_keys can only be toggled OUTSIDE a transaction — but the
+        // rebuild itself (CREATE/INSERT/DROP/RENAME) and the _migrations ledger
+        // write CAN run inside one. Doing so makes the rebuild atomic: a crash
+        // between DROP TABLE tasks and the RENAME now rolls back (tasks survives)
+        // instead of destroying the table and leaving the ledger inconsistent.
+        db.exec("PRAGMA foreign_keys = OFF");
+        try {
+          db.transaction(() => {
+            migration.up();
+            db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
+              migration.version,
+              migration.name,
+            );
+          })();
+        } finally {
+          db.exec("PRAGMA foreign_keys = ON");
+        }
       } else {
         db.transaction(() => {
           migration.up();

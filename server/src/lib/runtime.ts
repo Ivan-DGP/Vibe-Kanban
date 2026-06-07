@@ -11,30 +11,92 @@ export interface SpawnResult {
 
 export async function spawnProcess(
   cmd: string[],
-  opts: { cwd: string; env?: Record<string, string>; timeout?: number; stdinData?: string },
+  opts: {
+    cwd: string;
+    env?: Record<string, string>;
+    timeout?: number;
+    stdinData?: string;
+    signal?: AbortSignal;
+  },
 ): Promise<SpawnResult> {
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, SYSTEMROOT: process.env.SYSTEMROOT, ...opts.env };
+  const env = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    SYSTEMROOT: process.env.SYSTEMROOT,
+    ...opts.env,
+  };
 
   if (isBun) {
-    const proc = Bun.spawn(cmd, { cwd: opts.cwd, stdout: "pipe", stderr: "pipe", stdin: opts.stdinData ? "pipe" : null, env });
+    const proc = Bun.spawn(cmd, {
+      cwd: opts.cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: opts.stdinData ? "pipe" : null,
+      env,
+    });
     if (opts.stdinData && proc.stdin) {
       proc.stdin.write(opts.stdinData);
       proc.stdin.end();
     }
-    const timeoutId = opts.timeout ? setTimeout(() => proc.kill(), opts.timeout) : null;
+    // On timeout: SIGTERM, then escalate to SIGKILL after a grace period so a
+    // child that ignores SIGTERM cannot keep `proc.exited` (and the caller)
+    // pending forever.
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    const timeoutId = opts.timeout
+      ? setTimeout(() => {
+          try {
+            proc.kill();
+          } catch {
+            /* already gone */
+          }
+          killTimer = setTimeout(() => {
+            try {
+              proc.kill(9);
+            } catch {
+              /* already gone */
+            }
+          }, 2000);
+        }, opts.timeout)
+      : null;
+    // Caller-driven cancellation: abort -> SIGTERM, then SIGKILL after a grace.
+    const onAbort = () => {
+      try {
+        proc.kill();
+      } catch {
+        /* already gone */
+      }
+      killTimer = setTimeout(() => {
+        try {
+          proc.kill(9);
+        } catch {
+          /* already gone */
+        }
+      }, 2000);
+    };
+    if (opts.signal) {
+      if (opts.signal.aborted) onAbort();
+      else opts.signal.addEventListener("abort", onAbort, { once: true });
+    }
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
     if (timeoutId) clearTimeout(timeoutId);
+    if (killTimer) clearTimeout(killTimer);
+    if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
     return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
   }
 
   // Node.js path
   const { spawn } = await import("node:child_process");
   return new Promise((resolve) => {
-    const proc = spawn(cmd[0], cmd.slice(1), { cwd: opts.cwd, env, stdio: [opts.stdinData ? "pipe" : "ignore", "pipe", "pipe"] });
+    const proc = spawn(cmd[0], cmd.slice(1), {
+      cwd: opts.cwd,
+      env,
+      stdio: [opts.stdinData ? "pipe" : "ignore", "pipe", "pipe"],
+    });
     if (opts.stdinData && proc.stdin) {
       proc.stdin.write(opts.stdinData);
       proc.stdin.end();
@@ -44,10 +106,27 @@ export async function spawnProcess(
     proc.stdout!.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     proc.stderr!.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
-    const timeoutId = opts.timeout ? setTimeout(() => proc.kill(), opts.timeout) : null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    const timeoutId = opts.timeout
+      ? setTimeout(() => {
+          proc.kill(); // SIGTERM
+          killTimer = setTimeout(() => proc.kill("SIGKILL"), 2000);
+        }, opts.timeout)
+      : null;
+
+    const onAbort = () => {
+      proc.kill();
+      killTimer = setTimeout(() => proc.kill("SIGKILL"), 2000);
+    };
+    if (opts.signal) {
+      if (opts.signal.aborted) onAbort();
+      else opts.signal.addEventListener("abort", onAbort, { once: true });
+    }
 
     proc.on("close", (code) => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (killTimer) clearTimeout(killTimer);
+      if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
       resolve({
         stdout: Buffer.concat(stdoutChunks).toString().trim(),
         stderr: Buffer.concat(stderrChunks).toString().trim(),
@@ -56,6 +135,8 @@ export async function spawnProcess(
     });
     proc.on("error", () => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (killTimer) clearTimeout(killTimer);
+      if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
       resolve({ stdout: "", stderr: "spawn error", exitCode: 1 });
     });
   });
@@ -73,7 +154,10 @@ export function spawnProcessSync(
   }
 
   const { spawnSync } = require("node:child_process");
-  const result = spawnSync(cmd[0], cmd.slice(1), { env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
+  const result = spawnSync(cmd[0], cmd.slice(1), {
+    env: opts.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   return { stdout: (result.stdout ?? "").toString().trim(), exitCode: result.status ?? 1 };
 }
 
@@ -92,7 +176,11 @@ export function spawnStreaming(
   opts?: { env?: Record<string, string>; stdinData?: string },
 ): StreamingProc {
   if (isBun) {
-    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", stdin: opts?.stdinData ? "pipe" : null });
+    const proc = Bun.spawn(cmd, {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: opts?.stdinData ? "pipe" : null,
+    });
     if (opts?.stdinData && proc.stdin) {
       proc.stdin.write(opts.stdinData);
       proc.stdin.end();
@@ -104,7 +192,11 @@ export function spawnStreaming(
     let stdoutCb: ((chunk: string) => void) | null = null;
     let stderrCb: ((chunk: string) => void) | null = null;
 
-    const drain = async (stream: ReadableStream<Uint8Array>, getCb: () => ((c: string) => void) | null, buf: string[]) => {
+    const drain = async (
+      stream: ReadableStream<Uint8Array>,
+      getCb: () => ((c: string) => void) | null,
+      buf: string[],
+    ) => {
       const reader = stream.getReader();
       const decoder = new TextDecoder();
       while (true) {
@@ -136,7 +228,9 @@ export function spawnStreaming(
 
   // Node.js path
   const { spawn } = require("node:child_process") as typeof import("node:child_process");
-  const proc = spawn(cmd[0], cmd.slice(1), { stdio: [opts?.stdinData ? "pipe" : "ignore", "pipe", "pipe"] });
+  const proc = spawn(cmd[0], cmd.slice(1), {
+    stdio: [opts?.stdinData ? "pipe" : "ignore", "pipe", "pipe"],
+  });
   if (opts?.stdinData && proc.stdin) {
     proc.stdin.write(opts.stdinData);
     proc.stdin.end();
@@ -159,7 +253,9 @@ export function spawnStreaming(
   });
 
   let exitPromiseResolve: (code: number) => void;
-  const exited = new Promise<number>((r) => { exitPromiseResolve = r; });
+  const exited = new Promise<number>((r) => {
+    exitPromiseResolve = r;
+  });
   // "close" fires after all stdio streams have been flushed and closed.
   proc.on("close", (code: number | null) => exitPromiseResolve(code ?? 1));
   proc.on("error", () => exitPromiseResolve(1));
@@ -222,11 +318,13 @@ export function spawnPty(
       },
     });
 
-    proc.exited.then((code: number) => {
-      for (const cb of exitCallbacks) cb(code ?? 0);
-    }).catch(() => {
-      for (const cb of exitCallbacks) cb(1);
-    });
+    proc.exited
+      .then((code: number) => {
+        for (const cb of exitCallbacks) cb(code ?? 0);
+      })
+      .catch(() => {
+        for (const cb of exitCallbacks) cb(1);
+      });
 
     return {
       write: (data) => proc.terminal?.write(data),

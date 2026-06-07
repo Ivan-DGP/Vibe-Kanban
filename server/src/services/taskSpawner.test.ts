@@ -2,11 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import crypto from "node:crypto";
 import type { Task } from "@vibe-kanban/shared";
 import { getDb } from "../db";
-import { maybeSpawnForTask } from "./taskSpawner";
-import {
-  registerSpawnConfig,
-  _resetSpawnRegistry,
-} from "./taskSpawnRegistry";
+import { maybeSpawnForTask, maxAttemptsFor, retryDelayMs } from "./taskSpawner";
+import { registerSpawnConfig, _resetSpawnRegistry } from "./taskSpawnRegistry";
 
 const db = getDb();
 
@@ -41,10 +38,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   } as Task;
 }
 
-function insertProject(
-  autoSpawnEnabled: 0 | 1,
-  opts: { projectPath?: string } = {},
-): string {
+function insertProject(autoSpawnEnabled: 0 | 1, opts: { projectPath?: string } = {}): string {
   const id = `proj-${crypto.randomUUID()}`;
   const ts = new Date().toISOString();
   db.prepare(
@@ -126,5 +120,43 @@ describe("maybeSpawnForTask", () => {
     maybeSpawnForTask(makeTask({ metadata: { type: "qa-test" } }));
     await new Promise((r) => setTimeout(r, 50));
     expect(buildPromptCalled).toBe(0);
+  });
+});
+
+describe("retry policy helpers", () => {
+  let prev: string | undefined;
+  beforeEach(() => {
+    prev = process.env.VK_TASK_MAX_ATTEMPTS;
+    delete process.env.VK_TASK_MAX_ATTEMPTS;
+  });
+  afterEach(() => {
+    if (prev === undefined) delete process.env.VK_TASK_MAX_ATTEMPTS;
+    else process.env.VK_TASK_MAX_ATTEMPTS = prev;
+  });
+
+  test("maxAttemptsFor: default is 2 when nothing configured", () => {
+    expect(maxAttemptsFor({})).toBe(2);
+  });
+
+  test("maxAttemptsFor: per-config value is used", () => {
+    expect(maxAttemptsFor({ maxAttempts: 3 })).toBe(3);
+  });
+
+  test("maxAttemptsFor: env overrides config", () => {
+    process.env.VK_TASK_MAX_ATTEMPTS = "4";
+    expect(maxAttemptsFor({ maxAttempts: 3 })).toBe(4);
+  });
+
+  test("maxAttemptsFor: clamps to 1..5", () => {
+    expect(maxAttemptsFor({ maxAttempts: 99 })).toBe(5);
+    process.env.VK_TASK_MAX_ATTEMPTS = "0"; // <=0 falls through to config/default
+    expect(maxAttemptsFor({ maxAttempts: 3 })).toBe(3);
+  });
+
+  test("retryDelayMs: exponential backoff capped at 30s", () => {
+    expect(retryDelayMs(1)).toBe(2_000);
+    expect(retryDelayMs(2)).toBe(4_000);
+    expect(retryDelayMs(3)).toBe(8_000);
+    expect(retryDelayMs(5)).toBe(30_000);
   });
 });

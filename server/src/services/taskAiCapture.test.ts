@@ -19,35 +19,31 @@ describe("isCaptureEnabled", () => {
     else process.env.NODE_ENV = originalNodeEnv;
   });
 
-  test("off in production when env unset", () => {
+  test("off by default everywhere when env unset", () => {
     delete process.env.VK_BENCH_CAPTURE;
-    process.env.NODE_ENV = "production";
-    expect(isCaptureEnabled()).toBe(false);
+    for (const env of ["production", "development", "test", undefined]) {
+      if (env === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = env;
+      expect(isCaptureEnabled()).toBe(false);
+    }
   });
 
-  test("on in dev/test when env unset (NODE_ENV != production)", () => {
-    delete process.env.VK_BENCH_CAPTURE;
-    for (const env of ["development", "test", undefined]) {
+  test("requires explicit opt-in via VK_BENCH_CAPTURE=1", () => {
+    process.env.VK_BENCH_CAPTURE = "1";
+    for (const env of ["production", "development", undefined]) {
       if (env === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = env;
       expect(isCaptureEnabled()).toBe(true);
     }
   });
 
-  test("explicit '0' wins over dev default", () => {
+  test("explicit '0' keeps capture off", () => {
     process.env.VK_BENCH_CAPTURE = "0";
     process.env.NODE_ENV = "development";
     expect(isCaptureEnabled()).toBe(false);
   });
 
-  test("explicit '1' wins in production", () => {
-    process.env.VK_BENCH_CAPTURE = "1";
-    process.env.NODE_ENV = "production";
-    expect(isCaptureEnabled()).toBe(true);
-  });
-
-  test("non-canonical values fall through to NODE_ENV default", () => {
-    process.env.NODE_ENV = "production";
+  test("non-canonical values do not enable capture", () => {
     for (const v of ["true", "yes", "on", ""]) {
       process.env.VK_BENCH_CAPTURE = v;
       expect(isCaptureEnabled()).toBe(false);

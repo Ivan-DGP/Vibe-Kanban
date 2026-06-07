@@ -60,7 +60,10 @@ describe("buildQaTestPrompt", () => {
     expect(out).toContain("## Test Parameters");
     expect(out).toContain("Task ID: task-1");
     expect(out).toContain("Project: Acme (proj-1)");
-    expect(out).toContain("Title: QA: login flow");
+    // Title is fenced as untrusted data (prompt-injection neutralization)
+    expect(out).toContain(
+      "<<<UNTRUSTED_TASK_TITLE>>>\nQA: login flow\n<<<END_UNTRUSTED_TASK_TITLE>>>",
+    );
     expect(out).toContain("Headless: true");
   });
 
@@ -70,7 +73,10 @@ describe("buildQaTestPrompt", () => {
       project: baseProject,
     });
     expect(out).toContain('scenario_name="login-test"');
-    expect(out).toContain("Scenario: login-test");
+    // Scenario is fenced as untrusted data
+    expect(out).toContain(
+      "<<<UNTRUSTED_QA_SCENARIO>>>\nlogin-test\n<<<END_UNTRUSTED_QA_SCENARIO>>>",
+    );
   });
 
   test("uses url + task fallback when only target_url is set", () => {
@@ -83,7 +89,10 @@ describe("buildQaTestPrompt", () => {
     });
     expect(out).toContain('url="https://app.test/"');
     expect(out).toContain('task="click sign-in"');
-    expect(out).toContain("Target URL: https://app.test/");
+    // Target URL is fenced as untrusted data
+    expect(out).toContain(
+      "<<<UNTRUSTED_QA_TARGET_URL>>>\nhttps://app.test/\n<<<END_UNTRUSTED_QA_TARGET_URL>>>",
+    );
   });
 
   test("escapes embedded quotes in task description", () => {

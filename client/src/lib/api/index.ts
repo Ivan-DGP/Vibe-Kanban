@@ -198,6 +198,12 @@ export const api = {
       }),
     bulkImport: (projectId: string, text: string) =>
       post<CreateTaskInput[]>(`/claude/bulk-import`, { projectId, text }),
+    activeRuns: () =>
+      get<{
+        stats: { inFlight: number; queued: number; cap: number; active: number };
+        runs: unknown[];
+      }>("/claude/runs/active"),
+    cancelRun: (runId: string) => post<{ ok: boolean }>(`/claude/runs/${runId}/cancel`, {}),
     analyze: (projectId: string, taskId: string, signal?: AbortSignal) =>
       fetch("/api/claude/analyze", {
         method: "POST",

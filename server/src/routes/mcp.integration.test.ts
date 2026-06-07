@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { buildApp } from "../app";
 import { getDb } from "../db";
+import { setRunCwd, clearRunCwd } from "../services/runContext";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -20,9 +21,7 @@ beforeAll(async () => {
   );
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 function mcpRequest(body: Record<string, unknown>) {
   return app.inject({
@@ -32,6 +31,68 @@ function mcpRequest(body: Record<string, unknown>) {
     payload: body,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Per-run endpoint — git tools resolve to the run's worktree
+// ---------------------------------------------------------------------------
+describe("MCP per-run endpoint", () => {
+  test("git_status on /mcp/run/:runId resolves to the run's worktree cwd", async () => {
+    const db = getDb();
+    const projectId = crypto.randomUUID();
+    db.query("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run(
+      projectId,
+      "mcp-run-test",
+      `/tmp/mcp-run-main-${projectId}`,
+    );
+    const runId = crypto.randomUUID();
+    const worktreeCwd = `/tmp/vk-wt-${runId}`;
+    setRunCwd(runId, worktreeCwd);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: `/mcp/run/${runId}`,
+        headers: { "Content-Type": "application/json" },
+        payload: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "git_status", arguments: { projectId } },
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const payload = JSON.parse(res.json().result.content[0].text);
+      expect(payload.projectPath).toBe(worktreeCwd);
+      expect(payload.isolated).toBe(true);
+    } finally {
+      clearRunCwd(runId);
+      db.query("DELETE FROM projects WHERE id = ?").run(projectId);
+    }
+  });
+
+  test("git_status on the shared /mcp endpoint uses the project's main path", async () => {
+    const db = getDb();
+    const projectId = crypto.randomUUID();
+    const mainPath = `/tmp/mcp-main-${projectId}`;
+    db.query("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run(
+      projectId,
+      "mcp-main-test",
+      mainPath,
+    );
+    try {
+      const res = await mcpRequest({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "git_status", arguments: { projectId } },
+      });
+      const payload = JSON.parse(res.json().result.content[0].text);
+      expect(payload.projectPath).toBe(mainPath);
+      expect(payload.isolated).toBe(false);
+    } finally {
+      db.query("DELETE FROM projects WHERE id = ?").run(projectId);
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // MCP JSON-RPC 2.0 endpoint
@@ -374,7 +435,9 @@ describe("MCP JSON-RPC endpoint", () => {
         description: "throws",
         inputSchema: { type: "object", properties: {} },
       },
-      handler: () => { throw new Error("handler explosion"); },
+      handler: () => {
+        throw new Error("handler explosion");
+      },
     });
 
     const res = await mcpRequest({
@@ -392,7 +455,9 @@ describe("MCP JSON-RPC endpoint", () => {
     expect(body.id).toBe(99);
     expect(body.error).toBeDefined();
     expect(body.error.code).toBe(-32603);
-    expect(body.error.message).toBe("handler explosion");
+    // Error detail is logged server-side; the client gets a generic message so
+    // internal error text (paths/schema) cannot leak.
+    expect(body.error.message).toBe("Internal error");
   });
 });
 
@@ -498,7 +563,7 @@ describe("MCP OAuth endpoints", () => {
       url: "/mcp",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${access_token}`,
+        Authorization: `Bearer ${access_token}`,
       },
       payload: { jsonrpc: "2.0", id: 50, method: "tools/list", params: {} },
     });
@@ -618,8 +683,14 @@ describe("MCP SSE endpoint", () => {
     // (before returning a fake handle) so we can assert the heartbeat is written.
     const { buildApp } = await import("../app");
     const db = getDb();
-    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpEnabled", JSON.stringify(true));
-    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpAuthRequired", JSON.stringify(false));
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpEnabled",
+      JSON.stringify(true),
+    );
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpAuthRequired",
+      JSON.stringify(false),
+    );
 
     const originalSetInterval = globalThis.setInterval;
     let heartbeatFired = false;
@@ -655,7 +726,9 @@ describe("MCP SSE endpoint", () => {
           if (body.includes("heartbeat")) break;
         }
         controller.abort();
-        try { reader.cancel(); } catch {}
+        try {
+          reader.cancel();
+        } catch {}
       } catch (e: any) {
         if (e.name !== "AbortError") throw e;
       }
@@ -677,8 +750,14 @@ describe("MCP SSE endpoint", () => {
 
     // Enable MCP, disable auth for this isolated app
     const db = getDb();
-    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpEnabled", JSON.stringify(true));
-    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run("mcpAuthRequired", JSON.stringify(false));
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpEnabled",
+      JSON.stringify(true),
+    );
+    db.query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+      "mcpAuthRequired",
+      JSON.stringify(false),
+    );
 
     const address = await sseApp.listen({ port: 0, host: "127.0.0.1" });
     try {
@@ -693,7 +772,9 @@ describe("MCP SSE endpoint", () => {
         const { value } = await reader.read();
         if (value && value.length > 0) gotData = true;
         controller.abort();
-        try { reader.cancel(); } catch {}
+        try {
+          reader.cancel();
+        } catch {}
       } catch (e: any) {
         if (e.name !== "AbortError") throw e;
       }

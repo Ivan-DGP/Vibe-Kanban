@@ -137,7 +137,7 @@ describe("anonymizePayload", () => {
     expect(JSON.stringify(out)).not.toContain("MyProject");
   });
 
-  test("preserves metadata as opaque (no scrubbing inside arbitrary metadata)", () => {
+  test("keeps non-secret metadata but scrubs secret-named keys and secret values", () => {
     const out = anonymizePayload({
       cwd: "/x",
       projectPath: "/x",
@@ -145,10 +145,20 @@ describe("anonymizePayload", () => {
       taskTitle: "t",
       taskDescription: null,
       taskPrompt: null,
-      taskMetadata: { type: "qa-test", parent_task: "abc" },
+      taskMetadata: {
+        type: "qa-test",
+        parent_task: "abc",
+        apiKey: "supersecretvalue",
+        nested: { token: "should-be-gone", note: "keep" },
+      },
       outcomeSummary: null,
     });
-    expect(out.task.metadata).toEqual({ type: "qa-test", parent_task: "abc" });
+    const md = out.task.metadata as Record<string, any>;
+    expect(md.type).toBe("qa-test");
+    expect(md.parent_task).toBe("abc");
+    expect(md.apiKey).toBe("<redacted>");
+    expect(md.nested.token).toBe("<redacted>");
+    expect(md.nested.note).toBe("keep");
   });
 
   test("redacts secrets in summary alongside path scrubbing", () => {

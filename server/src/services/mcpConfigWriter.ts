@@ -9,6 +9,9 @@ export type McpServerName = "vibe-kanban" | "qa-agent";
 export interface McpConfigOptions {
   servers: McpServerName[];
   project: Pick<Project, "id" | "qaAgentPath" | "qaAgentPython">;
+  /** When set, the vibe-kanban MCP URL points at this run's endpoint so git
+   *  tools resolve to the run's worktree. */
+  runId?: string;
 }
 
 interface McpStdioServer {
@@ -32,8 +35,9 @@ interface McpConfigFile {
 
 const SERVER_PORT = parseInt(process.env.PORT || "3001", 10);
 
-export function getVibeKanbanSseUrl(): string {
-  return `http://localhost:${SERVER_PORT}/mcp`;
+export function getVibeKanbanSseUrl(runId?: string): string {
+  const base = `http://localhost:${SERVER_PORT}/mcp`;
+  return runId ? `${base}/run/${runId}` : base;
 }
 
 /**
@@ -69,9 +73,7 @@ export function resolveQaAgentPython(
   return null;
 }
 
-export function resolveQaAgentCwd(
-  project: Pick<Project, "qaAgentPath">,
-): string | null {
+export function resolveQaAgentCwd(project: Pick<Project, "qaAgentPath">): string | null {
   if (project.qaAgentPath && path.isAbsolute(project.qaAgentPath)) {
     return project.qaAgentPath;
   }
@@ -86,7 +88,7 @@ export function buildMcpConfig(opts: McpConfigOptions): McpConfigFile {
   if (opts.servers.includes("vibe-kanban")) {
     servers["vibe-kanban"] = {
       type: "sse",
-      url: getVibeKanbanSseUrl(),
+      url: getVibeKanbanSseUrl(opts.runId),
     };
   }
 
@@ -108,9 +110,7 @@ export function buildMcpConfig(opts: McpConfigOptions): McpConfigFile {
 
 const TEMP_DIR = path.join(os.tmpdir(), "vibe-kanban-mcp");
 
-export async function writeTempMcpConfig(
-  opts: McpConfigOptions,
-): Promise<string> {
+export async function writeTempMcpConfig(opts: McpConfigOptions): Promise<string> {
   if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
   }
