@@ -46,6 +46,11 @@ async function dismissOnboarding(page: Page) {
 test.describe("Bench-E2E: kanban-style live tail of a bench run", () => {
   test.beforeEach(async ({ page }) => {
     page.setDefaultTimeout(15000);
+    // Dismiss the onboarding wizard up front. Each test gets a fresh context,
+    // so a test that navigates straight to /benchmarks would otherwise have the
+    // wizard's dialog-overlay intercept its clicks.
+    await page.goto("/", { waitUntil: "networkidle" });
+    await dismissOnboarding(page);
   });
 
   test("trigger run via API → row appears → live tail streams logs → terminal status", async ({
