@@ -34,17 +34,23 @@ beforeAll(async () => {
 afterAll(async () => {
   // Close all tracked WebSocket connections first
   for (const ws of openWebSockets) {
-    try { if (ws.readyState <= WebSocket.OPEN) ws.close(); } catch {}
+    try {
+      if (ws.readyState <= WebSocket.OPEN) ws.close();
+    } catch {}
   }
   // Give WS close frames time to flush
   await new Promise((r) => setTimeout(r, 300));
 
   // Kill all terminal sessions (this also closes server-side WS)
   for (const id of createdSessionIds) {
-    try { termService.killSession(id); } catch {}
+    try {
+      termService.killSession(id);
+    } catch {}
   }
   for (const s of termService.listSessions()) {
-    try { termService.killSession(s.id); } catch {}
+    try {
+      termService.killSession(s.id);
+    } catch {}
   }
 
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
@@ -52,7 +58,9 @@ afterAll(async () => {
   // Force-close the HTTP server to avoid hanging on lingering connections
   app.server.closeAllConnections();
   await app.close();
-  try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(testDir, { recursive: true, force: true });
+  } catch {}
 });
 
 // Helper: create a terminal session via REST and return the id
@@ -72,7 +80,11 @@ async function createShellSession(): Promise<string> {
 function connectWs(sessionId: string): Promise<WebSocket> {
   const wsUrl = baseUrl.replace("http", "ws") + `/ws/terminal/${sessionId}`;
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl);
+    // Send a valid same-origin Origin header (as a browser does); the handler
+    // now rejects handshakes with a missing/disallowed Origin.
+    const ws = new WebSocket(wsUrl, {
+      headers: { Origin: "http://localhost:5173" },
+    } as any);
     openWebSockets.push(ws);
     ws.addEventListener("open", () => resolve(ws));
     ws.addEventListener("error", (e) => reject(e));
@@ -85,10 +97,14 @@ function connectWs(sessionId: string): Promise<WebSocket> {
 function _nextMessage(ws: WebSocket, timeoutMs = 5000): Promise<any> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("WS message timeout")), timeoutMs);
-    ws.addEventListener("message", (event) => {
-      clearTimeout(timer);
-      resolve(JSON.parse(typeof event.data === "string" ? event.data : event.data.toString()));
-    }, { once: true });
+    ws.addEventListener(
+      "message",
+      (event) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(typeof event.data === "string" ? event.data : event.data.toString()));
+      },
+      { once: true },
+    );
   });
 }
 
@@ -97,7 +113,9 @@ function collectMessages(ws: WebSocket, durationMs: number): Promise<any[]> {
   return new Promise((resolve) => {
     const messages: any[] = [];
     const handler = (event: MessageEvent) => {
-      messages.push(JSON.parse(typeof event.data === "string" ? event.data : event.data.toString()));
+      messages.push(
+        JSON.parse(typeof event.data === "string" ? event.data : event.data.toString()),
+      );
     };
     ws.addEventListener("message", handler);
     setTimeout(() => {
@@ -150,7 +168,10 @@ describe("WebSocket connection", () => {
     // Reconnect — should get scrollback containing previous output
     const ws2 = await connectWs(sessionId);
     const msgs = await collectMessages(ws2, 2000);
-    const allOutput = msgs.filter((m) => m.type === "output").map((m) => m.data).join("");
+    const allOutput = msgs
+      .filter((m) => m.type === "output")
+      .map((m) => m.data)
+      .join("");
 
     expect(allOutput).toContain("RECONNECT_TEST_42");
 
@@ -173,7 +194,10 @@ describe("WebSocket input message types", () => {
     // Verify connection stays alive by sending and receiving data
     ws.send(JSON.stringify({ type: "input", data: "echo RESIZE_OK\r" }));
     const msgs = await collectMessages(ws, 2000);
-    const allOutput = msgs.filter((m) => m.type === "output").map((m) => m.data).join("");
+    const allOutput = msgs
+      .filter((m) => m.type === "output")
+      .map((m) => m.data)
+      .join("");
     expect(allOutput).toContain("RESIZE_OK");
 
     ws.close();
@@ -186,7 +210,10 @@ describe("WebSocket input message types", () => {
     // Send binary type message (treated same as input)
     ws.send(JSON.stringify({ type: "binary", data: "echo BINARY_MSG\r" }));
     const msgs = await collectMessages(ws, 2000);
-    const allOutput = msgs.filter((m) => m.type === "output").map((m) => m.data).join("");
+    const allOutput = msgs
+      .filter((m) => m.type === "output")
+      .map((m) => m.data)
+      .join("");
     expect(allOutput).toContain("BINARY_MSG");
 
     ws.close();
@@ -202,7 +229,10 @@ describe("WebSocket input message types", () => {
     // Connection should still be alive
     ws.send(JSON.stringify({ type: "input", data: "echo AFTER_MALFORMED\r" }));
     const msgs = await collectMessages(ws, 2000);
-    const allOutput = msgs.filter((m) => m.type === "output").map((m) => m.data).join("");
+    const allOutput = msgs
+      .filter((m) => m.type === "output")
+      .map((m) => m.data)
+      .join("");
     expect(allOutput).toContain("AFTER_MALFORMED");
 
     ws.close();
@@ -218,7 +248,9 @@ describe("WebSocket to non-existent session", () => {
     const wsUrl = baseUrl.replace("http", "ws") + "/ws/terminal/nonexistent-session-id";
 
     const result = await new Promise<{ code: number; reason: string }>((resolve, reject) => {
-      const ws = new WebSocket(wsUrl);
+      // Valid Origin so the request passes the origin check and reaches the
+      // unknown-session branch (otherwise it would close 4003 first).
+      const ws = new WebSocket(wsUrl, { headers: { Origin: "http://localhost:5173" } } as any);
       ws.addEventListener("close", (ev) => {
         resolve({ code: ev.code, reason: ev.reason });
       });
@@ -266,7 +298,9 @@ describe("WebSocket origin validation", () => {
     ].join("\r\n");
 
     const closeResult = await new Promise<{ code: number } | "timeout">((resolve) => {
-      const socket = net.connect(port, host, () => { socket.write(rawHandshake); });
+      const socket = net.connect(port, host, () => {
+        socket.write(rawHandshake);
+      });
       const chunks: Buffer[] = [];
       let resolved = false;
 
@@ -322,8 +356,7 @@ describe("WebSocket origin validation", () => {
 
   test("allows connections from allowed localhost origins", async () => {
     const sessionId = await createShellSession();
-    // Bun's WebSocket constructor sends no Origin header by default,
-    // which the handler treats as allowed (origin is falsy → passes check).
+    // connectWs sends Origin: http://localhost:5173 (an allowed app origin).
     const ws = await connectWs(sessionId);
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import { tryDecrypt } from "../lib/crypto";
 import { writeTaskSnapshot } from "../services/snapshot";
 import { applyTimestampCascade } from "./tasks";
 import type { DatabaseHandle } from "../lib/runtime";
@@ -70,23 +71,35 @@ const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
 function getNotionToken(db: DatabaseHandle): string | null {
-  const row = db
-    .prepare("SELECT value FROM settings WHERE key = ?")
-    .get("notionApiKey") as { value: string } | undefined;
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("notionApiKey") as
+    | { value: string }
+    | undefined;
   if (!row) return null;
+  let stored: unknown;
   try {
-    const parsed = JSON.parse(row.value);
-    return parsed || null;
+    stored = JSON.parse(row.value);
   } catch {
     return null;
   }
+  if (typeof stored !== "string" || !stored) return null;
+  // Stored value is encrypted at rest; fall back to legacy plaintext if it
+  // doesn't decrypt (re-encrypted on next save via settings route).
+  return tryDecrypt(stored) ?? stored;
+}
+
+// Notion ids are uuids (with or without dashes); validate before interpolating
+// into the API path so a crafted id cannot escape it.
+const NOTION_ID_RE = /^[0-9a-fA-F-]{32,36}$/;
+
+function notionIdSegment(id: string): string {
+  return NOTION_ID_RE.test(id) ? id : encodeURIComponent(id);
 }
 
 async function notionFetch(
   token: string,
   path: string,
   options: RequestInit = {},
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<Record<string, any>> {
   const res = await fetch(`${NOTION_API}${path}`, {
     ...options,
@@ -96,6 +109,8 @@ async function notionFetch(
       "Content-Type": "application/json",
       ...options.headers,
     },
+    // Never follow redirects: stops the bearer token being bounced to another host.
+    redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
@@ -114,14 +129,10 @@ export function extractTitle(obj: NotionObject): string {
     if (typeof obj.title === "string") return obj.title;
   }
   if (obj.properties?.title?.title) {
-    return obj.properties.title.title
-      .map((t) => t.plain_text || "")
-      .join("") || "Untitled";
+    return obj.properties.title.title.map((t) => t.plain_text || "").join("") || "Untitled";
   }
   if (obj.properties?.Name?.title) {
-    return obj.properties.Name.title
-      .map((t) => t.plain_text || "")
-      .join("") || "Untitled";
+    return obj.properties.Name.title.map((t) => t.plain_text || "").join("") || "Untitled";
   }
   // Try all properties for a title type
   if (obj.properties) {
@@ -187,7 +198,9 @@ export function blocksToMarkdown(blocks: NotionBlock[]): string {
         break;
       }
       case "toggle":
-        lines.push(`<details><summary>${richTextToMarkdown(block.toggle?.rich_text || [])}</summary></details>`);
+        lines.push(
+          `<details><summary>${richTextToMarkdown(block.toggle?.rich_text || [])}</summary></details>`,
+        );
         lines.push("");
         break;
       case "code": {
@@ -213,10 +226,7 @@ export function blocksToMarkdown(blocks: NotionBlock[]): string {
         break;
       }
       case "image": {
-        const url =
-          block.image?.file?.url ||
-          block.image?.external?.url ||
-          "";
+        const url = block.image?.file?.url || block.image?.external?.url || "";
         const caption = richTextToMarkdown(block.image?.caption || []);
         lines.push(`![${caption}](${url})`);
         lines.push("");
@@ -261,7 +271,7 @@ async function fetchAllDatabasePages(token: string, databaseId: string): Promise
   while (true) {
     const body: Record<string, unknown> = { page_size: 100 };
     if (cursor) body.start_cursor = cursor;
-    const data = await notionFetch(token, `/databases/${databaseId}/query`, {
+    const data = await notionFetch(token, `/databases/${notionIdSegment(databaseId)}/query`, {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -272,12 +282,35 @@ async function fetchAllDatabasePages(token: string, databaseId: string): Promise
   return all;
 }
 
+// Map with bounded concurrency so a large database doesn't fire hundreds of
+// block-fetch chains at once (Notion rate-limits + memory). Preserves order.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function fetchAllBlocks(token: string, blockId: string): Promise<NotionBlock[]> {
   const all: NotionBlock[] = [];
   let cursor: string | undefined;
   while (true) {
     const qs = cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : "";
-    const data = await notionFetch(token, `/blocks/${blockId}/children?page_size=100${qs}`);
+    const data = await notionFetch(
+      token,
+      `/blocks/${notionIdSegment(blockId)}/children?page_size=100${qs}`,
+    );
     all.push(...((data.results as NotionBlock[]) ?? []));
     if (!data.has_more || !data.next_cursor) break;
     cursor = data.next_cursor as string;
@@ -379,7 +412,7 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
     const { databaseId } = request.params as { databaseId: string };
 
     try {
-      const data = await notionFetch(token, `/databases/${databaseId}/query`, {
+      const data = await notionFetch(token, `/databases/${notionIdSegment(databaseId)}/query`, {
         method: "POST",
         body: JSON.stringify({ page_size: 100 }),
       });
@@ -410,9 +443,10 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       // Fetch page metadata and blocks in parallel
+      const idSeg = notionIdSegment(pageId);
       const [page, blocksData] = await Promise.all([
-        notionFetch(token, `/pages/${pageId}`),
-        notionFetch(token, `/blocks/${pageId}/children?page_size=100`),
+        notionFetch(token, `/pages/${idSeg}`),
+        notionFetch(token, `/blocks/${idSeg}/children?page_size=100`),
       ]);
 
       const markdown = blocksToMarkdown((blocksData.results || []) as NotionBlock[]);
@@ -448,16 +482,12 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       const pages = await fetchAllDatabasePages(token, project.notionDatabaseId);
-      const pageMarkdowns = await Promise.all(
-        pages.map(async (p) => {
-          try {
-            const blocks = await fetchAllBlocks(token, p.id);
-            return blocksToMarkdown(blocks);
-          } catch {
-            return "";
-          }
-        }),
-      );
+      // Cap in-flight block-fetch chains; let failures bubble so we don't
+      // silently import tasks with empty content.
+      const pageMarkdowns = await mapWithConcurrency(pages, 5, async (p) => {
+        const blocks = await fetchAllBlocks(token, p.id);
+        return blocksToMarkdown(blocks);
+      });
 
       let imported = 0;
       let updated = 0;
@@ -477,7 +507,9 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
 
         const sortOrderMap = new Map<string, number>();
         const rows = db
-          .prepare("SELECT status, MAX(sortOrder) as m FROM tasks WHERE projectId = ? GROUP BY status")
+          .prepare(
+            "SELECT status, MAX(sortOrder) as m FROM tasks WHERE projectId = ? GROUP BY status",
+          )
           .all(projectId) as { status: string; m: number | null }[];
         for (const row of rows) sortOrderMap.set(row.status, row.m ?? 0);
 
@@ -520,7 +552,10 @@ const notionRoutes: FastifyPluginAsync = async (fastify) => {
               cols.push(`${k} = ?`);
               vals.push(v);
             }
-            db.prepare(`UPDATE tasks SET ${cols.join(", ")} WHERE id = ?`).run(...vals, existing.id);
+            db.prepare(`UPDATE tasks SET ${cols.join(", ")} WHERE id = ?`).run(
+              ...vals,
+              existing.id,
+            );
             updated++;
           } else {
             const id = crypto.randomUUID();

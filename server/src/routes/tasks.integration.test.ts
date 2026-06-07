@@ -1,6 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll, afterEach, mock } from "bun:test";
 import { buildApp } from "../app";
-import { writeFile as realWriteFile, spawnProcess as realSpawnProcess, isBun as realIsBun } from "../lib/runtime";
+import {
+  writeFile as realWriteFile,
+  spawnProcess as realSpawnProcess,
+  isBun as realIsBun,
+} from "../lib/runtime";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let projectId: string;
@@ -21,7 +25,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  
 });
 
 // ---------------------------------------------------------------------------
@@ -195,16 +198,31 @@ describe("Task query and filtering", () => {
 
   beforeAll(async () => {
     // Create tasks with specific attributes for filtering
-    const todoTask = await createTask({ title: "Filter Todo Task", status: "todo", priority: "low" });
+    const todoTask = await createTask({
+      title: "Filter Todo Task",
+      status: "todo",
+      priority: "low",
+    });
     _todoTaskId = todoTask.id;
 
-    const ipTask = await createTask({ title: "Filter InProgress Task", status: "in_progress", priority: "high" });
+    const ipTask = await createTask({
+      title: "Filter InProgress Task",
+      status: "in_progress",
+      priority: "high",
+    });
     _inProgressTaskId = ipTask.id;
 
-    const highTask = await createTask({ title: "Filter High Priority", status: "backlog", priority: "urgent" });
+    const highTask = await createTask({
+      title: "Filter High Priority",
+      status: "backlog",
+      priority: "urgent",
+    });
     _highPriorityTaskId = highTask.id;
 
-    const searchTask = await createTask({ title: "UniqueKeyword XyzzyPlugh", description: "searchable content" });
+    const searchTask = await createTask({
+      title: "UniqueKeyword XyzzyPlugh",
+      description: "searchable content",
+    });
     searchableTaskId = searchTask.id;
   });
 
@@ -1090,7 +1108,10 @@ describe("AI preflight endpoint", () => {
 
     // Large task
     const longDescription = "A".repeat(500);
-    const largeTask = await createTask({ title: "Major refactor of the entire codebase", description: longDescription });
+    const largeTask = await createTask({
+      title: "Major refactor of the entire codebase",
+      description: longDescription,
+    });
     const largeRes = await app.inject({
       method: "GET",
       url: `/api/projects/${projectId}/tasks/${largeTask.id}/ai-preflight`,
@@ -1402,7 +1423,8 @@ describe("AI resolve endpoint", () => {
   test("POST /api/projects/:projectId/tasks/:taskId/ai-resolve - returns prompt string for existing task", async () => {
     const task = await createTask({
       title: "Add dark mode support to the UI",
-      description: "Implement a toggle that switches between light and dark themes using CSS variables",
+      description:
+        "Implement a toggle that switches between light and dark themes using CSS variables",
       prompt: "Use Tailwind CSS dark: prefix classes",
       status: "todo",
     });
@@ -1548,6 +1570,8 @@ describe("AI stats endpoint", () => {
     expect(typeof stats.successRate).toBe("number");
     expect(typeof stats.profileBreakdown).toBe("object");
     expect(Array.isArray(stats.commonFailures)).toBe(true);
+    expect(typeof stats.totalCostUsd).toBe("number");
+    expect(typeof stats.runningCount).toBe("number");
   });
 
   test("GET /api/projects/:projectId/ai-stats - returns zero stats for project with no runs", async () => {

@@ -30,11 +30,30 @@ export interface PtySession {
 // ── Safe environment ───────────────────────────────────────────
 
 export const SAFE_ENV_KEYS = new Set([
-  "PATH", "HOME", "HOMEDRIVE", "HOMEPATH", "USERPROFILE",
-  "USER", "USERNAME", "SHELL", "TERM", "LANG", "LC_ALL",
-  "TMPDIR", "TEMP", "TMP", "NODE_ENV", "EDITOR",
-  "SYSTEMROOT", "WINDIR", "COMSPEC", "PSModulePath",
-  "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA",
+  "PATH",
+  "HOME",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "USERPROFILE",
+  "USER",
+  "USERNAME",
+  "SHELL",
+  "TERM",
+  "LANG",
+  "LC_ALL",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "NODE_ENV",
+  "EDITOR",
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "PSModulePath",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMFILES",
+  "PROGRAMDATA",
 ]);
 
 export function getSafeEnv(): Record<string, string> {
@@ -61,6 +80,18 @@ export function _resetIdCounter(): void {
   idCounter = 0;
 }
 
+// Cryptographically-random session id (unguessable → resists WS hijack).
+// Clients always use this server-issued id, so no client change needed.
+export function generateSessionId(): string {
+  return `term-${crypto.randomUUID()}`;
+}
+
+// Cap on concurrent live sessions to prevent unbounded resource use.
+export const MAX_LIVE_SESSIONS = 50;
+
+// Max bytes buffered per slow WS before we skip sending (backpressure guard).
+const WS_BACKPRESSURE_LIMIT = 1_000_000;
+
 // ── Resolve CWD from projectId or fallback ─────────────────────
 
 export function resolveCwd(projectId?: string): string {
@@ -74,6 +105,13 @@ export function resolveCwd(projectId?: string): string {
 
 // ── Output routing: send to WS or buffer ───────────────────────
 
+// Skip sends when a slow client's socket has too much buffered, so output
+// from a fast PTY can't make the server buffer unbounded memory.
+function wsBackpressured(ws: any): boolean {
+  const buffered = ws?.bufferedAmount;
+  return typeof buffered === "number" && buffered > WS_BACKPRESSURE_LIMIT;
+}
+
 export function emitData(session: PtySession, data: string) {
   // Always append to scrollback for reconnection support
   session.scrollback += data;
@@ -82,9 +120,20 @@ export function emitData(session: PtySession, data: string) {
   }
 
   if (session.ws && session.ws.readyState === 1) {
+    // Drop chunk if the socket is congested — scrollback still has it for replay.
+    if (wsBackpressured(session.ws)) return;
     session.ws.send(JSON.stringify({ type: "output", data }));
   } else {
     session.outputBuffer.push(data);
+    // Cap detached buffer so it can't grow unbounded with no WS attached.
+    let total = 0;
+    for (let i = session.outputBuffer.length - 1; i >= 0; i--) {
+      total += session.outputBuffer[i].length;
+      if (total > MAX_SCROLLBACK_CHARS) {
+        session.outputBuffer.splice(0, i);
+        break;
+      }
+    }
   }
 }
 
@@ -98,7 +147,10 @@ export function emitExit(session: PtySession, exitCode: number) {
 
 // ── Branch checkout helper ────────────────────────────────────
 
-async function checkoutBranch(cwd: string, branch: string): Promise<{ ok: boolean; error?: string }> {
+async function checkoutBranch(
+  cwd: string,
+  branch: string,
+): Promise<{ ok: boolean; error?: string }> {
   const { spawn: spawnCmd } = await import("../lib/spawn");
   // Check current branch — skip if already on target
   const currentResult = await spawnCmd(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd });
@@ -138,6 +190,8 @@ function spawnShellPty(
     session.alive = false;
     session.proc = null;
     emitExit(session, exitCode ?? 0);
+    // Remove exited session from the map so it doesn't leak.
+    sessions.delete(id);
   });
 
   session.proc = pty;
@@ -190,7 +244,14 @@ function spawnAiResolve(
         db.prepare(
           `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success)
            VALUES (?, ?, ?, ?, 'auto', 'medium', ?, ?)`,
-        ).run(crypto.randomUUID(), session.taskId, session.projectId, session.id, code, success ? 1 : 0);
+        ).run(
+          crypto.randomUUID(),
+          session.taskId,
+          session.projectId,
+          session.id,
+          code,
+          success ? 1 : 0,
+        );
 
         // Chain AI Test session if resolve succeeded and autoTest is enabled
         if (success && session.taskId && session.projectId && opts.autoTest !== false) {
@@ -230,7 +291,9 @@ async function chainAiTest(
 
   // Set task back to in_progress so test agent controls the done transition
   const ts = new Date().toISOString();
-  db.prepare("UPDATE tasks SET status = 'in_progress', doneAt = NULL, updatedAt = ? WHERE id = ?").run(ts, taskId);
+  db.prepare(
+    "UPDATE tasks SET status = 'in_progress', doneAt = NULL, updatedAt = ? WHERE id = ?",
+  ).run(ts, taskId);
 
   const prompt = await buildAiTestPrompt(task, projectId, port);
 
@@ -280,7 +343,14 @@ function spawnAiTest(
         db.prepare(
           `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success)
            VALUES (?, ?, ?, ?, 'test', 'medium', ?, ?)`,
-        ).run(crypto.randomUUID(), session.taskId, session.projectId, session.id, code, success ? 1 : 0);
+        ).run(
+          crypto.randomUUID(),
+          session.taskId,
+          session.projectId,
+          session.id,
+          code,
+          success ? 1 : 0,
+        );
       } catch (e) {
         log("warn", "terminal", `Failed to record AI test run: ${e}`);
       }
@@ -322,7 +392,14 @@ export interface CreateSessionOptions {
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<PtySession> {
-  const id = generateId();
+  // Enforce cap on concurrent live sessions
+  let liveCount = 0;
+  for (const s of sessions.values()) if (s.alive) liveCount++;
+  if (liveCount >= MAX_LIVE_SESSIONS) {
+    throw new Error(`Too many active terminal sessions (max ${MAX_LIVE_SESSIONS})`);
+  }
+
+  const id = generateSessionId();
   const cwd = resolveCwd(opts.projectId);
   const safeEnv = getSafeEnv();
 
@@ -354,7 +431,10 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
   // AI Resolve: interactive PTY running claude CLI
   if (opts.type === "ai-resolve" && opts.prompt) {
     spawnAiResolve(session, opts.prompt, safeEnv, opts);
-    log("info", "terminal", `Session created: ${id}`, { type: "ai-resolve", backend: "bun-terminal" });
+    log("info", "terminal", `Session created: ${id}`, {
+      type: "ai-resolve",
+      backend: "bun-terminal",
+    });
     return session;
   }
 
@@ -367,9 +447,11 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   // ── Resolve shell from settings ───────────────────────────────
   const db = getDb();
-  const shellSetting = db.prepare("SELECT value FROM settings WHERE key = 'terminalShell'").get() as any;
+  const shellSetting = db
+    .prepare("SELECT value FROM settings WHERE key = 'terminalShell'")
+    .get() as any;
   const isWindows = process.platform === "win32";
-  let shell = isWindows ? "cmd.exe" : (process.env.SHELL || "/bin/bash");
+  let shell = isWindows ? "cmd.exe" : process.env.SHELL || "/bin/bash";
   if (shellSetting) {
     try {
       const parsed = JSON.parse(shellSetting.value);
@@ -454,7 +536,7 @@ export function attachWs(id: string, ws: any): boolean {
   // Flush buffered output that arrived before WS connected
   if (session.outputBuffer.length > 0) {
     for (const data of session.outputBuffer) {
-      if (ws.readyState === 1) {
+      if (ws.readyState === 1 && !wsBackpressured(ws)) {
         ws.send(JSON.stringify({ type: "output", data }));
       }
     }
@@ -488,10 +570,19 @@ export let batchState: BatchResolveStatus = {
 };
 
 export function getBatchResolveStatus(): BatchResolveStatus {
-  return { ...batchState, activeTasks: [...(batchState.activeTasks ?? [])], taskResults: [...batchState.taskResults] };
+  return {
+    ...batchState,
+    activeTasks: [...(batchState.activeTasks ?? [])],
+    taskResults: [...batchState.taskResults],
+  };
 }
 
-export async function startBatchResolve(projectId: string, taskIds: string[], concurrency: number = 1, overrideBranch?: string): Promise<BatchResolveStatus> {
+export async function startBatchResolve(
+  projectId: string,
+  taskIds: string[],
+  concurrency: number = 1,
+  overrideBranch?: string,
+): Promise<BatchResolveStatus> {
   if (batchState.state === "running") {
     throw new Error("A batch resolve is already running");
   }
@@ -502,7 +593,9 @@ export async function startBatchResolve(projectId: string, taskIds: string[], co
   // Validate all tasks exist
   const tasks: Task[] = [];
   for (const id of taskIds) {
-    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND projectId = ?").get(id, projectId) as Task | undefined;
+    const task = db
+      .prepare("SELECT * FROM tasks WHERE id = ? AND projectId = ?")
+      .get(id, projectId) as Task | undefined;
     if (task) tasks.push(task);
   }
 
@@ -562,7 +655,9 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
     // Update task status to in_progress
     const db = getDb();
     const ts = new Date().toISOString();
-    db.prepare("UPDATE tasks SET status = 'in_progress', inProgressAt = ?, updatedAt = ? WHERE id = ?").run(ts, ts, task.id);
+    db.prepare(
+      "UPDATE tasks SET status = 'in_progress', inProgressAt = ?, updatedAt = ? WHERE id = ?",
+    ).run(ts, ts, task.id);
 
     // Create the AI resolve session
     const session = await createSession({
@@ -582,7 +677,11 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
     batchState.currentTaskTitle = task.title;
     batchState.currentSessionId = session.id;
 
-    log("info", "terminal", `Batch resolve: started task "${task.title}" (${batchState.completedTasks + 1}/${batchState.totalTasks})`);
+    log(
+      "info",
+      "terminal",
+      `Batch resolve: started task "${task.title}" (${batchState.completedTasks + 1}/${batchState.totalTasks})`,
+    );
 
     // Wait for task completion (either session exits or task marked done in DB)
     const exitCode = await waitForTaskCompletion(session.id, task.id);
@@ -598,9 +697,17 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
     });
     batchState.completedTasks++;
 
-    log("info", "terminal", `Batch resolve: completed task "${task.title}" with exit code ${exitCode}`);
+    log(
+      "info",
+      "terminal",
+      `Batch resolve: completed task "${task.title}" with exit code ${exitCode}`,
+    );
   } catch (err) {
-    log("error", "terminal", `Batch resolve: error processing task "${task.title}": ${String(err)}`);
+    log(
+      "error",
+      "terminal",
+      `Batch resolve: error processing task "${task.title}": ${String(err)}`,
+    );
     batchState.activeTasks = (batchState.activeTasks ?? []).filter((t) => t.taskId !== task.id);
     batchState.taskResults.push({
       taskId: task.id,
@@ -627,15 +734,28 @@ async function processQueueWithBranches(
     if (branch) {
       const result = await checkoutBranch(projectPath, branch);
       if (!result.ok) {
-        log("error", "terminal", `Batch resolve: failed to checkout branch "${branch}": ${result.error}`);
+        log(
+          "error",
+          "terminal",
+          `Batch resolve: failed to checkout branch "${branch}": ${result.error}`,
+        );
         // Mark all tasks in this group as failed
         for (const task of tasks) {
-          batchState.taskResults.push({ taskId: task.id, taskTitle: task.title, sessionId: "", exitCode: -1 });
+          batchState.taskResults.push({
+            taskId: task.id,
+            taskTitle: task.title,
+            sessionId: "",
+            exitCode: -1,
+          });
           batchState.completedTasks++;
         }
         continue;
       }
-      log("info", "terminal", `Batch resolve: switched to branch "${branch}" for ${tasks.length} task(s)`);
+      log(
+        "info",
+        "terminal",
+        `Batch resolve: switched to branch "${branch}" for ${tasks.length} task(s)`,
+      );
     }
 
     // Process tasks in this branch group with concurrency
@@ -650,7 +770,12 @@ async function processQueueWithBranches(
   log("info", "terminal", `Batch resolve: all ${batchState.totalTasks} tasks completed`);
 }
 
-async function processQueue(tasks: Task[], projectId: string, port: number, concurrency: number = 1): Promise<void> {
+async function processQueue(
+  tasks: Task[],
+  projectId: string,
+  port: number,
+  concurrency: number = 1,
+): Promise<void> {
   if (concurrency <= 1) {
     // Sequential processing (original behavior)
     for (const task of tasks) {
@@ -694,9 +819,15 @@ function waitForTaskCompletion(sessionId: string, taskId: string): Promise<numbe
       // Check if task status changed to "done" in DB (Claude finished the work)
       try {
         const db = getDb();
-        const task = db.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as { status: string } | undefined;
+        const task = db.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as
+          | { status: string }
+          | undefined;
         if (task && task.status === "done") {
-          log("info", "terminal", `Batch resolve: task ${taskId} marked done in DB, killing session ${sessionId}`);
+          log(
+            "info",
+            "terminal",
+            `Batch resolve: task ${taskId} marked done in DB, killing session ${sessionId}`,
+          );
           killSession(sessionId);
           resolve(0);
           return;

@@ -7,14 +7,16 @@ import os from "node:os";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
+// /browse and /projects/scan are confined to an allowlist of roots. Tests work
+// in os.tmpdir(), so register it as an allowed browse root for this process.
+process.env.VK_BROWSE_ROOTS = os.tmpdir();
+
 beforeAll(async () => {
   app = await buildApp();
   await app.ready();
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 describe("Projects API", () => {
   const uniqueSuffix = Date.now();
@@ -766,7 +768,11 @@ describe("PATCH /api/projects — edge cases", () => {
       method: "PATCH",
       url: `/api/projects/${projectId}`,
       headers: { "Content-Type": "application/json" },
-      payload: { aiInstructions: "Use TypeScript strict mode.", treeDepth: 4, aiCommitMode: "none" },
+      payload: {
+        aiInstructions: "Use TypeScript strict mode.",
+        treeDepth: 4,
+        aiCommitMode: "none",
+      },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();

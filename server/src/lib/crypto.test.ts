@@ -39,18 +39,26 @@ describe("crypto", () => {
     });
   });
 
-  describe("encrypt output format", () => {
-    test("returns colon-separated iv:ciphertext", () => {
+  describe("encrypt output format (authenticated v2)", () => {
+    test("returns version:iv:tag:ciphertext", () => {
       const encrypted = encrypt("test");
       const parts = encrypted.split(":");
-      expect(parts).toHaveLength(2);
+      expect(parts).toHaveLength(4);
+      expect(parts[0]).toBe("v2");
     });
 
-    test("IV is 32 hex chars (16 bytes)", () => {
+    test("IV is 24 hex chars (12-byte GCM nonce)", () => {
       const encrypted = encrypt("test");
-      const iv = encrypted.split(":")[0];
-      expect(iv).toHaveLength(32);
+      const iv = encrypted.split(":")[1];
+      expect(iv).toHaveLength(24);
       expect(iv).toMatch(/^[0-9a-f]+$/);
+    });
+
+    test("auth tag is 32 hex chars (16 bytes)", () => {
+      const encrypted = encrypt("test");
+      const tag = encrypted.split(":")[2];
+      expect(tag).toHaveLength(32);
+      expect(tag).toMatch(/^[0-9a-f]+$/);
     });
 
     test("produces different ciphertext for same input (random IV)", () => {
@@ -65,16 +73,25 @@ describe("crypto", () => {
       expect(() => decrypt("invalid")).toThrow();
     });
 
-    test("tampered ciphertext does not decrypt to original plaintext", () => {
+    test("rejects non-string / empty input instead of crashing on internals", () => {
+      expect(() => decrypt("")).toThrow();
+      expect(() => decrypt(undefined as any)).toThrow();
+    });
+
+    test("tampered ciphertext fails authentication (does not return plaintext)", () => {
       const plaintext = "test";
       const encrypted = encrypt(plaintext);
-      const [iv, cipher] = encrypted.split(":");
-      const tampered = iv + ":" + "ff" + cipher.slice(2);
+      const [v, iv, tag, cipher] = encrypted.split(":");
+      // Flip the first ciphertext byte to a GUARANTEED-different value (avoid the
+      // 1/256 case where forcing "ff" reproduces the original byte). GCM auth tag
+      // verification must then reject it.
+      const flipped = cipher.slice(0, 2) === "ff" ? "00" : "ff";
+      const tampered = [v, iv, tag, flipped + cipher.slice(2)].join(":");
       let result: string | null = null;
       try {
         result = decrypt(tampered);
       } catch {
-        return;
+        return; // expected: authentication failure throws
       }
       expect(result).not.toBe(plaintext);
     });

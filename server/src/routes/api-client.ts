@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
+import { proxyFetch, SsrfError } from "../lib/ssrf-guard";
+import { isAllowedOrigin } from "../lib/origin";
 
 const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
@@ -42,8 +44,14 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
 
     const fields: string[] = [];
     const values: any[] = [];
-    if (updates.name !== undefined) { fields.push("name = ?"); values.push(updates.name); }
-    if (updates.sortOrder !== undefined) { fields.push("sortOrder = ?"); values.push(updates.sortOrder); }
+    if (updates.name !== undefined) {
+      fields.push("name = ?");
+      values.push(updates.name);
+    }
+    if (updates.sortOrder !== undefined) {
+      fields.push("sortOrder = ?");
+      values.push(updates.sortOrder);
+    }
 
     if (fields.length) {
       fields.push("updatedAt = ?");
@@ -122,7 +130,16 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
 
     const fields: string[] = [];
     const values: any[] = [];
-    for (const key of ["name", "method", "url", "headers", "body", "sortOrder", "lastResponseStatus", "lastResponseTime"]) {
+    for (const key of [
+      "name",
+      "method",
+      "url",
+      "headers",
+      "body",
+      "sortOrder",
+      "lastResponseStatus",
+      "lastResponseTime",
+    ]) {
       if (updates[key] !== undefined) {
         fields.push(`${key} = ?`);
         values.push(updates[key]);
@@ -148,6 +165,14 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
   // ============ Execute Request (Proxy) ============
 
   fastify.post("/api-client/execute", async (request, reply) => {
+    // CSRF: a cross-origin web page the developer visits must not be able to
+    // drive this server-side proxy. Browsers always send Origin on such requests;
+    // same-origin (and non-browser/no-Origin) callers are allowed through.
+    const origin = request.headers.origin;
+    if (origin && !isAllowedOrigin(origin)) {
+      return reply.code(403).send({ error: "Cross-origin request blocked" });
+    }
+
     const { method, url, headers, body } = request.body as any;
 
     if (!url) return reply.code(400).send({ error: "url is required" });
@@ -176,7 +201,19 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
       const timeout = setTimeout(() => controller.abort(), 30000);
       fetchOptions.signal = controller.signal;
 
-      const res = await fetch(url, fetchOptions);
+      // SSRF guard: block http(s)-only, reject loopback/link-local/metadata/private
+      // targets, and re-validate every redirect hop. Without this, any web page the
+      // user visits can drive this server-side fetch at internal services.
+      let res: Response;
+      try {
+        res = await proxyFetch(url, fetchOptions);
+      } catch (e: any) {
+        clearTimeout(timeout);
+        if (e instanceof SsrfError) {
+          return reply.code(400).send({ error: e.message });
+        }
+        throw e;
+      }
       clearTimeout(timeout);
 
       const timeMs = Date.now() - startTime;

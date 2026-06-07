@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { decrypt } from "./crypto";
+import { tryDecrypt } from "./crypto";
 
 export interface MappedGitHubAccount {
   token: string;
@@ -26,8 +26,13 @@ export function getMappedGitHubAccount(
 
   if (!row) return null;
 
+  // Graceful: a malformed/legacy/tampered token must not throw an uncaught 500.
+  // Returning null makes git fall back to the user's ambient credentials.
+  const token = tryDecrypt(row.token);
+  if (token === null) return null;
+
   return {
-    token: decrypt(row.token),
+    token,
     username: row.username,
     email: row.email,
     name: row.name,
@@ -41,10 +46,22 @@ export function getMappedGitHubAccount(
  */
 export function gitAuthArgs(token: string): string[] {
   const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
-  return [
-    "-c",
-    `http.https://github.com/.extraheader=Authorization: Basic ${basic}`,
-  ];
+  return ["-c", `http.https://github.com/.extraheader=Authorization: Basic ${basic}`];
+}
+
+/**
+ * Same effect as gitAuthArgs but injected via GIT_CONFIG_* environment variables
+ * (git >= 2.31) instead of `-c` on the command line. This keeps the token out of
+ * the process table (`ps`/`/proc/<pid>/cmdline`) and out of any error echo of argv.
+ * Pass the returned object as the child's env.
+ */
+export function gitAuthEnv(token: string): Record<string, string> {
+  const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
+  return {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+  };
 }
 
 /**

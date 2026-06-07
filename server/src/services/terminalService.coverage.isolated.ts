@@ -12,8 +12,12 @@ const mockPtyHandle = {
   write: mock(() => {}),
   resize: mock(() => {}),
   kill: mock(() => {}),
-  onData: mock((cb: (data: string) => void) => { latestPtyOnData = cb; }),
-  onExit: mock((cb: (exitCode: number) => void) => { latestPtyOnExit = cb; }),
+  onData: mock((cb: (data: string) => void) => {
+    latestPtyOnData = cb;
+  }),
+  onExit: mock((cb: (exitCode: number) => void) => {
+    latestPtyOnExit = cb;
+  }),
 };
 
 const mockSpawnPty = mock((cmd: string, args: string[], opts: any) => {
@@ -177,11 +181,11 @@ describe("terminalService coverage — PTY-spawning paths", () => {
       expect(spawnPtyCalls[0].opts.rows).toBe(24);
     });
 
-    test("session stays in sessions map after exit (shell does not self-delete)", async () => {
+    test("session is removed from sessions map after exit (no leak)", async () => {
       const session = await createSession({ type: "shell" });
       latestPtyOnExit!(0);
-      // Shell onExit does NOT call sessions.delete — only ai-resolve/ai-test do
-      expect(sessions.has(session.id)).toBe(true);
+      // Shell onExit now deletes the session so exited shells don't leak in the map.
+      expect(sessions.has(session.id)).toBe(false);
     });
   });
 
@@ -511,7 +515,9 @@ describe("terminalService coverage — PTY-spawning paths", () => {
       ];
 
       mockPrepare.mockImplementation((sql: string) => {
-        const impl = prepImpls[prepCallIdx] ?? ((_s: string) => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }));
+        const impl =
+          prepImpls[prepCallIdx] ??
+          ((_s: string) => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }));
         prepCallIdx++;
         return impl(sql);
       });
@@ -592,17 +598,17 @@ describe("terminalService coverage — PTY-spawning paths", () => {
         run: mockDbRun,
       }));
 
-      await expect(
-        startBatchResolve("proj-1", ["nonexistent-task"])
-      ).rejects.toThrow("No valid tasks found");
+      await expect(startBatchResolve("proj-1", ["nonexistent-task"])).rejects.toThrow(
+        "No valid tasks found",
+      );
     });
 
     test("throws if batch already running", async () => {
       (batchState as any).state = "running";
 
-      await expect(
-        startBatchResolve("proj-1", ["task-1"])
-      ).rejects.toThrow("A batch resolve is already running");
+      await expect(startBatchResolve("proj-1", ["task-1"])).rejects.toThrow(
+        "A batch resolve is already running",
+      );
     });
 
     test("sets batchState to running with correct totals", async () => {
@@ -633,8 +639,24 @@ describe("terminalService coverage — PTY-spawning paths", () => {
     });
 
     test("groups tasks by branch correctly", async () => {
-      const task1 = { id: "t-1", title: "Task 1", status: "todo", projectId: "p", branch: "feat/a", description: null, prompt: null };
-      const task2 = { id: "t-2", title: "Task 2", status: "todo", projectId: "p", branch: "feat/b", description: null, prompt: null };
+      const task1 = {
+        id: "t-1",
+        title: "Task 1",
+        status: "todo",
+        projectId: "p",
+        branch: "feat/a",
+        description: null,
+        prompt: null,
+      };
+      const task2 = {
+        id: "t-2",
+        title: "Task 2",
+        status: "todo",
+        projectId: "p",
+        branch: "feat/b",
+        description: null,
+        prompt: null,
+      };
 
       let callCount = 0;
       mockPrepare.mockImplementation(() => ({
@@ -679,7 +701,13 @@ describe("terminalService coverage — PTY-spawning paths", () => {
       // Set up an active session in sessions map
       const session = {
         id: "active-s1",
-        proc: { write: mock(() => {}), resize: mock(() => {}), kill: mock(() => {}), onData: mock(() => {}), onExit: mock(() => {}) },
+        proc: {
+          write: mock(() => {}),
+          resize: mock(() => {}),
+          kill: mock(() => {}),
+          onData: mock(() => {}),
+          onExit: mock(() => {}),
+        },
         cwd: "/tmp",
         type: "ai-resolve" as const,
         alive: true,
@@ -691,7 +719,9 @@ describe("terminalService coverage — PTY-spawning paths", () => {
       sessions.set("active-s1", session);
 
       (batchState as any).state = "running";
-      (batchState as any).activeTasks = [{ taskId: "t-1", taskTitle: "Task 1", sessionId: "active-s1" }];
+      (batchState as any).activeTasks = [
+        { taskId: "t-1", taskTitle: "Task 1", sessionId: "active-s1" },
+      ];
       (batchState as any).currentSessionId = undefined;
 
       cancelBatchResolve();
@@ -777,16 +807,18 @@ describe("terminalService coverage — PTY-spawning paths", () => {
       // 7. SELECT status FROM tasks (waitForTaskCompletion DB check)
       let prepIdx = 0;
       const prepares = [
-        () => ({ get: mock(() => mockTask), all: mock(() => []), run: mockDbRun }),           // 1 task validation
-        () => ({ get: mock(() => null), all: mock(() => []), run: mockDbRun }),               // 2 resolveCwd project
-        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }),           // 3 UPDATE in_progress
-        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }),           // 4 resolveCwd in createSession
-        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }),           // 5 settings shell
+        () => ({ get: mock(() => mockTask), all: mock(() => []), run: mockDbRun }), // 1 task validation
+        () => ({ get: mock(() => null), all: mock(() => []), run: mockDbRun }), // 2 resolveCwd project
+        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }), // 3 UPDATE in_progress
+        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }), // 4 resolveCwd in createSession
+        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }), // 5 settings shell
         () => ({ get: mock(() => ({ status: "done" })), all: mock(() => []), run: mockDbRun }), // 6 waitForTask check
       ];
 
       mockPrepare.mockImplementation(() => {
-        const fn = prepares[prepIdx] ?? (() => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }));
+        const fn =
+          prepares[prepIdx] ??
+          (() => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }));
         prepIdx++;
         return fn();
       });
@@ -815,7 +847,15 @@ describe("terminalService coverage — PTY-spawning paths", () => {
 
   describe("startBatchResolve — concurrency > 1", () => {
     test("clamps concurrency to max 10", async () => {
-      const mockTask = { id: "t-c1", title: "T1", status: "todo", projectId: "p", branch: null, description: null, prompt: null };
+      const mockTask = {
+        id: "t-c1",
+        title: "T1",
+        status: "todo",
+        projectId: "p",
+        branch: null,
+        description: null,
+        prompt: null,
+      };
 
       mockPrepare.mockImplementation(() => ({
         get: mock(() => mockTask),
@@ -828,7 +868,15 @@ describe("terminalService coverage — PTY-spawning paths", () => {
     });
 
     test("clamps concurrency to min 1", async () => {
-      const mockTask = { id: "t-c2", title: "T2", status: "todo", projectId: "p", branch: null, description: null, prompt: null };
+      const mockTask = {
+        id: "t-c2",
+        title: "T2",
+        status: "todo",
+        projectId: "p",
+        branch: null,
+        description: null,
+        prompt: null,
+      };
 
       mockPrepare.mockImplementation(() => ({
         get: mock(() => mockTask),
@@ -845,8 +893,24 @@ describe("terminalService coverage — PTY-spawning paths", () => {
 
   describe("processQueueWithBranches — branch group checkout failure", () => {
     test("marks all tasks in branch group failed if checkout fails", async () => {
-      const task1 = { id: "t-bf1", title: "BF Task 1", status: "todo", projectId: "p", branch: "fail-branch", description: null, prompt: null };
-      const task2 = { id: "t-bf2", title: "BF Task 2", status: "todo", projectId: "p", branch: "fail-branch", description: null, prompt: null };
+      const task1 = {
+        id: "t-bf1",
+        title: "BF Task 1",
+        status: "todo",
+        projectId: "p",
+        branch: "fail-branch",
+        description: null,
+        prompt: null,
+      };
+      const task2 = {
+        id: "t-bf2",
+        title: "BF Task 2",
+        status: "todo",
+        projectId: "p",
+        branch: "fail-branch",
+        description: null,
+        prompt: null,
+      };
 
       let taskCallCount = 0;
       mockPrepare.mockImplementation(() => ({
@@ -862,7 +926,7 @@ describe("terminalService coverage — PTY-spawning paths", () => {
 
       // All git spawn calls fail (checkout fails for this branch)
       mockSpawnCmd
-        .mockImplementationOnce(async () => ({ stdout: "main\n", stderr: "", exitCode: 0 }))    // rev-parse
+        .mockImplementationOnce(async () => ({ stdout: "main\n", stderr: "", exitCode: 0 })) // rev-parse
         .mockImplementationOnce(async () => ({ stdout: "", stderr: "no branch", exitCode: 1 })) // checkout
         .mockImplementationOnce(async () => ({ stdout: "", stderr: "no branch", exitCode: 1 })); // checkout -b
 
@@ -937,7 +1001,14 @@ describe("terminalService coverage — PTY-spawning paths", () => {
 
     test("ai-resolve onExit with WS attached sends exit message", async () => {
       const session = await createSession({ type: "ai-resolve", prompt: "fix" });
-      const mockWs = { readyState: 1, sent: [] as string[], send(d: string) { this.sent.push(d); }, close() {} };
+      const mockWs = {
+        readyState: 1,
+        sent: [] as string[],
+        send(d: string) {
+          this.sent.push(d);
+        },
+        close() {},
+      };
       session.ws = mockWs;
 
       latestPtyOnExit!(0);
@@ -949,7 +1020,14 @@ describe("terminalService coverage — PTY-spawning paths", () => {
 
     test("shell onExit with WS attached sends exit message via emitExit", async () => {
       const session = await createSession({ type: "shell" });
-      const mockWs = { readyState: 1, sent: [] as string[], send(d: string) { this.sent.push(d); }, close() {} };
+      const mockWs = {
+        readyState: 1,
+        sent: [] as string[],
+        send(d: string) {
+          this.sent.push(d);
+        },
+        close() {},
+      };
       session.ws = mockWs;
 
       latestPtyOnExit!(2);
