@@ -115,6 +115,27 @@ interface ActiveRunTransient {
 
 const transient = new Map<string, ActiveRunTransient>();
 const MAX_OUTPUT_BYTES = 256 * 1024;
+const MAX_TRANSIENT_RUNS = 25;
+const ACTIVE_WIRE_OUTPUT_BYTES = 8 * 1024;
+// Live bench child processes — killed on server shutdown so a run can't outlive
+// the server (and so we don't leak orphaned `bun` processes).
+const runningProcs = new Set<{ kill: () => void }>();
+
+function pruneTransient(): void {
+  // Bound memory: evict oldest *finished* runs once over the cap. Map preserves
+  // insertion order; running entries are never evicted.
+  while (transient.size > MAX_TRANSIENT_RUNS) {
+    let removed = false;
+    for (const [id, t] of transient) {
+      if (t.stream.finished) {
+        transient.delete(id);
+        removed = true;
+        break;
+      }
+    }
+    if (!removed) break;
+  }
+}
 
 function statusToWire(s: benchRunsRepo.BenchRunStatus): "running" | "done" | "error" {
   if (s === "succeeded") return "done";
@@ -141,11 +162,24 @@ function toActiveWire(row: benchRunsRepo.BenchRunRow): ActiveRunWire {
     pid: t?.pid ?? null,
     exitCode: t?.exitCode ?? null,
     status: statusToWire(row.status),
-    output: t?.output ?? "",
+    // Only the tail of the harness output — avoid streaming the full raw buffer.
+    output: t ? t.output.slice(-ACTIVE_WIRE_OUTPUT_BYTES) : "",
   };
 }
 
 const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
+  // Kill any still-running bench children when the server shuts down.
+  fastify.addHook("onClose", async () => {
+    for (const p of runningProcs) {
+      try {
+        p.kill();
+      } catch {
+        /* already gone */
+      }
+    }
+    runningProcs.clear();
+  });
+
   fastify.get("/benchmarks/runs", async () => {
     const files = listReportFiles();
     const runs = files
@@ -356,6 +390,7 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
       stream: createRunStream(),
     };
     transient.set(runId, t);
+    pruneTransient();
 
     if (process.env.VK_DISABLE_BENCH_SPAWN === "1") {
       emitStatus(t.stream, { status: "done", exitCode: 0 });
@@ -375,6 +410,7 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
         stdout: "pipe",
         stderr: "pipe",
       });
+      runningProcs.add(proc);
       t.pid = proc.pid;
       const append = async (
         stream: ReadableStream<Uint8Array> | null | undefined,
@@ -396,6 +432,7 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
       };
       void Promise.all([append(proc.stdout, "stdout"), append(proc.stderr, "stderr")]);
       void proc.exited.then((code) => {
+        runningProcs.delete(proc);
         flushPartials(t.stream);
         t.exitCode = code;
         emitStatus(t.stream, { status: code === 0 ? "done" : "error", exitCode: code });
