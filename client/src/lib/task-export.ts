@@ -1,17 +1,34 @@
 import type { Task } from "@vibe-kanban/shared";
 
 export function tasksToCSV(tasks: Task[]): string {
-  const headers = ["title", "status", "priority", "description", "milestoneId", "createdAt", "doneAt"];
+  const headers = [
+    "title",
+    "status",
+    "priority",
+    "description",
+    "milestoneId",
+    "createdAt",
+    "doneAt",
+  ];
   const rows = tasks.map((t) =>
-    headers.map((h) => {
-      const val = t[h as keyof Task];
-      const str = val == null ? "" : String(val);
-      return str.includes(",") || str.includes('"') || str.includes("\n")
-        ? `"${str.replace(/"/g, '""')}"`
-        : str;
-    }).join(","),
+    headers
+      .map((h) => {
+        const val = t[h as keyof Task];
+        const str = csvSanitize(val == null ? "" : String(val));
+        return str.includes(",") || str.includes('"') || str.includes("\n")
+          ? `"${str.replace(/"/g, '""')}"`
+          : str;
+      })
+      .join(","),
   );
   return [headers.join(","), ...rows].join("\n");
+}
+
+// Neutralize spreadsheet formula injection: a leading =,+,-,@,tab,CR makes
+// Excel/Sheets execute the cell as a formula. Prefix with a single quote so it
+// is treated as text.
+function csvSanitize(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
 export function tasksToJSON(tasks: Task[]): string {
@@ -33,10 +50,16 @@ export function tasksToMarkdown(tasks: Task[], projectName?: string): string {
 
   for (const [status, items] of Object.entries(byStatus)) {
     if (items.length === 0) continue;
-    const label = status === "in_progress" ? "In Progress" : status === "backlog" ? "Backlog" : status.charAt(0).toUpperCase() + status.slice(1);
+    const label =
+      status === "in_progress"
+        ? "In Progress"
+        : status === "backlog"
+          ? "Backlog"
+          : status.charAt(0).toUpperCase() + status.slice(1);
     lines.push(`## ${label} (${items.length})\n`);
     for (const task of items) {
-      const checkbox = status === "done" || status === "approved" || status === "archived" ? "[x]" : "[ ]";
+      const checkbox =
+        status === "done" || status === "approved" || status === "archived" ? "[x]" : "[ ]";
       lines.push(`- ${checkbox} **${task.title}** (${task.priority})`);
       if (task.description) lines.push(`  > ${task.description.split("\n")[0]}`);
     }

@@ -82,7 +82,10 @@ test.describe("Tasks page (/tasks)", () => {
     const taskCards = page.locator(".space-y-2 > div");
     const emptyState = page.getByText("No tasks yet");
 
-    const hasCards = await taskCards.first().isVisible({ timeout: 3000 }).catch(() => false);
+    const hasCards = await taskCards
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
     const hasEmpty = await emptyState.isVisible({ timeout: 2000 }).catch(() => false);
 
     // One of these must be true
@@ -95,14 +98,18 @@ test.describe("Tasks page (/tasks)", () => {
 
     // Check if there are task cards with project name badges
     const taskCards = page.locator(".space-y-2 > div");
-    const hasCards = await taskCards.first().isVisible({ timeout: 3000 }).catch(() => false);
+    const hasCards = await taskCards
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
 
     if (hasCards) {
       // On the /tasks page, task cards should have a project name badge next to them
       // The project name is rendered as a Badge with variant="outline"
-      const projectBadges = page.locator(".space-y-2 > div").locator('[class*="badge"]').or(
-        page.locator(".space-y-2 > div").locator("span").filter({ hasText: /\w+/ })
-      );
+      const projectBadges = page
+        .locator(".space-y-2 > div")
+        .locator('[class*="badge"]')
+        .or(page.locator(".space-y-2 > div").locator("span").filter({ hasText: /\w+/ }));
       // At least verify the task card area has content
       const firstCard = taskCards.first();
       await expect(firstCard).toBeVisible();
@@ -120,11 +127,17 @@ test.describe("Tasks page (/tasks)", () => {
 
     // Find a task card (they are rendered inside .space-y-2 container)
     const taskCards = page.locator(".space-y-2 > div");
-    const hasCards = await taskCards.first().isVisible({ timeout: 3000 }).catch(() => false);
+    const hasCards = await taskCards
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
 
     if (!hasCards) {
       // No tasks to click — mark test as passed with a note
-      test.info().annotations.push({ type: "info", description: "No tasks in database - skipping click test" });
+      test.info().annotations.push({
+        type: "info",
+        description: "No tasks in database - skipping click test",
+      });
       return;
     }
 
@@ -163,7 +176,10 @@ test.describe("Tasks page (/tasks)", () => {
     const noResults = page.getByText(/No tasks found for/i);
     const taskCards = page.locator(".space-y-2 > div");
 
-    const hasResults = await taskCards.first().isVisible({ timeout: 3000 }).catch(() => false);
+    const hasResults = await taskCards
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false);
     const hasNoResults = await noResults.isVisible({ timeout: 2000 }).catch(() => false);
 
     // One of these should be true when searching

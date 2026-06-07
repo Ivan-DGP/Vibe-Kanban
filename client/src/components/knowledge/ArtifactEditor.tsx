@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Save, Eye, Code, Tag } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Artifact } from "@vibe-kanban/shared";
 
 interface ArtifactEditorProps {
@@ -39,8 +41,16 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
 
   const handleSave = useCallback(() => {
     updateArtifact.mutate(
-      { id: artifact.id, input: { filename, description: description || undefined, tags, content } },
-      { onSuccess: () => { setDirty(false); onBack(); } },
+      {
+        id: artifact.id,
+        input: { filename, description: description || undefined, tags, content },
+      },
+      {
+        onSuccess: () => {
+          setDirty(false);
+          onBack();
+        },
+      },
     );
   }, [artifact.id, filename, description, tags, content, updateArtifact]);
 
@@ -74,12 +84,18 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
         </Button>
         <Input
           value={filename}
-          onChange={(e) => { setFilename(e.target.value); setDirty(true); }}
+          onChange={(e) => {
+            setFilename(e.target.value);
+            setDirty(true);
+          }}
           className="h-8 max-w-[300px] font-mono text-sm"
         />
         <Input
           value={description}
-          onChange={(e) => { setDescription(e.target.value); setDirty(true); }}
+          onChange={(e) => {
+            setDescription(e.target.value);
+            setDirty(true);
+          }}
           placeholder="Description..."
           className="h-8 flex-1 text-sm"
         />
@@ -120,7 +136,12 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
         <Input
           value={tagInput}
           onChange={(e) => setTagInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addTag();
+            }
+          }}
           placeholder="Add tag..."
           className="h-6 w-24 text-xs"
         />
@@ -149,10 +170,9 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
             />
           </div>
         ) : preview && isMarkdown ? (
-          <div
-            className="p-4 prose prose-invert prose-sm max-w-none overflow-auto h-full"
-            dangerouslySetInnerHTML={{ __html: simpleMarkdown(content) }}
-          />
+          <div className="p-4 prose prose-invert prose-sm max-w-none overflow-auto h-full">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
         ) : (
           <CodeMirror
             value={content}
@@ -166,22 +186,4 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
       </div>
     </div>
   );
-}
-
-// Minimal markdown renderer for preview (no deps needed)
-function simpleMarkdown(md: string): string {
-  return md
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`(.+?)`/g, "<code>$1</code>")
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/^/, "<p>")
-    .replace(/$/, "</p>");
 }
