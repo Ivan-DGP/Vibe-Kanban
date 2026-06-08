@@ -29,6 +29,14 @@ export function useArtifactContent(projectId: string | undefined, id: string | u
   });
 }
 
+export function useArtifactLinks(projectId: string | undefined, id: string | undefined) {
+  return useQuery({
+    queryKey: ["artifact-links", id],
+    queryFn: () => api.artifacts.links(projectId!, id!),
+    enabled: !!projectId && !!id,
+  });
+}
+
 export function useCreateArtifact(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -54,6 +62,8 @@ export function useUpdateArtifact(projectId: string) {
       qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
       qc.invalidateQueries({ queryKey: ["artifact", vars.id] });
       qc.invalidateQueries({ queryKey: ["artifact-content", vars.id] });
+      qc.invalidateQueries({ queryKey: ["artifact-links", vars.id] });
+      qc.invalidateQueries({ queryKey: ["graph", projectId] });
     },
   });
 }

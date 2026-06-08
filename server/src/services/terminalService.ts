@@ -1,9 +1,13 @@
 import { getDb } from "../db";
 import { log } from "../lib/logger";
-import { buildAiResolvePrompt, buildAiTestPrompt } from "./aiResolvePrompt";
+import { buildAiResolvePromptWithGrounding, buildAiTestPrompt } from "./aiResolvePrompt";
 import { spawnPty as runtimeSpawnPty, spawnProcessSync } from "../lib/runtime";
 import type { PtyHandle } from "../lib/runtime";
-import type { TerminalSessionType, BatchResolveStatus } from "@vibe-kanban/shared";
+import type {
+  TerminalSessionType,
+  BatchResolveStatus,
+  GroundedArtifact,
+} from "@vibe-kanban/shared";
 import type { Task } from "@vibe-kanban/shared";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -25,6 +29,9 @@ export interface PtySession {
   outputBuffer: string[]; // buffers output until WS attaches
   exitBuffer: number | null; // buffers exit code until WS attaches
   scrollback: string; // rolling scrollback buffer for reconnection
+  // O6: knowledge artifacts injected into this session's prompt, persisted on
+  // the run row written when the session exits. Empty when none grounded.
+  groundedArtifacts?: GroundedArtifact[];
 }
 
 // ── Safe environment ───────────────────────────────────────────
@@ -241,9 +248,11 @@ function spawnAiResolve(
         const code = exitCode ?? 1;
         const task = db.prepare("SELECT status FROM tasks WHERE id = ?").get(session.taskId) as any;
         const success = task?.status === "done" || code === 0;
+        // O6: persist the knowledge artifacts that grounded this run's prompt.
+        const grounded = JSON.stringify(session.groundedArtifacts ?? []);
         db.prepare(
-          `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success)
-           VALUES (?, ?, ?, ?, 'auto', 'medium', ?, ?)`,
+          `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, groundedArtifacts)
+           VALUES (?, ?, ?, ?, 'auto', 'medium', ?, ?, ?)`,
         ).run(
           crypto.randomUUID(),
           session.taskId,
@@ -251,6 +260,7 @@ function spawnAiResolve(
           session.id,
           code,
           success ? 1 : 0,
+          grounded,
         );
 
         // Chain AI Test session if resolve succeeded and autoTest is enabled
@@ -389,6 +399,9 @@ export interface CreateSessionOptions {
   branch?: string;
   devCommand?: string;
   autoTest?: boolean;
+  // O6: knowledge artifacts grounded into the prompt for this AI-resolve
+  // session, threaded through to the persisted run row.
+  groundedArtifacts?: GroundedArtifact[];
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<PtySession> {
@@ -416,6 +429,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
     outputBuffer: [],
     exitBuffer: null,
     scrollback: "",
+    groundedArtifacts: opts.groundedArtifacts,
   };
 
   sessions.set(id, session);
@@ -641,10 +655,14 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
   if (batchState.state === "cancelled") return;
 
   try {
-    // Build prompt for this task
+    // Build prompt for this task, capturing the knowledge artifacts grounded
+    // into it so the run row can persist them (O6).
     let prompt: string;
+    let groundedArtifacts: GroundedArtifact[] = [];
     try {
-      prompt = await buildAiResolvePrompt(task, projectId, port);
+      const built = await buildAiResolvePromptWithGrounding(task, projectId, port);
+      prompt = built.prompt;
+      groundedArtifacts = built.groundedArtifacts;
     } catch {
       const parts = [task.title];
       if (task.description) parts.push(task.description);
@@ -666,6 +684,7 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
       taskId: task.id,
       name: task.title,
       prompt,
+      groundedArtifacts,
     });
 
     // Track active task

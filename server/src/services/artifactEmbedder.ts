@@ -1,5 +1,11 @@
 import { getDb } from "../db";
-import { embed, vectorToBlob, EMBEDDING_MODEL, EMBEDDING_DIM } from "./embeddings";
+import {
+  embed,
+  vectorToBlob,
+  EMBEDDING_MODEL,
+  EMBEDDING_DIM,
+  isEmbeddingsDisabled,
+} from "./embeddings";
 import { chunkText, isEmbeddableMimeType } from "../lib/chunking";
 import { log } from "../lib/logger";
 
@@ -12,6 +18,8 @@ export interface EmbedArtifactInput {
 
 export async function embedArtifact(input: EmbedArtifactInput): Promise<number> {
   const { projectId, artifactId, content, mimeType } = input;
+  // Kill-switch: with embeddings disabled, do not load the model or write rows.
+  if (isEmbeddingsDisabled()) return 0;
   if (!isEmbeddableMimeType(mimeType)) return 0;
 
   const chunks = chunkText(content);

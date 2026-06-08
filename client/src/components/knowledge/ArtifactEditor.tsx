@@ -2,11 +2,11 @@ import { useState, useCallback, useEffect } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { json } from "@codemirror/lang-json";
-import { useArtifactContent, useUpdateArtifact } from "@/hooks";
+import { useArtifactContent, useUpdateArtifact, useArtifactLinks } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Save, Eye, Code, Tag } from "lucide-react";
+import { ArrowLeft, Save, Eye, Code, Tag, Link2, AlertCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Artifact } from "@vibe-kanban/shared";
@@ -19,6 +19,7 @@ interface ArtifactEditorProps {
 
 export default function ArtifactEditor({ projectId, artifact, onBack }: ArtifactEditorProps) {
   const { data: contentData, isLoading } = useArtifactContent(projectId, artifact.id);
+  const { data: links } = useArtifactLinks(projectId, artifact.id);
   const updateArtifact = useUpdateArtifact(projectId);
 
   const [content, setContent] = useState("");
@@ -146,6 +147,37 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
           className="h-6 w-24 text-xs"
         />
       </div>
+
+      {/* Wikilinks: outbound [[links]] + inbound backlinks */}
+      {links &&
+        (links.outbound.resolvedCount > 0 ||
+          links.outbound.unresolvedCount > 0 ||
+          links.inbound.backlinkCount > 0) && (
+          <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Link2 className="h-3.5 w-3.5" />
+              {links.outbound.resolvedCount} link
+              {links.outbound.resolvedCount === 1 ? "" : "s"}
+            </span>
+            {links.outbound.resolved.map((l) => (
+              <Badge key={l.edgeId} variant="outline" className="text-xs">
+                {l.targetFilename}
+              </Badge>
+            ))}
+            {links.outbound.unresolvedCount > 0 && (
+              <span className="flex items-center gap-1 text-amber-400">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {links.outbound.unresolvedCount} unresolved
+              </span>
+            )}
+            {links.inbound.backlinkCount > 0 && (
+              <span className="flex items-center gap-1">
+                ← {links.inbound.backlinkCount} backlink
+                {links.inbound.backlinkCount === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+        )}
 
       {/* Content */}
       <div

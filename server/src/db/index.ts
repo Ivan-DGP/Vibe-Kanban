@@ -694,6 +694,101 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 28,
+      name: "add-wikilink-edge-type-and-unique",
+      noTransaction: true, // FK toggle for the edges table rebuild (CHECK can't be ALTERed)
+      up: () => {
+        // Rebuild project_graph_edges to (a) add 'wikilink' to the type CHECK and
+        // (b) add UNIQUE(projectId, sourceNodeId, targetNodeId, type) so re-parsing
+        // the same link is idempotent. Skip if already rebuilt.
+        const tableSql =
+          (
+            db
+              .prepare(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='project_graph_edges'",
+              )
+              .get() as any
+          )?.sql || "";
+        if (tableSql.includes("'wikilink'")) return; // already rebuilt
+
+        db.exec("PRAGMA foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE project_graph_edges_v28 (
+            id           TEXT PRIMARY KEY,
+            projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            sourceNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+            targetNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+            label        TEXT DEFAULT NULL,
+            type         TEXT NOT NULL DEFAULT 'related'
+              CHECK (type IN ('related', 'depends_on', 'implements', 'extends', 'conflicts', 'owned_by', 'wikilink')),
+            createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            UNIQUE (projectId, sourceNodeId, targetNodeId, type)
+          );
+          INSERT OR IGNORE INTO project_graph_edges_v28 (id, projectId, sourceNodeId, targetNodeId, label, type, createdAt)
+            SELECT id, projectId, sourceNodeId, targetNodeId, label, type, createdAt FROM project_graph_edges;
+          DROP TABLE project_graph_edges;
+          ALTER TABLE project_graph_edges_v28 RENAME TO project_graph_edges;
+          CREATE INDEX idx_graph_edges_projectId ON project_graph_edges (projectId);
+          CREATE INDEX idx_graph_edges_source ON project_graph_edges (sourceNodeId);
+          CREATE INDEX idx_graph_edges_target ON project_graph_edges (targetNodeId);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      },
+    },
+    {
+      version: 29,
+      name: "add-artifact-pending-links",
+      up: () => {
+        // Unresolved [[targets]] are recorded here (NOT as half-edges, which the
+        // canvas would drop). Re-resolved on later artifact create/rename.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS artifact_pending_links (
+            id                TEXT PRIMARY KEY,
+            projectId         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            sourceArtifactId  TEXT NOT NULL REFERENCES project_artifacts(id) ON DELETE CASCADE,
+            rawTarget         TEXT NOT NULL,
+            createdAt         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            UNIQUE (projectId, sourceArtifactId, rawTarget)
+          );
+          CREATE INDEX IF NOT EXISTS idx_pending_links_projectId ON artifact_pending_links (projectId);
+          CREATE INDEX IF NOT EXISTS idx_pending_links_source ON artifact_pending_links (sourceArtifactId);
+          CREATE INDEX IF NOT EXISTS idx_pending_links_rawTarget ON artifact_pending_links (projectId, rawTarget);
+        `);
+      },
+    },
+    {
+      version: 30,
+      name: "add-roadmap-item-tasks",
+      up: () => {
+        // Join table linking roadmap items to tasks. CASCADE from both sides so
+        // deleting a roadmap item or a task removes the link with no orphans.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS roadmap_item_tasks (
+            roadmapItemId TEXT NOT NULL
+              REFERENCES roadmap_items(id) ON DELETE CASCADE,
+            taskId        TEXT NOT NULL
+              REFERENCES tasks(id) ON DELETE CASCADE,
+            PRIMARY KEY (roadmapItemId, taskId)
+          );
+          CREATE INDEX IF NOT EXISTS idx_roadmap_item_tasks_roadmapItemId ON roadmap_item_tasks (roadmapItemId);
+          CREATE INDEX IF NOT EXISTS idx_roadmap_item_tasks_taskId ON roadmap_item_tasks (taskId);
+        `);
+      },
+    },
+    {
+      version: 31,
+      name: "add-task-ai-run-grounded-artifacts",
+      up: () => {
+        // O6: persist which knowledge artifacts grounded each AI run (the ones
+        // injected into its prompt by the O2 knowledge-injection helper) so a
+        // human can audit what knowledge shaped a run. JSON array of {id,title}.
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "groundedArtifacts")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN groundedArtifacts TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

@@ -66,6 +66,12 @@ export default function TaskAiRuns({ taskId }: { taskId: string }) {
                   Cancel
                 </Button>
               )}
+              {r.groundedArtifacts && r.groundedArtifacts.length > 0 && (
+                <div className="w-full pl-1 text-[10px] text-muted-foreground">
+                  <span className="font-medium">Grounded in:</span>{" "}
+                  {r.groundedArtifacts.map((a) => a.title).join(", ")}
+                </div>
+              )}
             </div>
           );
         })}

@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { getDb } from "../db";
-import { embed, vectorToBlob, EMBEDDING_MODEL, EMBEDDING_DIM } from "./embeddings";
+import {
+  embed,
+  vectorToBlob,
+  EMBEDDING_MODEL,
+  EMBEDDING_DIM,
+  isEmbeddingsDisabled,
+} from "./embeddings";
 import { chunkText } from "../lib/chunking";
 import { log } from "../lib/logger";
 
@@ -27,7 +33,8 @@ function hashSource(text: string): string {
 }
 
 export async function embedTask(input: EmbedTaskInput): Promise<number> {
-  if (process.env.VK_DISABLE_EMBEDDINGS === "1") return 0;
+  // Kill-switch: with embeddings disabled, never load the model or write rows.
+  if (isEmbeddingsDisabled()) return 0;
   const text = composeTaskText(input);
   const sourceHash = hashSource(text);
 

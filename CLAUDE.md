@@ -62,7 +62,7 @@ When tasks change status, timestamps cascade forward (never removed):
 
 ### Milestones
 
-Tasks without a milestone belong to a virtual "General" milestone (not stored in DB). Deleting a milestone moves its tasks to "General". Active milestone selection is stored in localStorage per project.
+Milestones are real DB rows (`milestones` table, stable `id`); tasks reference one via `milestoneId` (FK, `ON DELETE SET NULL`). Tasks without a milestone belong to a virtual "General" bucket (`milestoneId IS NULL`) — only the General bucket is virtual, not milestones themselves. Deleting a milestone moves its tasks to General. Active milestone _selection_ is stored in localStorage per project.
 
 ### Data Flow
 

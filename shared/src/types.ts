@@ -123,6 +123,16 @@ export interface AiPreflightResult {
   branch: string | null;
 }
 
+/**
+ * A knowledge-base artifact that grounded an AI run — i.e. was selected by
+ * the O2 knowledge-injection helper and injected into the run's prompt.
+ * Surfaced so a human can audit what knowledge shaped a run (O6).
+ */
+export interface GroundedArtifact {
+  id: string;
+  title: string;
+}
+
 export interface TaskAiRun {
   id: string;
   taskId: string;
@@ -141,6 +151,9 @@ export interface TaskAiRun {
   startedAt?: string | null;
   finishedAt?: string | null;
   totalCostUsd?: number | null;
+  // O6: knowledge artifacts injected into this run's prompt. Empty when no
+  // knowledge was grounded (embeddings disabled, no artifacts, or timeout).
+  groundedArtifacts?: GroundedArtifact[];
 }
 
 export interface ProjectAiStats {
@@ -629,7 +642,8 @@ export type GraphEdgeType =
   | "implements"
   | "extends"
   | "conflicts"
-  | "owned_by";
+  | "owned_by"
+  | "wikilink";
 
 export interface GraphNode {
   id: string;
@@ -685,6 +699,44 @@ export interface CreateGraphEdgeInput {
 }
 
 // ============================================================
+// Wikilinks ([[target]] references between artifacts)
+// ============================================================
+
+export interface WikilinkResolvedRef {
+  rawTarget: string;
+  edgeId: string;
+  targetArtifactId: string;
+  targetNodeId: string;
+  targetFilename: string;
+}
+
+export interface WikilinkUnresolvedRef {
+  rawTarget: string;
+}
+
+/** Outbound links + inbound backlinks for one artifact. */
+export interface ArtifactLinksResponse {
+  artifactId: string;
+  nodeId: string | null;
+  outbound: {
+    resolved: WikilinkResolvedRef[];
+    unresolved: WikilinkUnresolvedRef[];
+    resolvedCount: number;
+    unresolvedCount: number;
+  };
+  inbound: {
+    backlinks: {
+      edgeId: string;
+      sourceArtifactId: string | null;
+      sourceNodeId: string;
+      sourceLabel: string;
+    }[];
+    backlinkCount: number;
+    unresolvedCount: number;
+  };
+}
+
+// ============================================================
 // Roadmap
 // ============================================================
 
@@ -704,6 +756,14 @@ export interface RoadmapItem {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  // Task linkage (join table roadmap_item_tasks)
+  taskIds: string[];
+  // Rollup over linked tasks
+  tasksTotal: number;
+  tasksDone: number;
+  // Rollup over the linked milestone's tasks (null when no milestone)
+  milestoneTasksTotal: number | null;
+  milestoneTasksDone: number | null;
 }
 
 export interface CreateRoadmapItemInput {
@@ -715,6 +775,7 @@ export interface CreateRoadmapItemInput {
   endDate?: string;
   dependsOn?: string[];
   color?: string;
+  taskIds?: string[];
 }
 
 export interface UpdateRoadmapItemInput {
@@ -727,6 +788,7 @@ export interface UpdateRoadmapItemInput {
   dependsOn?: string[];
   color?: string | null;
   sortOrder?: number;
+  taskIds?: string[];
 }
 
 // ============================================================

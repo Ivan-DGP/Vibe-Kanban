@@ -42,6 +42,7 @@ import {
   applyComplexityToConfig,
   buildProfileInstructions,
 } from "./aiResolvePrompt.classify";
+import { buildKnowledgeContext, type GroundedArtifact } from "./knowledgeInjection";
 
 export async function buildAnalyzePrompt(task: Task, projectId: string): Promise<string> {
   const db = getDb();
@@ -173,12 +174,38 @@ Identify pitfalls, edge cases, breaking changes, or technical challenges the dev
   return parts.join("\n\n");
 }
 
+/** Result of building an AI-resolve prompt that also reports which knowledge
+ * artifacts grounded it (O6). `groundedArtifacts` is empty when no knowledge
+ * was injected. */
+export interface AiResolvePromptResult {
+  prompt: string;
+  groundedArtifacts: GroundedArtifact[];
+}
+
+/**
+ * Thin wrapper preserving the legacy string contract for callers that don't
+ * need the grounded-artifact list. Delegates to
+ * {@link buildAiResolvePromptWithGrounding}.
+ */
 export async function buildAiResolvePrompt(
   task: Task,
   projectId: string,
   port: number,
 ): Promise<string> {
+  return (await buildAiResolvePromptWithGrounding(task, projectId, port)).prompt;
+}
+
+/**
+ * Build the AI-resolve prompt AND report the knowledge artifacts injected into
+ * it, so the run record can persist a "Grounded in" list for audit (O6).
+ */
+export async function buildAiResolvePromptWithGrounding(
+  task: Task,
+  projectId: string,
+  port: number,
+): Promise<AiResolvePromptResult> {
   const db = getDb();
+  let groundedArtifacts: GroundedArtifact[] = [];
 
   // Get project
   const projectRow = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as any;
@@ -347,6 +374,20 @@ Profile: ${effectiveProfile}${task.promptProfile === "auto" ? " (auto-detected)"
     );
   }
 
+  // Inject top-K relevant project knowledge artifacts. buildKnowledgeContext never
+  // throws, but defend anyway so knowledge retrieval can never break prompt building.
+  try {
+    const knowledge = await buildKnowledgeContext({
+      projectId: project.id,
+      query: task.description ? `${task.title}\n${task.description}` : task.title,
+    });
+    if (knowledge.block) contextParts.push(knowledge.block);
+    // Record exactly what was injected so the run row can persist it (O6).
+    groundedArtifacts = knowledge.artifacts;
+  } catch {
+    // Prompt is built without the knowledge block (criterion 3).
+  }
+
   if (contextParts.length > 0) {
     parts.push(`<project_context>\n${contextParts.join("\n\n")}\n</project_context>`);
   }
@@ -365,7 +406,7 @@ curl -s -X PATCH http://localhost:${port}/api/tasks/${task.id} -H "Content-Type:
 
 This is not optional. The task MUST be marked as done when you finish.`);
 
-  return parts.join("\n\n");
+  return { prompt: parts.join("\n\n"), groundedArtifacts };
 }
 
 export async function buildGatherContextPrompt(

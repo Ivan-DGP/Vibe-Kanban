@@ -4,6 +4,8 @@ import {
   useCreateRoadmapItem,
   useUpdateRoadmapItem,
   useDeleteRoadmapItem,
+  useMilestones,
+  useTasks,
 } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +18,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Trash2, Calendar } from "lucide-react";
-import type { RoadmapItem, RoadmapItemStatus } from "@vibe-kanban/shared";
+import type { RoadmapItem, RoadmapItemStatus, CreateRoadmapItemInput } from "@vibe-kanban/shared";
+
+const NO_MILESTONE = "__none__";
 
 const STATUS_COLORS: Record<RoadmapItemStatus, string> = {
   planned: "bg-slate-500",
@@ -179,6 +185,16 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
                 >
                   <div className={`h-2 w-2 rounded-full shrink-0 ${STATUS_COLORS[item.status]}`} />
                   <span className="text-xs font-medium truncate">{item.title}</span>
+                  {item.tasksTotal > 0 && (
+                    <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                      {item.tasksDone}/{item.tasksTotal}
+                    </span>
+                  )}
+                  {item.milestoneTasksTotal !== null && (
+                    <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                      M {item.milestoneTasksDone}/{item.milestoneTasksTotal}
+                    </span>
+                  )}
                 </div>
                 {/* Delete button */}
                 <Button
@@ -202,6 +218,7 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
       <RoadmapItemDialog
         open={showCreate || !!editingItem}
         item={editingItem}
+        projectId={projectId}
         onClose={() => {
           setShowCreate(false);
           setEditingItem(null);
@@ -223,19 +240,27 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
 function RoadmapItemDialog({
   open,
   item,
+  projectId,
   onClose,
   onSave,
 }: {
   open: boolean;
   item: RoadmapItem | null;
+  projectId: string;
   onClose: () => void;
-  onSave: (data: any) => void;
+  onSave: (data: CreateRoadmapItemInput) => void;
 }) {
   const [title, setTitle] = useState(item?.title || "");
   const [description, setDescription] = useState(item?.description || "");
   const [status, setStatus] = useState<RoadmapItemStatus>(item?.status || "planned");
   const [startDate, setStartDate] = useState(item?.startDate || "");
   const [endDate, setEndDate] = useState(item?.endDate || "");
+  const [milestoneId, setMilestoneId] = useState<string>(item?.milestoneId || NO_MILESTONE);
+  const [taskIds, setTaskIds] = useState<string[]>(item?.taskIds || []);
+
+  const { data: milestones = [] } = useMilestones(projectId);
+  const { data: tasksPage } = useTasks(projectId, { limit: 500 });
+  const tasks = tasksPage?.items ?? [];
 
   // Reset on open
   useState(() => {
@@ -244,7 +269,12 @@ function RoadmapItemDialog({
     setStatus(item?.status || "planned");
     setStartDate(item?.startDate || "");
     setEndDate(item?.endDate || "");
+    setMilestoneId(item?.milestoneId || NO_MILESTONE);
+    setTaskIds(item?.taskIds || []);
   });
+
+  const toggleTask = (id: string) =>
+    setTaskIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -272,6 +302,44 @@ function RoadmapItemDialog({
               ))}
             </SelectContent>
           </Select>
+          <div>
+            <label className="text-xs text-muted-foreground">Milestone</label>
+            <Select value={milestoneId} onValueChange={setMilestoneId}>
+              <SelectTrigger>
+                <SelectValue placeholder="No milestone" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_MILESTONE}>No milestone</SelectItem>
+                {milestones.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">
+              Linked Tasks {taskIds.length > 0 && `(${taskIds.length})`}
+            </label>
+            <ScrollArea className="h-32 rounded-md border p-2">
+              {tasks.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No tasks in this project</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {tasks.map((t) => (
+                    <label key={t.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <Checkbox
+                        checked={taskIds.includes(t.id)}
+                        onCheckedChange={() => toggleTask(t.id)}
+                      />
+                      <span className="truncate">{t.title}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-muted-foreground">Start Date</label>
@@ -295,6 +363,8 @@ function RoadmapItemDialog({
                   status,
                   startDate: startDate || undefined,
                   endDate: endDate || undefined,
+                  milestoneId: milestoneId === NO_MILESTONE ? null : milestoneId,
+                  taskIds,
                 })
               }
             >
