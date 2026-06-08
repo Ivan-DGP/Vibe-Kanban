@@ -131,6 +131,38 @@ describe("buildAiResolvePrompt", () => {
     // Should contain the port for API calls
     expect(result).toContain(String(TEST_PORT));
   });
+
+  // Knowledge injection wiring: with embeddings disabled the prompt must still
+  // build (knowledge block omitted) without throwing, even when the project has
+  // embedded artifacts. The block-omission itself is proven deterministically in
+  // knowledgeInjection.test.ts ("...never calls embedFn when embeddings disabled").
+  // NOTE: this builder embeds the live working-tree git diff, so unique-string
+  // absence assertions are unreliable here — we assert non-throwing + built.
+  test("builds prompt with embeddings disabled and embedded artifacts present (no throw)", async () => {
+    const artifactId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
+       VALUES (?, ?, 'spec.md', 'document', 'Widget Spec', '[]', 10, 'text/markdown', ?, ?)`,
+    ).run(artifactId, TEST_PROJECT_ID, now, now);
+    db.prepare(
+      `INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt)
+       VALUES (?, ?, ?, 0, 'widget design notes', ?, 'fake', 3, ?)`,
+    ).run(crypto.randomUUID(), artifactId, TEST_PROJECT_ID, Buffer.from([0, 0, 0, 0]), now);
+
+    process.env.VK_DISABLE_EMBEDDINGS = "1";
+    try {
+      const task = getTestTask();
+      contextCache.clear();
+      const result = await buildAiResolvePrompt(task, TEST_PROJECT_ID, TEST_PORT);
+      expect(typeof result).toBe("string");
+      expect(result).toContain("Add widget feature to dashboard");
+    } finally {
+      delete process.env.VK_DISABLE_EMBEDDINGS;
+      db.prepare("DELETE FROM artifact_embeddings WHERE artifactId = ?").run(artifactId);
+      db.prepare("DELETE FROM project_artifacts WHERE id = ?").run(artifactId);
+    }
+  });
 });
 
 // ============================================================

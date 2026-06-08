@@ -42,6 +42,7 @@ import {
   applyComplexityToConfig,
   buildProfileInstructions,
 } from "./aiResolvePrompt.classify";
+import { buildKnowledgeBlock } from "./knowledgeInjection";
 
 export async function buildAnalyzePrompt(task: Task, projectId: string): Promise<string> {
   const db = getDb();
@@ -345,6 +346,18 @@ Profile: ${effectiveProfile}${task.promptProfile === "auto" ? " (auto-detected)"
     contextParts.push(
       `  <ai_run_history>\nPrevious AI runs on this project: ${aiRunStats.total} total, ${rate}% success rate.\n  </ai_run_history>`,
     );
+  }
+
+  // Inject top-K relevant project knowledge artifacts. buildKnowledgeBlock never
+  // throws, but defend anyway so knowledge retrieval can never break prompt building.
+  try {
+    const knowledge = await buildKnowledgeBlock({
+      projectId: project.id,
+      query: task.description ? `${task.title}\n${task.description}` : task.title,
+    });
+    if (knowledge) contextParts.push(knowledge);
+  } catch {
+    // Prompt is built without the knowledge block (criterion 3).
   }
 
   if (contextParts.length > 0) {

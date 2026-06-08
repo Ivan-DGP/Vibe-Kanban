@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { getProjectArtifactsDir } from "../lib/data-dir";
-import { embedArtifactInBackground } from "../services/artifactEmbedder";
+import { embedArtifactInBackground, clearArtifactEmbeddings } from "../services/artifactEmbedder";
 import { isEmbeddableMimeType } from "../lib/chunking";
 import fs from "node:fs";
 import path from "node:path";
@@ -261,6 +261,9 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
       fs.rmSync(filePath);
     }
 
+    // Invalidate the artifact's embeddings so stale vectors never influence
+    // knowledge ranking (also covered by ON DELETE CASCADE; explicit for clarity).
+    clearArtifactEmbeddings(id);
     db.prepare("DELETE FROM project_artifacts WHERE id = ?").run(id);
     return reply.code(204).send();
   });

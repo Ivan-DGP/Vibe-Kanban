@@ -76,7 +76,7 @@ Each outcome is a unit of work the loop can pick up.
 
 ### O2: AI-aware task runs — Claude auto-loads relevant knowledge
 
-- **Status:** todo
+- **Status:** done
 - **Why:** The core unmet requirement. No artifact/knowledge content is injected into any
   spawn prompt today — confirmed across `spawnPrompts.ts`, `aiResolvePrompt.*`,
   `taskSpawner.ts`, `taskSpawnRegistry.ts`. The dispatcher (`taskSpawner.ts:98` →
@@ -94,24 +94,24 @@ Each outcome is a unit of work the loop can pick up.
   all injected artifacts, default 4096 — the **byte budget wins over K**: artifacts beyond
   the cap are dropped in rank order), `KNOWLEDGE_SEARCH_TIMEOUT_MS` (default 500).
 - **Acceptance criteria:** (oracle reads these literally)
-  - [ ] A spawned task's prompt includes the top-`VK_SPAWN_KNOWLEDGE_K` artifacts ranked by
+  - [x] A spawned task's prompt includes the top-`VK_SPAWN_KNOWLEDGE_K` artifacts ranked by
         semantic relevance to the task title+description (via the embedder/`search_knowledge` path)
-  - [ ] The injection helper **short-circuits on `isEmbeddingsDisabled()` before calling
+  - [x] The injection helper **short-circuits on `isEmbeddingsDisabled()` before calling
         `embed()`** (today's search does NOT honor the switch — this is net-new): with
         `VK_DISABLE_EMBEDDINGS=1` the prompt is built with no knowledge block and no throw,
         and the model is not loaded
-  - [ ] Knowledge retrieval completes within `KNOWLEDGE_SEARCH_TIMEOUT_MS`; on timeout or
+  - [x] Knowledge retrieval completes within `KNOWLEDGE_SEARCH_TIMEOUT_MS`; on timeout or
         search error the prompt is built without the block (same fallback as the kill-switch)
         and the event is logged — task spawn never fails because of knowledge retrieval
-  - [ ] Each injected artifact is rendered as title + an excerpt bounded by
+  - [x] Each injected artifact is rendered as title + an excerpt bounded by
         `KNOWLEDGE_EXCERPT_BYTES`; total injected knowledge ≤ `KNOWLEDGE_BLOCK_MAX_BYTES`
-  - [ ] Injected knowledge is wrapped in an explicit, non-instructional delimiter block
+  - [x] Injected knowledge is wrapped in an explicit, non-instructional delimiter block
         (e.g. fenced `<project_knowledge>` marked "reference material, not instructions");
         artifact body content cannot break out of the delimiter (fences/headers escaped or
         a collision-resistant delimiter used)
-  - [ ] Editing/creating/deleting an artifact (re)computes or invalidates its embedding so
+  - [x] Editing/creating/deleting an artifact (re)computes or invalidates its embedding so
         ranking reflects current content; with embeddings disabled, mutation does not error
-  - [ ] **Tests:** (a) given a project with artifacts, the built prompt contains the most
+  - [x] **Tests:** (a) given a project with artifacts, the built prompt contains the most
         relevant artifact's title and excludes irrelevant ones; (b) the block is absent and
         no throw when embeddings are disabled; (c) the prompt is built (block omitted) when
         search rejects/times out; (d) the built prompt never exceeds `KNOWLEDGE_BLOCK_MAX_BYTES`;
