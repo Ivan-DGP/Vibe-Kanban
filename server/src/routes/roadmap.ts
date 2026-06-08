@@ -1,7 +1,37 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
+import type {
+  RoadmapItem,
+  RoadmapItemStatus,
+  CreateRoadmapItemInput,
+  UpdateRoadmapItemInput,
+} from "@vibe-kanban/shared";
 
 // Rollup contract: a task counts as "done" when status IN ('done','approved').
+
+// Raw row from roadmap_items. `dependsOn` is stored as a JSON string.
+interface RoadmapItemRow {
+  id: string;
+  projectId: string;
+  milestoneId: string | null;
+  title: string;
+  description: string | null;
+  status: RoadmapItemStatus;
+  startDate: string | null;
+  endDate: string | null;
+  dependsOn: string;
+  color: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ProjectParams {
+  projectId: string;
+}
+interface IdParams {
+  id: string;
+}
 
 const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
@@ -32,13 +62,13 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   };
 
   // List roadmap items for a project, with task/milestone rollups
-  fastify.get("/projects/:projectId/roadmap", async (request) => {
-    const { projectId } = request.params as any;
+  fastify.get<{ Params: ProjectParams }>("/projects/:projectId/roadmap", async (request) => {
+    const { projectId } = request.params;
     const rows = db
       .prepare(
         "SELECT * FROM roadmap_items WHERE projectId = ? ORDER BY sortOrder ASC, createdAt ASC",
       )
-      .all(projectId) as any[];
+      .all(projectId) as RoadmapItemRow[];
     if (!rows.length) return [];
 
     // taskIds per item (single query)
@@ -101,147 +131,155 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create roadmap item
-  fastify.post("/projects/:projectId/roadmap", async (request, reply) => {
-    const { projectId } = request.params as any;
-    const {
-      title,
-      description,
-      status = "planned",
-      milestoneId,
-      startDate,
-      endDate,
-      dependsOn = [],
-      color,
-      taskIds = [],
-    } = request.body as any;
+  fastify.post<{ Params: ProjectParams; Body: CreateRoadmapItemInput }>(
+    "/projects/:projectId/roadmap",
+    async (request, reply) => {
+      const { projectId } = request.params;
+      const {
+        title,
+        description,
+        status = "planned",
+        milestoneId,
+        startDate,
+        endDate,
+        dependsOn = [],
+        color,
+        taskIds = [],
+      } = request.body ?? ({} as CreateRoadmapItemInput);
 
-    if (milestoneId && !milestoneInProject(milestoneId, projectId)) {
-      return reply.code(400).send({ error: "Unknown milestoneId for this project" });
-    }
-    if (Array.isArray(taskIds) && taskIds.length) {
-      const bad = invalidTaskIds(taskIds, projectId);
-      if (bad.length) {
-        return reply
-          .code(400)
-          .send({ error: `Unknown taskId(s) for this project: ${bad.join(", ")}` });
-      }
-    }
-
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    // Get next sort order
-    const last = db
-      .prepare("SELECT MAX(sortOrder) as maxOrder FROM roadmap_items WHERE projectId = ?")
-      .get(projectId) as any;
-    const sortOrder = (last?.maxOrder ?? 0) + 1;
-
-    db.prepare(
-      `INSERT INTO roadmap_items (id, projectId, milestoneId, title, description, status, startDate, endDate, dependsOn, color, sortOrder, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      projectId,
-      milestoneId || null,
-      title,
-      description || null,
-      status,
-      startDate || null,
-      endDate || null,
-      JSON.stringify(dependsOn),
-      color || null,
-      sortOrder,
-      now,
-      now,
-    );
-
-    if (Array.isArray(taskIds) && taskIds.length) setTaskLinks(id, taskIds);
-
-    return buildItem(id);
-  });
-
-  // Update roadmap item
-  fastify.patch("/roadmap/:id", async (request, reply) => {
-    const { id } = request.params as any;
-    const body = request.body as any;
-
-    const existing = db.prepare("SELECT * FROM roadmap_items WHERE id = ?").get(id) as any;
-    if (!existing) return reply.code(404).send({ error: "Roadmap item not found" });
-    const projectId = existing.projectId;
-
-    if (body.milestoneId !== undefined && body.milestoneId !== null) {
-      if (!milestoneInProject(body.milestoneId, projectId)) {
+      if (milestoneId && !milestoneInProject(milestoneId, projectId)) {
         return reply.code(400).send({ error: "Unknown milestoneId for this project" });
       }
-    }
-    if (body.taskIds !== undefined) {
-      if (!Array.isArray(body.taskIds)) {
-        return reply.code(400).send({ error: "taskIds must be an array" });
+      if (Array.isArray(taskIds) && taskIds.length) {
+        const bad = invalidTaskIds(taskIds, projectId);
+        if (bad.length) {
+          return reply
+            .code(400)
+            .send({ error: `Unknown taskId(s) for this project: ${bad.join(", ")}` });
+        }
       }
-      const bad = invalidTaskIds(body.taskIds, projectId);
-      if (bad.length) {
-        return reply
-          .code(400)
-          .send({ error: `Unknown taskId(s) for this project: ${bad.join(", ")}` });
+
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      // Get next sort order
+      const last = db
+        .prepare("SELECT MAX(sortOrder) as maxOrder FROM roadmap_items WHERE projectId = ?")
+        .get(projectId) as { maxOrder: number | null } | undefined;
+      const sortOrder = (last?.maxOrder ?? 0) + 1;
+
+      db.prepare(
+        `INSERT INTO roadmap_items (id, projectId, milestoneId, title, description, status, startDate, endDate, dependsOn, color, sortOrder, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        projectId,
+        milestoneId || null,
+        title,
+        description || null,
+        status,
+        startDate || null,
+        endDate || null,
+        JSON.stringify(dependsOn),
+        color || null,
+        sortOrder,
+        now,
+        now,
+      );
+
+      if (Array.isArray(taskIds) && taskIds.length) setTaskLinks(id, taskIds);
+
+      return buildItem(id);
+    },
+  );
+
+  // Update roadmap item
+  fastify.patch<{ Params: IdParams; Body: UpdateRoadmapItemInput }>(
+    "/roadmap/:id",
+    async (request, reply) => {
+      const { id } = request.params;
+      const body = request.body ?? ({} as UpdateRoadmapItemInput);
+
+      const existing = db.prepare("SELECT * FROM roadmap_items WHERE id = ?").get(id) as
+        | RoadmapItemRow
+        | undefined;
+      if (!existing) return reply.code(404).send({ error: "Roadmap item not found" });
+      const projectId = existing.projectId;
+
+      if (body.milestoneId !== undefined && body.milestoneId !== null) {
+        if (!milestoneInProject(body.milestoneId, projectId)) {
+          return reply.code(400).send({ error: "Unknown milestoneId for this project" });
+        }
       }
-    }
+      if (body.taskIds !== undefined) {
+        if (!Array.isArray(body.taskIds)) {
+          return reply.code(400).send({ error: "taskIds must be an array" });
+        }
+        const bad = invalidTaskIds(body.taskIds, projectId);
+        if (bad.length) {
+          return reply
+            .code(400)
+            .send({ error: `Unknown taskId(s) for this project: ${bad.join(", ")}` });
+        }
+      }
 
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    const now = new Date().toISOString();
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      const now = new Date().toISOString();
 
-    if (body.title !== undefined) {
-      fields.push("title = ?");
-      values.push(body.title);
-    }
-    if (body.description !== undefined) {
-      fields.push("description = ?");
-      values.push(body.description);
-    }
-    if (body.status !== undefined) {
-      fields.push("status = ?");
-      values.push(body.status);
-    }
-    if (body.milestoneId !== undefined) {
-      fields.push("milestoneId = ?");
-      values.push(body.milestoneId);
-    }
-    if (body.startDate !== undefined) {
-      fields.push("startDate = ?");
-      values.push(body.startDate);
-    }
-    if (body.endDate !== undefined) {
-      fields.push("endDate = ?");
-      values.push(body.endDate);
-    }
-    if (body.dependsOn !== undefined) {
-      fields.push("dependsOn = ?");
-      values.push(JSON.stringify(body.dependsOn));
-    }
-    if (body.color !== undefined) {
-      fields.push("color = ?");
-      values.push(body.color);
-    }
-    if (body.sortOrder !== undefined) {
-      fields.push("sortOrder = ?");
-      values.push(body.sortOrder);
-    }
+      if (body.title !== undefined) {
+        fields.push("title = ?");
+        values.push(body.title);
+      }
+      if (body.description !== undefined) {
+        fields.push("description = ?");
+        values.push(body.description);
+      }
+      if (body.status !== undefined) {
+        fields.push("status = ?");
+        values.push(body.status);
+      }
+      if (body.milestoneId !== undefined) {
+        fields.push("milestoneId = ?");
+        values.push(body.milestoneId);
+      }
+      if (body.startDate !== undefined) {
+        fields.push("startDate = ?");
+        values.push(body.startDate);
+      }
+      if (body.endDate !== undefined) {
+        fields.push("endDate = ?");
+        values.push(body.endDate);
+      }
+      if (body.dependsOn !== undefined) {
+        fields.push("dependsOn = ?");
+        values.push(JSON.stringify(body.dependsOn));
+      }
+      if (body.color !== undefined) {
+        fields.push("color = ?");
+        values.push(body.color);
+      }
+      if (body.sortOrder !== undefined) {
+        fields.push("sortOrder = ?");
+        values.push(body.sortOrder);
+      }
 
-    if (fields.length) {
-      fields.push("updatedAt = ?");
-      values.push(now);
-      values.push(id);
-      db.prepare(`UPDATE roadmap_items SET ${fields.join(", ")} WHERE id = ?`).run(...values);
-    }
+      if (fields.length) {
+        fields.push("updatedAt = ?");
+        values.push(now);
+        values.push(id);
+        db.prepare(`UPDATE roadmap_items SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+      }
 
-    if (body.taskIds !== undefined) setTaskLinks(id, body.taskIds);
+      if (body.taskIds !== undefined) setTaskLinks(id, body.taskIds);
 
-    return buildItem(id);
-  });
+      return buildItem(id);
+    },
+  );
 
   // Delete roadmap item
-  fastify.delete("/roadmap/:id", async (request, reply) => {
-    const { id } = request.params as any;
+  fastify.delete<{ Params: IdParams }>("/roadmap/:id", async (request, reply) => {
+    const { id } = request.params;
     const existing = db.prepare("SELECT * FROM roadmap_items WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Roadmap item not found" });
 
@@ -250,8 +288,8 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Build a single item with task ids + rollups (used by create/update responses)
-  function buildItem(id: string) {
-    const row = db.prepare("SELECT * FROM roadmap_items WHERE id = ?").get(id) as any;
+  function buildItem(id: string): RoadmapItem {
+    const row = db.prepare("SELECT * FROM roadmap_items WHERE id = ?").get(id) as RoadmapItemRow;
     const taskIds = (
       db.prepare("SELECT taskId FROM roadmap_item_tasks WHERE roadmapItemId = ?").all(id) as {
         taskId: string;
@@ -293,10 +331,12 @@ const roadmapRoutes: FastifyPluginAsync = async (fastify) => {
   }
 };
 
-function parseRoadmapRow(row: any) {
+type ParsedRoadmapRow = Omit<RoadmapItemRow, "dependsOn"> & { dependsOn: string[] };
+
+function parseRoadmapRow(row: RoadmapItemRow): ParsedRoadmapRow {
   return {
     ...row,
-    dependsOn: JSON.parse(row.dependsOn || "[]"),
+    dependsOn: JSON.parse(row.dependsOn || "[]") as string[],
   };
 }
 

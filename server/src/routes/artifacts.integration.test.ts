@@ -1,5 +1,9 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
 import { buildApp } from "../app";
+import { getProjectArtifactsDir } from "../lib/data-dir";
+import { getDb } from "../db";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let projectId: string;
@@ -468,5 +472,94 @@ describe("Artifacts API", () => {
       url: `/api/projects/${tempProjectId}/artifacts`,
     });
     expect(listRes.json().items.length).toBe(0);
+  });
+});
+
+describe("Artifacts path-containment guard", () => {
+  // Resolve the project's repo path so we can prove artifact files never land there.
+  function projectRepoPath(id: string): string {
+    const row = getDb().prepare("SELECT path FROM projects WHERE id = ?").get(id) as {
+      path: string;
+    };
+    return row.path;
+  }
+
+  test("created artifact file lives under getProjectArtifactsDir, not the project repo", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts`,
+      headers: { "Content-Type": "application/json" },
+      payload: { filename: "placement.md", content: "where does this live" },
+    });
+    expect(res.statusCode).toBe(200);
+    const id = res.json().id;
+
+    const artifactsDir = getProjectArtifactsDir(projectId);
+    const expectedPath = path.join(artifactsDir, `${id}.md`);
+
+    // File exists exactly where the data-dir module dictates.
+    expect(fs.existsSync(expectedPath)).toBe(true);
+
+    // And it is genuinely INSIDE the artifacts dir.
+    const rel = path.relative(fs.realpathSync(artifactsDir), fs.realpathSync(expectedPath));
+    expect(rel.startsWith("..")).toBe(false);
+    expect(path.isAbsolute(rel)).toBe(false);
+
+    // It is NOT under the project's repo path.
+    const repoPath = projectRepoPath(projectId);
+    expect(expectedPath.startsWith(path.resolve(repoPath))).toBe(false);
+  });
+
+  test("crafted traversal filename cannot escape the artifacts dir", async () => {
+    const artifactsDir = getProjectArtifactsDir(projectId);
+    const before = fs.existsSync(artifactsDir) ? fs.readdirSync(artifactsDir).length : 0;
+
+    // A filename whose "extension" tries to traverse upward. The server derives
+    // the on-disk leaf as `<uuid><ext>`; resolveWithin must keep it contained.
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts`,
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        filename: "evil.md/../../../../../../tmp/vk-escape-marker",
+        content: "attempted escape",
+      },
+    });
+
+    // No file may exist at the traversal target outside the artifacts dir.
+    expect(fs.existsSync("/tmp/vk-escape-marker")).toBe(false);
+
+    if (res.statusCode === 200) {
+      // If the route accepted it, the file MUST be inside the artifacts dir.
+      const id = res.json().id;
+      const entries = fs.readdirSync(artifactsDir);
+      const written = entries.find((e) => e.startsWith(id));
+      expect(written).toBeDefined();
+      const full = path.join(artifactsDir, written!);
+      const rel = path.relative(fs.realpathSync(artifactsDir), fs.realpathSync(full));
+      expect(rel.startsWith("..")).toBe(false);
+      expect(path.isAbsolute(rel)).toBe(false);
+    } else {
+      // Otherwise the guard rejected it and nothing new was written.
+      const after = fs.readdirSync(artifactsDir).length;
+      expect(after).toBe(before);
+    }
+  });
+
+  test("content read for a path-safe artifact stays within the artifacts dir", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/artifacts`,
+      headers: { "Content-Type": "application/json" },
+      payload: { filename: "safe-read.md", content: "readable body" },
+    });
+    const id = res.json().id;
+
+    const contentRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/artifacts/${id}/content`,
+    });
+    expect(contentRes.statusCode).toBe(200);
+    expect(contentRes.json().content).toBe("readable body");
   });
 });

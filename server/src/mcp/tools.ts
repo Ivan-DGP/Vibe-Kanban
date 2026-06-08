@@ -3,7 +3,13 @@ import { spawn } from "../lib/spawn";
 import { getProjectArtifactsDir } from "../lib/data-dir";
 import { maybeSpawnForTask } from "../services/taskSpawner";
 import { rowToTask } from "../routes/tasks";
-import { embed, cosineSimilarity, vectorFromBlob, EMBEDDING_MODEL } from "../services/embeddings";
+import {
+  embed,
+  cosineSimilarity,
+  vectorFromBlob,
+  EMBEDDING_MODEL,
+  isEmbeddingsDisabled,
+} from "../services/embeddings";
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import type { McpToolDefinition } from "@vibe-kanban/shared";
 import fs from "node:fs";
@@ -288,6 +294,12 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   const includeTasks = !types || types.includes("task");
 
   if (!projectId || !query) return { error: "projectId and query required" };
+
+  // Kill-switch: with embeddings disabled, return empty WITHOUT loading the
+  // model or reading embedding rows.
+  if (isEmbeddingsDisabled()) {
+    return { query, model: EMBEDDING_MODEL, results: [], totalChunks: 0 };
+  }
 
   const db = getDb();
   const scored: any[] = [];

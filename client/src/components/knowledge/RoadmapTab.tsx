@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Trash2, Calendar } from "lucide-react";
-import type { RoadmapItem, RoadmapItemStatus } from "@vibe-kanban/shared";
+import type { RoadmapItem, RoadmapItemStatus, CreateRoadmapItemInput } from "@vibe-kanban/shared";
 
 const NO_MILESTONE = "__none__";
 
@@ -248,7 +248,7 @@ function RoadmapItemDialog({
   item: RoadmapItem | null;
   projectId: string;
   onClose: () => void;
-  onSave: (data: any) => void;
+  onSave: (data: CreateRoadmapItemInput) => void;
 }) {
   const [title, setTitle] = useState(item?.title || "");
   const [description, setDescription] = useState(item?.description || "");

@@ -211,7 +211,7 @@ Each outcome is a unit of work the loop can pick up.
 
 ### O5: Knowledge layer is tested and type-clean — standing quality GATE
 
-- **Status:** todo (a gate, not a deferrable feature)
+- **Status:** done (a gate, not a deferrable feature)
 - **Why:** The oracle is only as honest as the coverage behind it. Today the suite passes
   _vacuously_ for the knowledge layer — the search/stats, path-safety, and kill-switch paths
   have **no assertions**, so "green" proves nothing about them.
@@ -220,29 +220,29 @@ Each outcome is a unit of work the loop can pick up.
   O5's gate is red.** O5 owns only the baseline-coverage holes that no feature outcome
   creates, plus the type/lint cleanliness bar.
 - **Acceptance criteria:**
-  - [ ] `server/src/routes/knowledge.integration.test.ts` exists and asserts: search returns
+  - [x] `server/src/routes/knowledge.integration.test.ts` exists and asserts: search returns
         results sorted by score desc with shape `{ query, model, results, totalChunks }`;
         stats returns the per-kind count fields; search 400s on empty query
-  - [ ] The `search_knowledge` MCP tool handler has a behavioral test (a relevant artifact
+  - [x] The `search_knowledge` MCP tool handler has a behavioral test (a relevant artifact
         ranks above an irrelevant one) and is asserted in the tool-registry test
-  - [ ] Artifact content serving has a **path-containment guard** added to the
+  - [x] Artifact content serving has a **path-containment guard** added to the
         content/upload/patch/delete handlers (`path.resolve(filePath).startsWith(resolve(artifactsDir))`)
         plus a test that a crafted filename/extension cannot escape the artifacts dir, and a
         test asserting the on-disk file lives under `getProjectArtifactsDir` and **not** under
         the target project repo (the North Star invariant). Add `path-safety.test.ts` covering
         `assertSafeSegment` + `resolveWithin`/`isWithin`
-  - [ ] The embedder kill-switch is real and tested: `embed()`/the knowledge search route
+  - [x] The embedder kill-switch is real and tested: `embed()`/the knowledge search route
         honor `isEmbeddingsDisabled()` (with `VK_DISABLE_EMBEDDINGS=1`, search returns empty
         without loading the model); a test asserts `embedTask`/`embedArtifact` and the search
         route are no-ops under the switch. (Aligns with O2's kill-switch criterion.)
-  - [ ] `artifactEmbedder` has a test: `embedArtifact` writes one embedding row per chunk and
+  - [x] `artifactEmbedder` has a test: `embedArtifact` writes one embedding row per chunk and
         clears prior rows on re-embed; non-embeddable mime types are skipped (mockable `embed()`)
-  - [ ] **Remove all knowledge-layer files from the `ANY_DEBT` allowlist** in
+  - [x] **Remove all knowledge-layer files from the `ANY_DEBT` allowlist** in
         `eslint.config.mjs` — currently `artifacts.ts`, `graph.ts`, `knowledge.ts`,
         `roadmap.ts`, `roadmap.integration.test.ts`, `client/.../ArtifactEditor.tsx`,
         `client/.../RoadmapTab.tsx` — and eliminate their `any` usages so `no-explicit-any`
         passes at **error** level for them (`knowledge.ts` has ~25)
-  - [ ] `bun run check` passes; the knowledge `bun test` suite passes on a clean tree
+  - [x] `bun run check` passes; the knowledge `bun test` suite passes on a clean tree
 - **Suggested skill:** scaffold-tests
 - **Notes:** A passing suite is necessary but not sufficient — the named test files must
   exist and _assert the behavior_, not merely be absent.

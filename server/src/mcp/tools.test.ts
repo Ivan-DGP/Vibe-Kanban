@@ -1,5 +1,26 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, afterEach, mock } from "bun:test";
+import crypto from "node:crypto";
 import { getDb } from "../db";
+import { vectorToBlob, EMBEDDING_DIM, EMBEDDING_MODEL } from "../services/embeddings";
+
+// Stub embed() so search_knowledge runs without loading the transformer model.
+// Returns an axis vector steered by `searchQueryAxis`; spread `...real` keeps
+// cosineSimilarity / vectorFromBlob / EMBEDDING_* intact.
+let searchQueryAxis = 0;
+let searchEmbedCalled = false;
+mock.module("../services/embeddings", () => {
+  const real = require("../services/embeddings");
+  return {
+    ...real,
+    embed: async (_text: string): Promise<Float32Array> => {
+      searchEmbedCalled = true;
+      const v = new Float32Array(EMBEDDING_DIM);
+      v[searchQueryAxis] = 1;
+      return v;
+    },
+  };
+});
+
 import {
   listProjects,
   getProject,
@@ -12,6 +33,7 @@ import {
   listArtifacts,
   readArtifact,
   listGraphNodes,
+  searchKnowledge,
   tools,
   toolMap,
 } from "./tools";
@@ -299,6 +321,7 @@ describe("MCP tools - getTools (tool definitions)", () => {
     expect(names).toContain("list_artifacts");
     expect(names).toContain("read_artifact");
     expect(names).toContain("list_graph_nodes");
+    expect(names).toContain("search_knowledge");
   });
 });
 
@@ -565,5 +588,112 @@ describe("MCP tools - gitDiff (via toolMap)", () => {
     } finally {
       db.query("DELETE FROM projects WHERE id = ?").run(throwProjectId);
     }
+  });
+});
+
+interface SearchKnowledgeResult {
+  query?: string;
+  model?: string;
+  results?: { kind: string; artifactId?: string; score: number }[];
+  totalChunks?: number;
+  error?: string;
+}
+
+describe("MCP tools - searchKnowledge", () => {
+  const SEARCH_PROJECT_ID = crypto.randomUUID();
+
+  function seedEmbeddedArtifact(filename: string, content: string, axis: number): string {
+    const db = getDb();
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.query(
+      `INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt)
+       VALUES (?, ?, ?, 'document', '[]', ?, 'text/markdown', ?, ?)`,
+    ).run(id, SEARCH_PROJECT_ID, filename, content.length, now, now);
+    const v = new Float32Array(EMBEDDING_DIM);
+    v[axis] = 1;
+    db.query(
+      `INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt)
+       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      id,
+      SEARCH_PROJECT_ID,
+      content,
+      vectorToBlob(v),
+      EMBEDDING_MODEL,
+      EMBEDDING_DIM,
+      now,
+    );
+    return id;
+  }
+
+  beforeAll(() => {
+    const db = getDb();
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
+    ).run(
+      SEARCH_PROJECT_ID,
+      `__search_knowledge_${Date.now()}`,
+      `/tmp/search-knowledge-${Date.now()}`,
+      "[]",
+      0,
+    );
+  });
+
+  afterEach(() => {
+    const db = getDb();
+    delete process.env.VK_DISABLE_EMBEDDINGS;
+    searchEmbedCalled = false;
+    searchQueryAxis = 0;
+    db.query("DELETE FROM artifact_embeddings WHERE projectId = ?").run(SEARCH_PROJECT_ID);
+    db.query("DELETE FROM project_artifacts WHERE projectId = ?").run(SEARCH_PROJECT_ID);
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    db.query("DELETE FROM artifact_embeddings WHERE projectId = ?").run(SEARCH_PROJECT_ID);
+    db.query("DELETE FROM project_artifacts WHERE projectId = ?").run(SEARCH_PROJECT_ID);
+    db.query("DELETE FROM projects WHERE id = ?").run(SEARCH_PROJECT_ID);
+  });
+
+  test("ranks a relevant artifact above an irrelevant one", async () => {
+    const relevantId = seedEmbeddedArtifact("relevant.md", "OAuth login flow", 0);
+    seedEmbeddedArtifact("irrelevant.md", "Stripe billing reconciliation", 50);
+
+    // Query aligns with axis 0 → relevant scores 1, irrelevant 0.
+    searchQueryAxis = 0;
+    const result = (await searchKnowledge({
+      projectId: SEARCH_PROJECT_ID,
+      query: "how does login work",
+    })) as SearchKnowledgeResult;
+
+    expect(Array.isArray(result.results)).toBe(true);
+    expect(result.results!.length).toBe(2);
+    // Top result is the relevant artifact.
+    expect(result.results![0].kind).toBe("artifact");
+    expect(result.results![0].artifactId).toBe(relevantId);
+    expect(result.results![0].score).toBeGreaterThan(result.results![1].score);
+  });
+
+  test("returns error when query missing", async () => {
+    const result = (await searchKnowledge({
+      projectId: SEARCH_PROJECT_ID,
+    })) as SearchKnowledgeResult;
+    expect(result.error).toBeDefined();
+  });
+
+  test("kill-switch: VK_DISABLE_EMBEDDINGS=1 returns empty without loading model", async () => {
+    seedEmbeddedArtifact("relevant.md", "OAuth login flow", 0);
+    process.env.VK_DISABLE_EMBEDDINGS = "1";
+
+    const result = (await searchKnowledge({
+      projectId: SEARCH_PROJECT_ID,
+      query: "how does login work",
+    })) as SearchKnowledgeResult;
+
+    expect(result.results).toEqual([]);
+    expect(result.totalChunks).toBe(0);
+    expect(searchEmbedCalled).toBe(false);
   });
 });

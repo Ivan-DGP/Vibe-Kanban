@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { buildApp } from "../app";
+import type { RoadmapItem } from "@vibe-kanban/shared";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let projectId: string;
@@ -132,7 +133,7 @@ describe("Roadmap API", () => {
       method: "GET",
       url: `/api/projects/${projectId}/roadmap`,
     });
-    const ids = listRes.json().map((i: any) => i.id);
+    const ids = (listRes.json() as RoadmapItem[]).map((i) => i.id);
     expect(ids).not.toContain(delId);
   });
 
@@ -219,9 +220,11 @@ describe("Roadmap milestone/task linkage + rollup", () => {
     return res.json().id;
   }
 
-  async function getItem(pid: string, itemId: string) {
+  async function getItem(pid: string, itemId: string): Promise<RoadmapItem> {
     const res = await app.inject({ method: "GET", url: `/api/projects/${pid}/roadmap` });
-    return (res.json() as any[]).find((i) => i.id === itemId);
+    const found = (res.json() as RoadmapItem[]).find((i) => i.id === itemId);
+    if (!found) throw new Error(`Roadmap item ${itemId} not found`);
+    return found;
   }
 
   beforeAll(async () => {
@@ -369,11 +372,11 @@ describe("Roadmap milestone/task linkage + rollup", () => {
 
     const listRes = await app.inject({ method: "GET", url: `/api/projects/${projectId}/roadmap` });
     expect(listRes.statusCode).toBe(200);
-    const item = (listRes.json() as any[]).find((i) => i.id === itemId);
+    const item = (listRes.json() as RoadmapItem[]).find((i) => i.id === itemId);
     expect(item).toBeDefined();
-    expect(item.milestoneId).toBeNull();
-    expect(item.milestoneTasksTotal).toBeNull();
-    expect(item.milestoneTasksDone).toBeNull();
+    expect(item!.milestoneId).toBeNull();
+    expect(item!.milestoneTasksTotal).toBeNull();
+    expect(item!.milestoneTasksDone).toBeNull();
   });
 
   test("(d) deleting a linked task removes the join row, rollup still 200/valid", async () => {
@@ -395,12 +398,12 @@ describe("Roadmap milestone/task linkage + rollup", () => {
 
     const listRes = await app.inject({ method: "GET", url: `/api/projects/${projectId}/roadmap` });
     expect(listRes.statusCode).toBe(200);
-    const item = (listRes.json() as any[]).find((i) => i.id === itemId);
+    const item = (listRes.json() as RoadmapItem[]).find((i) => i.id === itemId);
     expect(item).toBeDefined();
     // The join row for t1 is gone via CASCADE; only t2 remains (not done).
-    expect(item.taskIds).toEqual([t2]);
-    expect(item.tasksTotal).toBe(1);
-    expect(item.tasksDone).toBe(0);
+    expect(item!.taskIds).toEqual([t2]);
+    expect(item!.tasksTotal).toBe(1);
+    expect(item!.tasksDone).toBe(0);
   });
 
   test("PATCH replaces task links", async () => {
