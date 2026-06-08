@@ -38,9 +38,12 @@ export default defineConfig({
   ],
   webServer: {
     command: "bun run dev",
-    url: "http://localhost:5173",
+    // Gate readiness on the API server (:3001), not the Vite client (:5173). The API
+    // boots slower (runs migrations on a fresh E2E DB), and specs hit it in beforeAll —
+    // gating on :5173 races and yields ECONNREFUSED 3001. Once :3001 answers, :5173 is up.
+    url: "http://localhost:3001/api/projects",
     reuseExistingServer: false,
-    timeout: 30000,
+    timeout: 120000,
     env: { VK_DATA_DIR: E2E_DATA_DIR },
   },
 });
