@@ -182,8 +182,31 @@ test.describe("Knowledge Base — Roadmap", () => {
 });
 
 test.describe("Knowledge Base — Graph", () => {
+  // Isolated project. O3 mirrors EVERY artifact to a graph node (wikilinks.ts:
+  // mirrorArtifactToNode runs on each create/update), so the shared seed project —
+  // which other describes fill with artifacts — is no longer empty and its node count
+  // is non-deterministic. A dedicated artifact-free project keeps the empty-state and
+  // exact-count assertions valid.
+  let graphProjectId: string;
+  test.beforeAll(async () => {
+    const res = await fetch(`${BASE_API}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `E2E-Knowledge-Graph-${Date.now()}`,
+        path: `/tmp/e2e-knowledge-graph-${Date.now()}`,
+      }),
+    });
+    graphProjectId = (await res.json()).id;
+  });
+  test.afterAll(async () => {
+    if (graphProjectId) {
+      await fetch(`${BASE_API}/projects/${graphProjectId}`, { method: "DELETE" });
+    }
+  });
+
   test("Graph tab shows empty state", async ({ page }) => {
-    await page.goto(`/project/${seedProjectId}`, { waitUntil: "networkidle" });
+    await page.goto(`/project/${graphProjectId}`, { waitUntil: "networkidle" });
     await dismissOnboarding(page);
     await page.getByRole("button", { name: /knowledge/i }).click();
     await page.getByRole("tab", { name: /graph/i }).click();
@@ -192,7 +215,7 @@ test.describe("Knowledge Base — Graph", () => {
   });
 
   test("Create node via dialog", async ({ page }) => {
-    await page.goto(`/project/${seedProjectId}`, { waitUntil: "networkidle" });
+    await page.goto(`/project/${graphProjectId}`, { waitUntil: "networkidle" });
     await dismissOnboarding(page);
     await page.getByRole("button", { name: /knowledge/i }).click();
     await page.getByRole("tab", { name: /graph/i }).click();
@@ -210,19 +233,18 @@ test.describe("Knowledge Base — Graph", () => {
 
   test("Graph renders nodes created via API", async ({ page }) => {
     // Create nodes via API
-    const nodeRes = await fetch(`${BASE_API}/projects/${seedProjectId}/graph/nodes`, {
+    await fetch(`${BASE_API}/projects/${graphProjectId}/graph/nodes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label: "Database", type: "technology" }),
     });
-    const node = await nodeRes.json();
 
-    await page.goto(`/project/${seedProjectId}`, { waitUntil: "networkidle" });
+    await page.goto(`/project/${graphProjectId}`, { waitUntil: "networkidle" });
     await dismissOnboarding(page);
     await page.getByRole("button", { name: /knowledge/i }).click();
     await page.getByRole("tab", { name: /graph/i }).click();
 
-    // Should show correct node count
+    // 1 from the dialog test + 1 from the API = 2
     await expect(page.getByText(/2 nodes/i)).toBeVisible();
   });
 });
@@ -248,5 +270,122 @@ test.describe("Knowledge Base — Mode switching", () => {
     // Switch back to Tasks
     await tasksBtn.click();
     await expect(page.getByRole("tab", { name: /artifacts/i })).not.toBeVisible();
+  });
+});
+
+// O3 — Obsidian-style [[wikilinks]] build the graph. Asserts the ArtifactEditor links
+// panel renders outbound links + inbound backlinks + unresolved refs (the API contract is
+// already covered by server tests; this verifies the browser render the server oracle can't).
+test.describe("Knowledge Base — Wikilinks (O3)", () => {
+  let wlProjectId: string;
+  test.beforeAll(async () => {
+    const res = await fetch(`${BASE_API}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `E2E-Knowledge-WL-${Date.now()}`,
+        path: `/tmp/e2e-knowledge-wl-${Date.now()}`,
+      }),
+    });
+    wlProjectId = (await res.json()).id;
+  });
+  test.afterAll(async () => {
+    if (wlProjectId) {
+      await fetch(`${BASE_API}/projects/${wlProjectId}`, { method: "DELETE" });
+    }
+  });
+
+  // description kept distinct from filename so the filename text is unique (clickable).
+  const createArtifact = (filename: string, description: string, content: string) =>
+    fetch(`${BASE_API}/projects/${wlProjectId}/artifacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename, type: "document", description, content }),
+    });
+
+  test("outbound link and inbound backlink render in the editor", async ({ page }) => {
+    // Target must exist before the source so [[target-wiki]] resolves at create time.
+    await createArtifact("target-wiki.md", "the link target", "# Target\n");
+    await createArtifact("source-wiki.md", "the link source", "See [[target-wiki]] for details.\n");
+
+    // Source artifact → outbound resolved link.
+    await page.goto(`/project/${wlProjectId}`, { waitUntil: "networkidle" });
+    await dismissOnboarding(page);
+    await page.getByRole("button", { name: /knowledge/i }).click();
+    await page.getByText("source-wiki.md").click();
+    await expect(page.getByText(/\d+ links?/)).toBeVisible({ timeout: 10000 });
+
+    // Target artifact → inbound backlink.
+    await page.goto(`/project/${wlProjectId}`, { waitUntil: "networkidle" });
+    await dismissOnboarding(page);
+    await page.getByRole("button", { name: /knowledge/i }).click();
+    await page.getByText("target-wiki.md").click();
+    await expect(page.getByText(/\d+ backlinks?/)).toBeVisible({ timeout: 10000 });
+  });
+
+  test("unresolved [[ref]] is surfaced as unresolved", async ({ page }) => {
+    await createArtifact("dangling.md", "has a dead link", "Points to [[does-not-exist]].\n");
+
+    await page.goto(`/project/${wlProjectId}`, { waitUntil: "networkidle" });
+    await dismissOnboarding(page);
+    await page.getByRole("button", { name: /knowledge/i }).click();
+    await page.getByText("dangling.md").click();
+    await expect(page.getByText(/unresolved/i)).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// O4 — Roadmap ↔ tasks rollup. Asserts a roadmap lane renders its linked-task rollup
+// (done/total). API rollup numbers are covered by server tests; this verifies the render.
+test.describe("Knowledge Base — Roadmap rollup (O4)", () => {
+  let rmProjectId: string;
+  test.beforeAll(async () => {
+    const res = await fetch(`${BASE_API}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `E2E-Knowledge-RM-${Date.now()}`,
+        path: `/tmp/e2e-knowledge-rm-${Date.now()}`,
+      }),
+    });
+    rmProjectId = (await res.json()).id;
+  });
+  test.afterAll(async () => {
+    if (rmProjectId) {
+      await fetch(`${BASE_API}/projects/${rmProjectId}`, { method: "DELETE" });
+    }
+  });
+
+  test("lane shows linked-task rollup (done/total)", async ({ page }) => {
+    const mkTask = async (title: string, status: string) => {
+      const r = await fetch(`${BASE_API}/projects/${rmProjectId}/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, status }),
+      });
+      return (await r.json()).id as string;
+    };
+    const doneTask = await mkTask("Rollup done task", "done");
+    const todoTask = await mkTask("Rollup todo task", "todo");
+
+    await fetch(`${BASE_API}/projects/${rmProjectId}/roadmap`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Rollup Phase",
+        status: "in_progress",
+        startDate: "2026-04-01",
+        endDate: "2026-06-01",
+        taskIds: [doneTask, todoTask],
+      }),
+    });
+
+    await page.goto(`/project/${rmProjectId}`, { waitUntil: "networkidle" });
+    await dismissOnboarding(page);
+    await page.getByRole("button", { name: /knowledge/i }).click();
+    await page.getByRole("tab", { name: /roadmap/i }).click();
+
+    await expect(page.getByText("Rollup Phase")).toBeVisible();
+    // 1 of 2 linked tasks done ("done" status) → lane renders "1/2".
+    await expect(page.getByText("1/2")).toBeVisible();
   });
 });
