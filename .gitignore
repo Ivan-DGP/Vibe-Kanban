@@ -41,3 +41,4 @@ bench_verify.mjs
 benchmarks/.runs/
 benchmarks/.tmpdata/
 benchmarks/results/
+.claude/conductor/
