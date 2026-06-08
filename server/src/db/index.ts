@@ -694,6 +694,69 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 28,
+      name: "add-wikilink-edge-type-and-unique",
+      noTransaction: true, // FK toggle for the edges table rebuild (CHECK can't be ALTERed)
+      up: () => {
+        // Rebuild project_graph_edges to (a) add 'wikilink' to the type CHECK and
+        // (b) add UNIQUE(projectId, sourceNodeId, targetNodeId, type) so re-parsing
+        // the same link is idempotent. Skip if already rebuilt.
+        const tableSql =
+          (
+            db
+              .prepare(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='project_graph_edges'",
+              )
+              .get() as any
+          )?.sql || "";
+        if (tableSql.includes("'wikilink'")) return; // already rebuilt
+
+        db.exec("PRAGMA foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE project_graph_edges_v28 (
+            id           TEXT PRIMARY KEY,
+            projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            sourceNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+            targetNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+            label        TEXT DEFAULT NULL,
+            type         TEXT NOT NULL DEFAULT 'related'
+              CHECK (type IN ('related', 'depends_on', 'implements', 'extends', 'conflicts', 'owned_by', 'wikilink')),
+            createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            UNIQUE (projectId, sourceNodeId, targetNodeId, type)
+          );
+          INSERT OR IGNORE INTO project_graph_edges_v28 (id, projectId, sourceNodeId, targetNodeId, label, type, createdAt)
+            SELECT id, projectId, sourceNodeId, targetNodeId, label, type, createdAt FROM project_graph_edges;
+          DROP TABLE project_graph_edges;
+          ALTER TABLE project_graph_edges_v28 RENAME TO project_graph_edges;
+          CREATE INDEX idx_graph_edges_projectId ON project_graph_edges (projectId);
+          CREATE INDEX idx_graph_edges_source ON project_graph_edges (sourceNodeId);
+          CREATE INDEX idx_graph_edges_target ON project_graph_edges (targetNodeId);
+        `);
+        db.exec("PRAGMA foreign_keys = ON");
+      },
+    },
+    {
+      version: 29,
+      name: "add-artifact-pending-links",
+      up: () => {
+        // Unresolved [[targets]] are recorded here (NOT as half-edges, which the
+        // canvas would drop). Re-resolved on later artifact create/rename.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS artifact_pending_links (
+            id                TEXT PRIMARY KEY,
+            projectId         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            sourceArtifactId  TEXT NOT NULL REFERENCES project_artifacts(id) ON DELETE CASCADE,
+            rawTarget         TEXT NOT NULL,
+            createdAt         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            UNIQUE (projectId, sourceArtifactId, rawTarget)
+          );
+          CREATE INDEX IF NOT EXISTS idx_pending_links_projectId ON artifact_pending_links (projectId);
+          CREATE INDEX IF NOT EXISTS idx_pending_links_source ON artifact_pending_links (sourceArtifactId);
+          CREATE INDEX IF NOT EXISTS idx_pending_links_rawTarget ON artifact_pending_links (projectId, rawTarget);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

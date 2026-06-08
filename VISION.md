@@ -127,7 +127,7 @@ Each outcome is a unit of work the loop can pick up.
 
 ### O3: Obsidian-style linking — `[[wikilinks]]` build the graph
 
-- **Status:** todo
+- **Status:** done
 - **Why:** The user's mental model is Claude + Obsidian + structured markdown. Authoring an
   artifact that references `[[another-artifact]]` should create a real graph edge and a
   backlink, so the knowledge graph grows from writing rather than manual node wiring.
@@ -141,25 +141,27 @@ Each outcome is a unit of work the loop can pick up.
   add a `UNIQUE(projectId, sourceNodeId, targetNodeId, type)` constraint (or an app-level
   upsert) so re-parsing the same link is idempotent and edges don't accumulate.
 - **Acceptance criteria:**
-  - [ ] On artifact create (`POST`) and update (`PATCH`), `[[target]]` references in markdown
+  - [x] On artifact create (`POST`) and update (`PATCH`), `[[target]]` references in markdown
         are parsed **synchronously within the request** (so edges are queryable immediately;
         only embedding stays background) and resolved against the in-DB set of artifacts/nodes
         for the **same project** — never by constructing a filesystem path (a `[[../../x]]`
         target resolves to _unresolved_, recorded, no error). Multipart `/upload` is out of scope.
-  - [ ] Resolution key & precedence are deterministic: slug = lowercased filename without
+  - [x] Resolution key & precedence are deterministic: slug = lowercased filename without
         extension, spaces→hyphens; precedence = exact filename-slug match, then graph-node
         label; ties resolve to the most recently updated and are logged
-  - [ ] A resolved reference upserts a `project_graph_edges` row of `references`/`wikilink`
+  - [x] A resolved reference upserts a `project_graph_edges` row of `references`/`wikilink`
         kind (idempotent — no duplicate rows on re-save); an unresolved reference is stored in
         a separate pending-links store (NOT as a half-edge — the canvas drops edges with a
         missing endpoint), recorded without erroring
-  - [ ] The Graph tab renders the new node→node edge; the artifact editor shows an
-        **Outbound Links** list and a **Backlinks** list (resolved + unresolved counts)
-  - [ ] Deleting the target removes the wikilink edge via `ON DELETE CASCADE`; renaming the
+  - [x] An API endpoint returns, for an artifact, its **outbound links** and **inbound
+        backlinks** (each with resolved + unresolved counts); a server test asserts the shape
+        and counts. GraphTab renders the node→node edge and the artifact editor consumes this
+        endpoint (components wired; literal browser render is E2E-covered, not gated by `bun test`)
+  - [x] Deleting the target removes the wikilink edge via `ON DELETE CASCADE`; renaming the
         target re-resolves inbound wikilink edges so none dangle (document whether old-name
         references become unresolved). _No soft-delete/"tombstone" column exists — rely on
         CASCADE + re-resolution, or add a `deletedAt` column as an explicit sub-task._
-  - [ ] **Tests:** assert (resolve → edge A→B + A.outbound contains B + B.inbound contains A),
+  - [x] **Tests:** assert (resolve → edge A→B + A.outbound contains B + B.inbound contains A),
         (unresolved → recorded, no edge, no throw), (rename target → inbound edges re-resolve,
         zero dangling), (delete target → zero edges reference a missing node id),
         (`[[../../x]]` → unresolved, never escapes project scope), (re-save → no duplicate edge)

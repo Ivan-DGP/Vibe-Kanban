@@ -221,11 +221,19 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         const tx = target.x ?? 0,
           ty = target.y ?? 0;
 
-        ctx.strokeStyle = edge.id === currentSelected ? "#fff" : "rgba(148, 163, 184, 0.3)";
+        const isWikilink = edge.type === "wikilink";
+        ctx.strokeStyle =
+          edge.id === currentSelected
+            ? "#fff"
+            : isWikilink
+              ? "rgba(96, 165, 250, 0.55)" // blue dashed for [[wikilinks]]
+              : "rgba(148, 163, 184, 0.3)";
+        ctx.setLineDash(isWikilink ? [4, 3] : []);
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(tx, ty);
         ctx.stroke();
+        ctx.setLineDash([]);
 
         // Edge label
         if (edge.label) {

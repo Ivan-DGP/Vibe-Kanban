@@ -629,7 +629,8 @@ export type GraphEdgeType =
   | "implements"
   | "extends"
   | "conflicts"
-  | "owned_by";
+  | "owned_by"
+  | "wikilink";
 
 export interface GraphNode {
   id: string;
@@ -682,6 +683,44 @@ export interface CreateGraphEdgeInput {
   targetNodeId: string;
   label?: string;
   type?: GraphEdgeType;
+}
+
+// ============================================================
+// Wikilinks ([[target]] references between artifacts)
+// ============================================================
+
+export interface WikilinkResolvedRef {
+  rawTarget: string;
+  edgeId: string;
+  targetArtifactId: string;
+  targetNodeId: string;
+  targetFilename: string;
+}
+
+export interface WikilinkUnresolvedRef {
+  rawTarget: string;
+}
+
+/** Outbound links + inbound backlinks for one artifact. */
+export interface ArtifactLinksResponse {
+  artifactId: string;
+  nodeId: string | null;
+  outbound: {
+    resolved: WikilinkResolvedRef[];
+    unresolved: WikilinkUnresolvedRef[];
+    resolvedCount: number;
+    unresolvedCount: number;
+  };
+  inbound: {
+    backlinks: {
+      edgeId: string;
+      sourceArtifactId: string | null;
+      sourceNodeId: string;
+      sourceLabel: string;
+    }[];
+    backlinkCount: number;
+    unresolvedCount: number;
+  };
 }
 
 // ============================================================

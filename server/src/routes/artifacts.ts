@@ -2,6 +2,12 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { getProjectArtifactsDir } from "../lib/data-dir";
 import { embedArtifactInBackground, clearArtifactEmbeddings } from "../services/artifactEmbedder";
+import {
+  syncArtifactWikilinks,
+  reresolvePendingForArtifact,
+  removeArtifactMirror,
+  getArtifactLinks,
+} from "../services/wikilinks";
 import { isEmbeddableMimeType } from "../lib/chunking";
 import fs from "node:fs";
 import path from "node:path";
@@ -121,9 +127,25 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
       embedArtifactInBackground({ projectId, artifactId: id, content, mimeType });
     }
 
+    // Wikilinks: parse [[targets]] synchronously so edges are queryable in the
+    // same request. mirror this artifact to a node + resolve its outbound refs,
+    // then heal any pending refs from other artifacts pointing at this new one.
+    syncArtifactWikilinks(db, { id, projectId, filename, updatedAt: now }, content);
+    reresolvePendingForArtifact(db, { id, projectId, filename, updatedAt: now });
+
     return parseArtifactRow(
       db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any,
     );
+  });
+
+  // Get an artifact's wikilinks: outbound links + inbound backlinks with counts
+  fastify.get("/projects/:projectId/artifacts/:id/links", async (request, reply) => {
+    const { projectId, id } = request.params as any;
+    const row = db
+      .prepare("SELECT id FROM project_artifacts WHERE id = ? AND projectId = ?")
+      .get(id, projectId);
+    if (!row) return reply.code(404).send({ error: "Artifact not found" });
+    return getArtifactLinks(db, projectId, id);
   });
 
   // Update artifact metadata and/or content
@@ -191,6 +213,19 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
           mimeType: updatedMime,
         });
       }
+    }
+
+    // Wikilinks: re-derive synchronously on any content or filename change.
+    // A rename updates the mirror node's label, re-resolves OUTBOUND refs from
+    // current content, and re-resolves INBOUND refs that now match the new name
+    // (refs to the OLD name no longer resolve and fall back to pending-links).
+    if (body.content !== undefined || body.filename !== undefined) {
+      const newFilename = body.filename ?? existing.filename;
+      const content =
+        body.content !== undefined ? body.content : readArtifactContent(projectId, existing);
+      const ref = { id, projectId, filename: newFilename, updatedAt: now };
+      syncArtifactWikilinks(db, ref, content);
+      reresolvePendingForArtifact(db, ref);
     }
 
     return parseArtifactRow(
@@ -264,10 +299,24 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
     // Invalidate the artifact's embeddings so stale vectors never influence
     // knowledge ranking (also covered by ON DELETE CASCADE; explicit for clarity).
     clearArtifactEmbeddings(id);
+    // Drop the mirror node BEFORE the artifact row: the node's ON DELETE CASCADE
+    // clears every inbound/outbound wikilink edge so none dangle.
+    removeArtifactMirror(db, projectId, id);
     db.prepare("DELETE FROM project_artifacts WHERE id = ?").run(id);
     return reply.code(204).send();
   });
 };
+
+function readArtifactContent(projectId: string, row: { id: string; filename: string }): string {
+  try {
+    const artifactsDir = getProjectArtifactsDir(projectId);
+    const filePath = path.join(artifactsDir, row.id + getExtension(row.filename));
+    if (!fs.existsSync(filePath)) return "";
+    return fs.readFileSync(filePath, "utf-8");
+  } catch {
+    return "";
+  }
+}
 
 function parseArtifactRow(row: any) {
   return {

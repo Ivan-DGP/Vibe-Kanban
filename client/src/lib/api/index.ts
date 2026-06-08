@@ -50,6 +50,7 @@ import type {
   KnowledgeStats,
   CreateArtifactInput,
   UpdateArtifactInput,
+  ArtifactLinksResponse,
   RoadmapItem,
   CreateRoadmapItemInput,
   UpdateRoadmapItemInput,
@@ -363,6 +364,8 @@ export const api = {
     },
     update: (projectId: string, id: string, input: UpdateArtifactInput) =>
       patch<Artifact>(`/projects/${projectId}/artifacts/${id}`, input),
+    links: (projectId: string, id: string) =>
+      get<ArtifactLinksResponse>(`/projects/${projectId}/artifacts/${id}/links`),
     delete: (projectId: string, id: string) => del(`/projects/${projectId}/artifacts/${id}`),
   },
 
