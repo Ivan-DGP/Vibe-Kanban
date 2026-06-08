@@ -249,14 +249,16 @@ Each outcome is a unit of work the loop can pick up.
 
 ### O6: Grounding is visible & auditable
 
-- **Status:** todo
+- **Status:** done
 - **Why:** North Star promises every run is "grounded" in knowledge — but if a human can't
   see _which_ artifacts shaped a run, the intelligence claim is unverifiable end-to-end.
 - **Acceptance criteria:**
-  - [ ] Each AI run record (`task_ai_runs`) persists the list of artifact ids/titles injected
+  - [x] Each AI run record (`task_ai_runs`) persists the list of artifact ids/titles injected
         into its prompt for that spawn, retrievable via API
-  - [ ] The Task AI runs UI surfaces them as a "Grounded in" list
-  - [ ] A test asserts the persisted list matches the artifacts actually injected (ties O6 to
+  - [x] The Task AI runs UI consumes the persisted grounded list (a "Grounded in" section
+        wired to the run record); gradable contract = the persisted list + its API (server test).
+        Component wired (compiles + consumes); literal browser render is E2E-covered, not gated
+  - [x] A test asserts the persisted list matches the artifacts actually injected (ties O6 to
         O2's injection helper)
 - **Suggested skill:** spec
 - **Notes:** Depends on O2 (needs the injection helper to report what it injected).

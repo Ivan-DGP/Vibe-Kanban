@@ -45,6 +45,21 @@ export interface BuildKnowledgeBlockOpts {
   embedFn?: EmbedFn;
 }
 
+/** Identity of an artifact injected into a prompt. Persisted for audit (O6). */
+export interface GroundedArtifact {
+  id: string;
+  title: string;
+}
+
+/** Structured result of knowledge injection: the rendered block plus the
+ * exact set of artifacts that made it into that block (after K-cap AND byte
+ * budget trimming), in rank order. `artifacts` is empty whenever `block` is "".
+ */
+export interface KnowledgeContext {
+  block: string;
+  artifacts: GroundedArtifact[];
+}
+
 interface ArtifactEmbeddingRow {
   artifactId: string;
   content: string;
@@ -123,18 +138,37 @@ function escapeBody(s: string): string {
  * has no embedded artifacts, or query embedding/ranking rejects or times out.
  * NEVER throws — callers can await it inline without a guard, but wiring code
  * should still defend (criterion 3).
+ *
+ * Thin wrapper over {@link buildKnowledgeContext}; returns only the rendered
+ * block so all existing O2 callers/tests keep their string contract.
  */
 export async function buildKnowledgeBlock(opts: BuildKnowledgeBlockOpts): Promise<string> {
+  return (await buildKnowledgeContext(opts)).block;
+}
+
+/**
+ * Build the knowledge block AND report exactly which artifacts grounded it.
+ *
+ * Same selection/ranking/budget rules as {@link buildKnowledgeBlock}, but also
+ * returns the ordered `artifacts` list (id + title) that actually made it into
+ * the rendered block. O6 persists this list on the run record so a human can
+ * audit what knowledge shaped a run. NEVER throws; on any skip path the result
+ * is `{ block: "", artifacts: [] }`.
+ */
+export async function buildKnowledgeContext(
+  opts: BuildKnowledgeBlockOpts,
+): Promise<KnowledgeContext> {
   const { projectId, query, embedFn = embed } = opts;
+  const empty: KnowledgeContext = { block: "", artifacts: [] };
 
   // Criterion 2: short-circuit BEFORE embed() so the model is never loaded.
-  if (isEmbeddingsDisabled()) return "";
+  if (isEmbeddingsDisabled()) return empty;
 
   const k = Math.min(Math.max(VK_SPAWN_KNOWLEDGE_K, 0), SPAWN_KNOWLEDGE_K_MAX);
-  if (k === 0) return "";
+  if (k === 0) return empty;
 
   const trimmedQuery = query.trim();
-  if (trimmedQuery.length === 0) return "";
+  if (trimmedQuery.length === 0) return empty;
 
   let ranked: RankedArtifact[];
   try {
@@ -149,10 +183,10 @@ export async function buildKnowledgeBlock(opts: BuildKnowledgeBlockOpts): Promis
       "server",
       `Knowledge injection skipped for project ${projectId}: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return "";
+    return empty;
   }
 
-  if (ranked.length === 0) return "";
+  if (ranked.length === 0) return empty;
   return renderBlock(ranked);
 }
 
@@ -198,14 +232,16 @@ async function rankArtifacts(
  * Render ranked artifacts into the wrapped block, enforcing the total byte
  * budget. Artifacts are added highest-rank first; once an entry would exceed
  * `KNOWLEDGE_BLOCK_MAX_BYTES`, it and all lower-ranked entries are dropped
- * (byte budget wins over K).
+ * (byte budget wins over K). Returns the block AND the exact artifacts kept,
+ * in render order, so the persisted grounded list matches what was injected.
  */
-function renderBlock(ranked: RankedArtifact[]): string {
+function renderBlock(ranked: RankedArtifact[]): KnowledgeContext {
   const header = `${OPEN_FENCE}\n${NOTICE}`;
   const footer = `\n${CLOSE_FENCE}`;
   const overhead = byteLength(header) + byteLength(footer);
 
   const entries: string[] = [];
+  const artifacts: GroundedArtifact[] = [];
   let used = overhead;
   for (const a of ranked) {
     const excerpt = escapeBody(truncateToBytes(a.content.trim(), KNOWLEDGE_EXCERPT_BYTES));
@@ -214,9 +250,12 @@ function renderBlock(ranked: RankedArtifact[]): string {
     const entryBytes = byteLength(entry);
     if (used + entryBytes > KNOWLEDGE_BLOCK_MAX_BYTES) break;
     entries.push(entry);
+    // Persist the RAW (unescaped) title — escaping is a prompt-safety concern,
+    // not an audit one. id maps to project_artifacts.id.
+    artifacts.push({ id: a.artifactId, title: a.title });
     used += entryBytes;
   }
 
-  if (entries.length === 0) return "";
-  return header + entries.join("") + footer;
+  if (entries.length === 0) return { block: "", artifacts: [] };
+  return { block: header + entries.join("") + footer, artifacts };
 }

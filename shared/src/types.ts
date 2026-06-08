@@ -123,6 +123,16 @@ export interface AiPreflightResult {
   branch: string | null;
 }
 
+/**
+ * A knowledge-base artifact that grounded an AI run — i.e. was selected by
+ * the O2 knowledge-injection helper and injected into the run's prompt.
+ * Surfaced so a human can audit what knowledge shaped a run (O6).
+ */
+export interface GroundedArtifact {
+  id: string;
+  title: string;
+}
+
 export interface TaskAiRun {
   id: string;
   taskId: string;
@@ -141,6 +151,9 @@ export interface TaskAiRun {
   startedAt?: string | null;
   finishedAt?: string | null;
   totalCostUsd?: number | null;
+  // O6: knowledge artifacts injected into this run's prompt. Empty when no
+  // knowledge was grounded (embeddings disabled, no artifacts, or timeout).
+  groundedArtifacts?: GroundedArtifact[];
 }
 
 export interface ProjectAiStats {

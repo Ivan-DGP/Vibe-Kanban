@@ -776,6 +776,19 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 31,
+      name: "add-task-ai-run-grounded-artifacts",
+      up: () => {
+        // O6: persist which knowledge artifacts grounded each AI run (the ones
+        // injected into its prompt by the O2 knowledge-injection helper) so a
+        // human can audit what knowledge shaped a run. JSON array of {id,title}.
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "groundedArtifacts")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN groundedArtifacts TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

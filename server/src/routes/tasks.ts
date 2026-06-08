@@ -11,10 +11,29 @@ import {
 } from "../services/aiResolvePrompt";
 import { maybeSpawnForTask } from "../services/taskSpawner";
 import { embedTaskInBackground } from "../services/taskEmbedder";
-import type { Task, TaskStatus } from "@vibe-kanban/shared";
+import type { Task, TaskStatus, GroundedArtifact, TaskAiRun } from "@vibe-kanban/shared";
 
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+/**
+ * Map a raw `task_ai_runs` DB row to the API/UI shape, parsing the O6
+ * `groundedArtifacts` JSON column into a structured list. Malformed or NULL
+ * JSON degrades to an empty list rather than throwing.
+ */
+export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
+  let groundedArtifacts: GroundedArtifact[] = [];
+  const raw = row.groundedArtifacts;
+  if (typeof raw === "string" && raw.length > 0) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) groundedArtifacts = parsed as GroundedArtifact[];
+    } catch {
+      // Leave empty on malformed JSON.
+    }
+  }
+  return { ...(row as unknown as TaskAiRun), groundedArtifacts };
 }
 
 function now(): string {
@@ -810,16 +829,27 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Record an AI run result
   fastify.post("/tasks/:taskId/ai-runs", async (request, reply) => {
     const { taskId } = request.params as any;
-    const { sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary } =
-      request.body as any;
+    const {
+      sessionId,
+      profile,
+      complexity,
+      exitCode,
+      success,
+      filesChanged,
+      durationMs,
+      summary,
+      groundedArtifacts,
+    } = request.body as any;
 
     const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
     if (!task) return reply.code(404).send({ error: "Task not found" });
 
     const id = uuid();
+    // O6: persist the grounded-artifact audit list (JSON), defaulting to [].
+    const grounded = JSON.stringify(Array.isArray(groundedArtifacts) ? groundedArtifacts : []);
     db.prepare(
-      `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary, groundedArtifacts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       taskId,
@@ -832,17 +862,22 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       filesChanged ?? null,
       durationMs ?? null,
       summary || null,
+      grounded,
     );
 
-    return db.prepare("SELECT * FROM task_ai_runs WHERE id = ?").get(id);
+    return mapAiRunRow(
+      db.prepare("SELECT * FROM task_ai_runs WHERE id = ?").get(id) as Record<string, unknown>,
+    );
   });
 
   // Get AI runs for a task
   fastify.get("/tasks/:taskId/ai-runs", async (request) => {
     const { taskId } = request.params as any;
-    return db
+    const rows = db
       .prepare("SELECT * FROM task_ai_runs WHERE taskId = ? ORDER BY createdAt DESC LIMIT 20")
-      .all(taskId);
+      .all(taskId) as Record<string, unknown>[];
+    // O6: surface the persisted grounded-artifact audit list as structured JSON.
+    return rows.map(mapAiRunRow);
   });
 
   // Get adversarial findings for a task (TAMPERED, SPRAWL, EXFIL, PROMPT-INJECTED, PREFLIGHT-RED)

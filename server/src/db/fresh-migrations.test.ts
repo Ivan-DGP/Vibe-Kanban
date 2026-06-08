@@ -39,7 +39,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 30 on a blank database", () => {
+  test("runs all migrations from version 1 to 31 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -55,7 +55,7 @@ describe("fresh database: real runMigrations", () => {
       version: number;
       name: string;
     }[];
-    expect(rows.length).toBe(30);
+    expect(rows.length).toBe(31);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
@@ -169,6 +169,8 @@ describe("fresh database: real runMigrations", () => {
     expect(colNames).toContain("profile");
     expect(colNames).toContain("exitCode");
     expect(colNames).toContain("success");
+    // O6: grounded-artifact audit column (migration 31).
+    expect(colNames).toContain("groundedArtifacts");
   });
 
   test("can insert and query data through the migrated schema", () => {
@@ -229,8 +231,8 @@ describe("runMigrations idempotency", () => {
       db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
     ).c;
 
-    expect(countAfterFirst).toBe(30);
-    expect(countAfterSecond).toBe(30);
+    expect(countAfterFirst).toBe(31);
+    expect(countAfterSecond).toBe(31);
   });
 });
 
@@ -256,7 +258,7 @@ describe("migration from completely empty database", () => {
     const finalVersion = (
       db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }
     ).v;
-    expect(finalVersion).toBe(30);
+    expect(finalVersion).toBe(31);
   });
 });
 
@@ -316,7 +318,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(30);
+    expect(max).toBe(31);
   });
 });
 
@@ -341,7 +343,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(30);
+    expect(max).toBe(31);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -749,7 +751,7 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(30);
+    expect(max).toBe(31);
   });
 });
 
