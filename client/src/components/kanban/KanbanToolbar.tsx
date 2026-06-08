@@ -50,10 +50,12 @@ export default function KanbanToolbar({
   const [sizeDialogOpen, setSizeDialogOpen] = useState(false);
   const [sizeLoading, setSizeLoading] = useState(false);
   const [sizeResult, setSizeResult] = useState("");
+  const [sizeError, setSizeError] = useState("");
 
   const handleProjectSize = async () => {
     setSizeDialogOpen(true);
     setSizeResult("");
+    setSizeError("");
     setSizeLoading(true);
     try {
       const data = await api.tasks.list(projectId, { limit: 1000 });
@@ -106,13 +108,15 @@ Be direct and practical. Output plain text, no markdown headers.`;
               if (d.type === "delta" && d.text) {
                 text += d.text;
                 setSizeResult(text);
+              } else if (d.type === "error") {
+                setSizeError(d.message || "Analysis failed.");
               }
             } catch {}
           }
         }
       }
     } catch {
-      setSizeResult("Failed to analyze project. Make sure Claude AI is available.");
+      setSizeError("Failed to analyze project. Make sure Claude AI is available.");
     } finally {
       setSizeLoading(false);
     }
@@ -257,12 +261,20 @@ Be direct and practical. Output plain text, no markdown headers.`;
             </DialogTitle>
           </DialogHeader>
           <ScrollArea className="max-h-[400px]">
-            {sizeResult ? (
+            {sizeError ? (
+              <div className="py-6 px-1 text-sm text-destructive whitespace-pre-wrap leading-relaxed">
+                {sizeError}
+              </div>
+            ) : sizeResult ? (
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{sizeResult}</p>
-            ) : (
+            ) : sizeLoading ? (
               <div className="flex items-center justify-center py-8 text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin mr-2" />
                 Analyzing project...
+              </div>
+            ) : (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No assessment produced.
               </div>
             )}
           </ScrollArea>
