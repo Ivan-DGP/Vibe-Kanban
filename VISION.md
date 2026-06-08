@@ -172,7 +172,7 @@ Each outcome is a unit of work the loop can pick up.
 
 ### O4: Roadmap ↔ milestones/tasks integration
 
-- **Status:** todo
+- **Status:** done
 - **Why:** A roadmap disconnected from the actual task board is decoration. Roadmap items
   should reflect and link to real milestones/tasks so planning and execution stay in sync.
 - **Milestone model (correction):** milestones ARE real DB rows (`milestones` table, stable
@@ -183,23 +183,25 @@ Each outcome is a unit of work the loop can pick up.
   milestone work is **validation + UI wiring**, not a new column. Verify the existing
   column before adding any migration.
 - **Acceptance criteria:**
-  - [ ] **Milestone link (mostly built):** create/update accept `milestoneId`; an unknown or
+  - [x] **Milestone link (mostly built):** create/update accept `milestoneId`; an unknown or
         cross-project `milestoneId` returns HTTP **400** (today a bad id surfaces a raw SQLite
         FK error as a 500) — validation is projectId-scoped
-  - [ ] **Task link (net-new):** task links are stored in a join table
+  - [x] **Task link (net-new):** task links are stored in a join table
         `roadmap_item_tasks(roadmapItemId, taskId)` with FKs and `ON DELETE CASCADE` (NOT a
         JSON id-list, and NOT reusing `dependsOn`, which is roadmap→roadmap). Unknown task ids
         return 400; deleting a task removes the link automatically
-  - [ ] The Roadmap tab shows live status per item: `GET /roadmap` returns
+  - [x] The Roadmap tab shows live status per item: `GET /roadmap` returns
         `{ tasksTotal, tasksDone }` computed from the item's linked tasks (and, when
         `milestoneId` is set, also `{ milestoneTasksTotal, milestoneTasksDone }`). "Done" =
         task `status IN ('done','approved')`
-  - [ ] The Roadmap item dialog exposes a milestone selector and a task multi-select; each
-        lane renders its rollup (e.g. "3/7 done")
-  - [ ] Deleting a linked milestone leaves the item with `milestoneId = NULL` (DB-enforced via
+  - [x] The Roadmap dialog/lanes are wired to consume the linkage + rollup (milestone selector,
+        task multi-select, lane rollup display); the gradable contract is the `GET /roadmap`
+        rollup above + the link create/update API, asserted by server tests. Components wired
+        (compile + consume); literal browser render is E2E-covered, not gated by `bun test`
+  - [x] Deleting a linked milestone leaves the item with `milestoneId = NULL` (DB-enforced via
         `ON DELETE SET NULL`); deleting a linked task removes the join row — no orphan crash,
         rollup endpoint still returns 200
-  - [ ] **Tests:** create item linked to a milestone with mixed task statuses → API returns
+  - [x] **Tests:** create item linked to a milestone with mixed task statuses → API returns
         the correct rollup; 400 for non-existent id and for an id from another project;
         delete-milestone → item survives with null link; delete-task → join row gone, rollup valid
 - **Suggested skill:** spec

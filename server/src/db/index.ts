@@ -757,6 +757,25 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 30,
+      name: "add-roadmap-item-tasks",
+      up: () => {
+        // Join table linking roadmap items to tasks. CASCADE from both sides so
+        // deleting a roadmap item or a task removes the link with no orphans.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS roadmap_item_tasks (
+            roadmapItemId TEXT NOT NULL
+              REFERENCES roadmap_items(id) ON DELETE CASCADE,
+            taskId        TEXT NOT NULL
+              REFERENCES tasks(id) ON DELETE CASCADE,
+            PRIMARY KEY (roadmapItemId, taskId)
+          );
+          CREATE INDEX IF NOT EXISTS idx_roadmap_item_tasks_roadmapItemId ON roadmap_item_tasks (roadmapItemId);
+          CREATE INDEX IF NOT EXISTS idx_roadmap_item_tasks_taskId ON roadmap_item_tasks (taskId);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

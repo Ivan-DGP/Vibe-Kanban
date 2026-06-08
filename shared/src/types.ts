@@ -743,6 +743,14 @@ export interface RoadmapItem {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  // Task linkage (join table roadmap_item_tasks)
+  taskIds: string[];
+  // Rollup over linked tasks
+  tasksTotal: number;
+  tasksDone: number;
+  // Rollup over the linked milestone's tasks (null when no milestone)
+  milestoneTasksTotal: number | null;
+  milestoneTasksDone: number | null;
 }
 
 export interface CreateRoadmapItemInput {
@@ -754,6 +762,7 @@ export interface CreateRoadmapItemInput {
   endDate?: string;
   dependsOn?: string[];
   color?: string;
+  taskIds?: string[];
 }
 
 export interface UpdateRoadmapItemInput {
@@ -766,6 +775,7 @@ export interface UpdateRoadmapItemInput {
   dependsOn?: string[];
   color?: string | null;
   sortOrder?: number;
+  taskIds?: string[];
 }
 
 // ============================================================
