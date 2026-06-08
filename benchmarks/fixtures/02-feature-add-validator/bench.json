@@ -1,0 +1,15 @@
+{
+  "id": "02-feature-add-validator",
+  "title": "Implement isValidEmail() in validators.ts",
+  "category": "feature-add",
+  "difficulty": "easy-medium",
+  "prompt": "Add and export `isValidEmail(value: unknown): boolean` in src/validators.ts. Read tests/target.test.ts for the exact spec; tests/regression.test.ts pins the existing functions and must keep passing. Confine the change to src/validators.ts and don't touch tests.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/validators.ts"],
+  "maxDiffLines": 40,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/validators.ts": "/**\n * String validators / normalizers.\n */\n\nexport function isNonEmptyString(value: unknown): value is string {\n  return typeof value === \"string\" && value.trim().length > 0;\n}\n\nexport function normalizeEmail(value: string): string {\n  return value.trim().toLowerCase();\n}\n\nexport function isValidEmail(value: unknown): boolean {\n  if (typeof value !== \"string\") return false;\n  const trimmed = value.trim();\n  if (trimmed.length === 0) return false;\n  const parts = trimmed.split(\"@\");\n  if (parts.length !== 2) return false;\n  const [local, domain] = parts;\n  if (local.length === 0) return false;\n  if (domain.length === 0) return false;\n  if (!domain.includes(\".\")) return false;\n  return true;\n}\n"
+  }
+}

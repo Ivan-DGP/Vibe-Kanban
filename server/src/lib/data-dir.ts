@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import { assertSafeSegment } from "./path-safety";
 
 const DATA_DIR = process.env.VK_DATA_DIR
   ? path.resolve(process.env.VK_DATA_DIR)
@@ -25,6 +26,9 @@ export function getTaskSnapshotDir(): string {
 }
 
 export function getProjectArtifactsDir(projectId: string): string {
+  // projectId becomes a path segment — require a safe segment (no `/`, `\`, `..`)
+  // so it cannot traverse out of the data directory.
+  assertSafeSegment(projectId, "projectId");
   const dir = path.join(getDataDir(), "projects", projectId, "artifacts");
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

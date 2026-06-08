@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Bot } from "lucide-react";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
@@ -12,7 +18,11 @@ interface AITaskManagerDialogProps {
   projectPath: string;
 }
 
-export default function AITaskManagerDialog({ open, onOpenChange, projectId }: AITaskManagerDialogProps) {
+export default function AITaskManagerDialog({
+  open,
+  onOpenChange,
+  projectId,
+}: AITaskManagerDialogProps) {
   const [instructions, setInstructions] = useState("");
   const createSession = useCreateTerminalSession();
   const { toggleTerminal, terminalVisible } = useAppStore();
@@ -47,7 +57,9 @@ export default function AITaskManagerDialog({ open, onOpenChange, projectId }: A
         />
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={handleSend} disabled={!instructions.trim()}>
             <Bot className="h-4 w-4 mr-1" />
             Send to Claude

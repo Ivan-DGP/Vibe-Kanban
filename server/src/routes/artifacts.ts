@@ -31,18 +31,24 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
     const countSql = sql.replace("SELECT *", "SELECT COUNT(*) as total");
     const total = (db.prepare(countSql).get(...(bindings as [unknown, ...unknown[]])) as any).total;
 
+    const limitNum = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
+    const offsetNum = Math.max(parseInt(offset) || 0, 0);
     sql += " ORDER BY updatedAt DESC LIMIT ? OFFSET ?";
-    bindings.push(parseInt(limit), parseInt(offset));
+    bindings.push(limitNum, offsetNum);
 
-    const items = (db.prepare(sql).all(...(bindings as [unknown, ...unknown[]])) as any[]).map(parseArtifactRow);
+    const items = (db.prepare(sql).all(...(bindings as [unknown, ...unknown[]])) as any[]).map(
+      parseArtifactRow,
+    );
 
-    return { items, total, hasMore: parseInt(offset) + items.length < total };
+    return { items, total, hasMore: offsetNum + items.length < total };
   });
 
   // Get single artifact metadata
   fastify.get("/projects/:projectId/artifacts/:id", async (request, reply) => {
-    const { id } = request.params as any;
-    const row = db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id);
+    const { projectId, id } = request.params as any;
+    const row = db
+      .prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?")
+      .get(id, projectId);
     if (!row) return reply.code(404).send({ error: "Artifact not found" });
     return parseArtifactRow(row as any);
   });
@@ -50,7 +56,9 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
   // Get artifact content (file bytes or text)
   fastify.get("/projects/:projectId/artifacts/:id/content", async (request, reply) => {
     const { projectId, id } = request.params as any;
-    const row = db.prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?").get(id, projectId) as any;
+    const row = db
+      .prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?")
+      .get(id, projectId) as any;
     if (!row) return reply.code(404).send({ error: "Artifact not found" });
 
     const artifactsDir = getProjectArtifactsDir(projectId);
@@ -69,7 +77,13 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
   // Create artifact
   fastify.post("/projects/:projectId/artifacts", async (request, reply) => {
     const { projectId } = request.params as any;
-    const { filename, type = "document", description, tags = [], content = "" } = request.body as any;
+    const {
+      filename,
+      type = "document",
+      description,
+      tags = [],
+      content = "",
+    } = request.body as any;
 
     if (!filename) return reply.code(400).send({ error: "filename required" });
 
@@ -89,15 +103,26 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
 
     db.prepare(
       `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, projectId, filename, type, description || null, JSON.stringify(tags), contentBuffer.length, mimeType, now, now);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      projectId,
+      filename,
+      type,
+      description || null,
+      JSON.stringify(tags),
+      contentBuffer.length,
+      mimeType,
+      now,
+      now,
+    );
 
     if (isEmbeddableMimeType(mimeType) && content) {
       embedArtifactInBackground({ projectId, artifactId: id, content, mimeType });
     }
 
     return parseArtifactRow(
-      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any
+      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any,
     );
   });
 
@@ -106,7 +131,9 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId, id } = request.params as any;
     const body = request.body as any;
 
-    const existing = db.prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?").get(id, projectId) as any;
+    const existing = db
+      .prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?")
+      .get(id, projectId) as any;
     if (!existing) return reply.code(404).send({ error: "Artifact not found" });
 
     const fields: string[] = [];
@@ -119,9 +146,18 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
       fields.push("mimeType = ?");
       values.push(getMimeType(body.filename));
     }
-    if (body.type !== undefined) { fields.push("type = ?"); values.push(body.type); }
-    if (body.description !== undefined) { fields.push("description = ?"); values.push(body.description); }
-    if (body.tags !== undefined) { fields.push("tags = ?"); values.push(JSON.stringify(body.tags)); }
+    if (body.type !== undefined) {
+      fields.push("type = ?");
+      values.push(body.type);
+    }
+    if (body.description !== undefined) {
+      fields.push("description = ?");
+      values.push(body.description);
+    }
+    if (body.tags !== undefined) {
+      fields.push("tags = ?");
+      values.push(JSON.stringify(body.tags));
+    }
 
     if (body.content !== undefined) {
       const contentBuffer = Buffer.from(body.content, "utf-8");
@@ -148,12 +184,17 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
     if (body.content !== undefined) {
       const updatedMime = body.filename ? getMimeType(body.filename) : existing.mimeType;
       if (isEmbeddableMimeType(updatedMime)) {
-        embedArtifactInBackground({ projectId, artifactId: id, content: body.content, mimeType: updatedMime });
+        embedArtifactInBackground({
+          projectId,
+          artifactId: id,
+          content: body.content,
+          mimeType: updatedMime,
+        });
       }
     }
 
     return parseArtifactRow(
-      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any
+      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any,
     );
   });
 
@@ -188,22 +229,29 @@ const artifactRoutes: FastifyPluginAsync = async (fastify) => {
 
     db.prepare(
       `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, projectId, originalFilename, type, null, "[]", buffer.length, mimeType, now, now);
 
     if (isEmbeddableMimeType(mimeType)) {
-      embedArtifactInBackground({ projectId, artifactId: id, content: buffer.toString("utf-8"), mimeType });
+      embedArtifactInBackground({
+        projectId,
+        artifactId: id,
+        content: buffer.toString("utf-8"),
+        mimeType,
+      });
     }
 
     return parseArtifactRow(
-      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any
+      db.prepare("SELECT * FROM project_artifacts WHERE id = ?").get(id) as any,
     );
   });
 
   // Delete artifact
   fastify.delete("/projects/:projectId/artifacts/:id", async (request, reply) => {
     const { projectId, id } = request.params as any;
-    const existing = db.prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?").get(id, projectId) as any;
+    const existing = db
+      .prepare("SELECT * FROM project_artifacts WHERE id = ? AND projectId = ?")
+      .get(id, projectId) as any;
     if (!existing) return reply.code(404).send({ error: "Artifact not found" });
 
     // Delete file from disk

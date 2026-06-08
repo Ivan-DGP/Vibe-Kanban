@@ -1,0 +1,17 @@
+{
+  "id": "10-validator-cross-file",
+  "title": "Add price validation across validator + service",
+  "category": "multi-file-feature",
+  "difficulty": "medium",
+  "prompt": "src/validator.ts validates Order objects but does NOT check pricePerUnit. The product team has decided that orders with a non-positive price (zero or negative) are invalid.\n\nThe types.ts file already declares an INVALID_PRICE variant on ValidationError. Two changes are required:\n  1. validator.ts must emit INVALID_PRICE when pricePerUnit <= 0\n  2. service.ts has a hardcoded REASON_MAP that does not include INVALID_PRICE — createOrder will return reason=\"UNKNOWN\" for this new error variant unless the map is updated\n\nThe failing tests in tests/target.test.ts check both the validator's output and createOrder's reason field. tests/regression.test.ts (MISSING_SKU, INVALID_QTY, happy-path total, existing reason mapping) must continue to pass.\n\nDo not modify the tests. Do not add new files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/validator.ts", "src/service.ts"],
+  "requireFiles": ["src/validator.ts", "src/service.ts"],
+  "maxDiffLines": 25,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/validator.ts": "import type { Order, ValidationError, ValidationResult } from \"./types\";\n\nexport function validateOrder(o: Order): ValidationResult {\n  const errors: ValidationError[] = [];\n  if (!o.sku || o.sku.trim() === \"\") errors.push({ kind: \"MISSING_SKU\" });\n  if (!Number.isFinite(o.qty) || o.qty <= 0) errors.push({ kind: \"INVALID_QTY\", qty: o.qty });\n  if (!Number.isFinite(o.pricePerUnit) || o.pricePerUnit <= 0) errors.push({ kind: \"INVALID_PRICE\", price: o.pricePerUnit });\n  if (errors.length === 0) return { ok: true };\n  return { ok: false, errors };\n}\n",
+    "src/service.ts": "import type { Order } from \"./types\";\nimport { validateOrder } from \"./validator\";\n\nexport interface CreateOrderResult {\n  ok: boolean;\n  reason?: string;\n  total?: number;\n}\n\nconst REASON_MAP: Record<string, string> = {\n  MISSING_SKU: \"MISSING_SKU\",\n  INVALID_QTY: \"INVALID_QTY\",\n  INVALID_PRICE: \"INVALID_PRICE\",\n};\n\nexport function createOrder(o: Order): CreateOrderResult {\n  const v = validateOrder(o);\n  if (!v.ok) {\n    const first = v.errors[0];\n    return { ok: false, reason: REASON_MAP[first.kind] ?? \"UNKNOWN\" };\n  }\n  return { ok: true, total: o.qty * o.pricePerUnit };\n}\n"
+  }
+}

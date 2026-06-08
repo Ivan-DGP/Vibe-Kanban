@@ -1,0 +1,18 @@
+{
+  "id": "09-shared-type-id-drift",
+  "title": "Item.id format change requires touching types + service + repo",
+  "category": "multi-file-refactor",
+  "difficulty": "medium",
+  "prompt": "The codebase uses numeric Item ids today (see src/types.ts, src/service.ts, src/repo.ts). Product wants ids switched to a stable string format `item-N` (e.g., \"item-1\", \"item-2\").\n\nThe failing target tests in tests/target.test.ts require:\n  1. newItem().id is a string\n  2. newItem().id matches /^item-\\d+$/\n  3. findById can resolve newly-created items by their string id\n\nThe regression tests in tests/regression.test.ts must continue to pass — buildCart math, priceOf, and findById on programmatic ids must keep working.\n\nYou will likely need to touch all three files (src/types.ts, src/service.ts, src/repo.ts) to keep types coherent. Do not modify the tests.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/types.ts", "src/service.ts", "src/repo.ts"],
+  "requireFiles": ["src/types.ts", "src/service.ts", "src/repo.ts"],
+  "maxDiffLines": 30,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/types.ts": "export interface Item {\n  id: string;\n  name: string;\n  qty: number;\n}\n\nexport interface Cart {\n  items: Item[];\n  total: number;\n}\n",
+    "src/service.ts": "import type { Cart, Item } from \"./types\";\nimport { priceOf } from \"./repo\";\n\nlet nextId = 1;\n\nexport function newItem(name: string, qty: number): Item {\n  return { id: `item-${nextId++}`, name, qty };\n}\n\nexport function buildCart(items: Item[]): Cart {\n  let total = 0;\n  for (const it of items) total += priceOf(it) * it.qty;\n  return { items, total };\n}\n",
+    "src/repo.ts": "import type { Item } from \"./types\";\n\nconst PRICES: Record<string, number> = {\n  apple: 1,\n  banana: 2,\n  cherry: 5,\n};\n\nexport function priceOf(item: Item): number {\n  return PRICES[item.name] ?? 0;\n}\n\nexport function findById(items: Item[], id: string): Item | undefined {\n  return items.find((it) => it.id === id);\n}\n"
+  }
+}

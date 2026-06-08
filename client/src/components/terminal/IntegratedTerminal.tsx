@@ -25,7 +25,9 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
 
   const safeFit = useCallback(() => {
     if (disposedRef.current || !fitRef.current || !termRef.current) return;
-    try { fitRef.current.fit(); } catch {}
+    try {
+      fitRef.current.fit();
+    } catch {}
   }, []);
 
   const connectWs = useCallback(() => {
@@ -38,7 +40,10 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
     wsRef.current = ws;
 
     ws.onopen = () => {
-      if (gen !== connectionGenRef.current) { ws.close(); return; }
+      if (gen !== connectionGenRef.current) {
+        ws.close();
+        return;
+      }
       reconnectAttemptRef.current = 0;
       // Send initial resize so server knows our dimensions
       if (termRef.current) {
@@ -147,12 +152,15 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
         }
 
         if (ev.ctrlKey && ev.key === "v") {
-          navigator.clipboard.readText().then((text) => {
-            const ws = wsRef.current;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "input", data: text }));
-            }
-          }).catch(() => {});
+          navigator.clipboard
+            .readText()
+            .then((text) => {
+              const ws = wsRef.current;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "input", data: text }));
+              }
+            })
+            .catch(() => {});
           return false;
         }
 

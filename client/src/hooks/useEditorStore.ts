@@ -31,7 +31,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return;
     }
     set({
-      tabs: [...tabs, { filePath, fileName, content, originalContent: content, dirty: false, language }],
+      tabs: [
+        ...tabs,
+        { filePath, fileName, content, originalContent: content, dirty: false, language },
+      ],
       activeTabPath: filePath,
     });
   },
@@ -39,9 +42,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   closeFile: (filePath) => {
     const { tabs, activeTabPath } = get();
     const remaining = tabs.filter((t) => t.filePath !== filePath);
-    const newActive = activeTabPath === filePath
-      ? remaining[remaining.length - 1]?.filePath ?? null
-      : activeTabPath;
+    const newActive =
+      activeTabPath === filePath
+        ? (remaining[remaining.length - 1]?.filePath ?? null)
+        : activeTabPath;
     set({ tabs: remaining, activeTabPath: newActive });
   },
 
@@ -50,9 +54,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   updateContent: (filePath, content) => {
     set({
       tabs: get().tabs.map((t) =>
-        t.filePath === filePath
-          ? { ...t, content, dirty: content !== t.originalContent }
-          : t,
+        t.filePath === filePath ? { ...t, content, dirty: content !== t.originalContent } : t,
       ),
     });
   },
@@ -60,9 +62,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   markClean: (filePath) => {
     set({
       tabs: get().tabs.map((t) =>
-        t.filePath === filePath
-          ? { ...t, originalContent: t.content, dirty: false }
-          : t,
+        t.filePath === filePath ? { ...t, originalContent: t.content, dirty: false } : t,
       ),
     });
   },

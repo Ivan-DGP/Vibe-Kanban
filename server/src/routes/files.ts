@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
+import { resolveWithin } from "../lib/path-safety";
 import nodePath from "node:path";
 import fs from "node:fs";
 
@@ -11,16 +12,50 @@ function getProjectPath(projectId: string): string {
   return project.path;
 }
 
+/**
+ * Resolve `userPath` against the project root, enforcing a true boundary check
+ * (not a string prefix) and resolving symlinks so in-project symlinks cannot
+ * escape the tree. Preserves the historical "Path traversal detected" message.
+ */
 export function safePath(basePath: string, userPath: string): string {
-  const resolved = nodePath.resolve(basePath, userPath);
-  if (!resolved.startsWith(nodePath.resolve(basePath))) {
+  try {
+    return resolveWithin(basePath, userPath);
+  } catch {
     throw new Error("Path traversal detected");
   }
-  return resolved;
+}
+
+// Paths whose *contents* must never be served, even though listing hides dotfiles.
+const SECRET_READ_PATTERNS = [
+  /(^|\/)\.git(\/|$)/,
+  /(^|\/)\.env($|\.)/,
+  /(^|\/)\.npmrc$/,
+  /(^|\/)\.netrc$/,
+  /(^|\/)\.ssh(\/|$)/,
+  /(^|\/)id_rsa/,
+  /(^|\/)id_ed25519/,
+  /\.pem$/,
+  /\.key$/,
+];
+
+function isSecretReadPath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/");
+  return SECRET_READ_PATTERNS.some((re) => re.test(normalized));
+}
+
+function relFromProject(projectPath: string, fullPath: string): string {
+  return nodePath.relative(projectPath, fullPath).replace(/\\/g, "/");
 }
 
 const IMAGE_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".webp",
+  ".ico",
+  ".bmp",
 ]);
 
 // Block writes/deletes to sensitive paths within projects
@@ -49,9 +84,7 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
           name: e.name,
           path: nodePath.relative(projectPath, nodePath.join(fullPath, e.name)).replace(/\\/g, "/"),
           type: e.isDirectory() ? "directory" : "file",
-          size: e.isFile()
-            ? fs.statSync(nodePath.join(fullPath, e.name)).size
-            : undefined,
+          size: e.isFile() ? fs.statSync(nodePath.join(fullPath, e.name)).size : undefined,
         }))
         .sort((a, b) => {
           if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
@@ -70,6 +103,10 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
 
     const projectPath = getProjectPath(projectId);
     const fullPath = safePath(projectPath, filePath);
+
+    if (isSecretReadPath(relFromProject(projectPath, fullPath))) {
+      return reply.code(403).send({ error: "Cannot read protected file" });
+    }
 
     if (!fs.existsSync(fullPath)) {
       return reply.code(404).send({ error: "File not found" });
@@ -95,11 +132,16 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put("/projects/:projectId/files/write", async (request, reply) => {
     const { projectId } = request.params as any;
     const { path: filePath, content } = request.body as any;
-    if (isBlockedPath(filePath)) return reply.code(403).send({ error: "Cannot modify protected file" });
+    if (typeof filePath !== "string" || filePath.trim() === "")
+      return reply.code(400).send({ error: "path required" });
     const projectPath = getProjectPath(projectId);
     const fullPath = safePath(projectPath, filePath);
+    // Check the blocklist against the canonicalized path so `./`/`../` segments
+    // cannot smuggle a write into .git/hooks, .env, etc.
+    if (isBlockedPath(relFromProject(projectPath, fullPath)))
+      return reply.code(403).send({ error: "Cannot modify protected file" });
 
-    fs.writeFileSync(fullPath, content, "utf-8");
+    fs.writeFileSync(fullPath, content ?? "", "utf-8");
     return { ok: true };
   });
 
@@ -107,9 +149,12 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/projects/:projectId/files/create", async (request, reply) => {
     const { projectId } = request.params as any;
     const { path: filePath, type } = request.body as any;
-    if (isBlockedPath(filePath)) return reply.code(403).send({ error: "Cannot create in protected path" });
+    if (typeof filePath !== "string" || filePath.trim() === "")
+      return reply.code(400).send({ error: "path required" });
     const projectPath = getProjectPath(projectId);
     const fullPath = safePath(projectPath, filePath);
+    if (isBlockedPath(relFromProject(projectPath, fullPath)))
+      return reply.code(403).send({ error: "Cannot create in protected path" });
 
     if (type === "directory") {
       fs.mkdirSync(fullPath, { recursive: true });
@@ -124,10 +169,21 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/projects/:projectId/files/rename", async (request, reply) => {
     const { projectId } = request.params as any;
     const { oldPath, newPath } = request.body as any;
-    if (isBlockedPath(oldPath) || isBlockedPath(newPath)) return reply.code(403).send({ error: "Cannot modify protected file" });
+    if (
+      typeof oldPath !== "string" ||
+      typeof newPath !== "string" ||
+      !oldPath.trim() ||
+      !newPath.trim()
+    )
+      return reply.code(400).send({ error: "oldPath and newPath required" });
     const projectPath = getProjectPath(projectId);
     const fullOld = safePath(projectPath, oldPath);
     const fullNew = safePath(projectPath, newPath);
+    if (
+      isBlockedPath(relFromProject(projectPath, fullOld)) ||
+      isBlockedPath(relFromProject(projectPath, fullNew))
+    )
+      return reply.code(403).send({ error: "Cannot modify protected file" });
 
     fs.renameSync(fullOld, fullNew);
     return { ok: true };
@@ -137,9 +193,15 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete("/projects/:projectId/files/delete", async (request, reply) => {
     const { projectId } = request.params as any;
     const { path: filePath } = request.query as any;
-    if (isBlockedPath(filePath)) return reply.code(403).send({ error: "Cannot delete protected file" });
+    if (typeof filePath !== "string" || filePath.trim() === "")
+      return reply.code(400).send({ error: "path required" });
     const projectPath = getProjectPath(projectId);
     const fullPath = safePath(projectPath, filePath);
+    // Never allow deleting the project root itself.
+    if (relFromProject(projectPath, fullPath) === "")
+      return reply.code(400).send({ error: "Refusing to delete project root" });
+    if (isBlockedPath(relFromProject(projectPath, fullPath)))
+      return reply.code(403).send({ error: "Cannot delete protected file" });
 
     fs.rmSync(fullPath, { recursive: true });
     return { ok: true };

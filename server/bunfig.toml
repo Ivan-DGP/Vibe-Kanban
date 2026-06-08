@@ -3,3 +3,4 @@ coverage = true
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"
 root = "src/"
+preload = ["./test-setup.ts"]

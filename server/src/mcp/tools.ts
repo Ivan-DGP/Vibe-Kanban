@@ -9,14 +9,22 @@ import type { McpToolDefinition } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
 
+/** Per-call context. `cwd` is set when the call arrives on a per-run MCP
+ *  endpoint, pointing at that run's worktree. */
+export interface ToolContext {
+  cwd?: string;
+}
+
 interface ToolHandler {
   definition: McpToolDefinition;
-  handler: (params: Record<string, unknown>) => unknown | Promise<unknown>;
+  handler: (params: Record<string, unknown>, ctx?: ToolContext) => unknown | Promise<unknown>;
 }
 
 export function listProjects(): unknown {
   const db = getDb();
-  const rows = db.query("SELECT id, name, path, techStack, favorite FROM projects ORDER BY name").all();
+  const rows = db
+    .query("SELECT id, name, path, techStack, favorite FROM projects ORDER BY name")
+    .all();
   return rows.map((r: any) => ({
     id: r.id,
     name: r.name,
@@ -28,9 +36,16 @@ export function listProjects(): unknown {
 
 export function getProject(params: Record<string, unknown>): unknown {
   const db = getDb();
-  const row = db.query("SELECT * FROM projects WHERE id = ?").get(params.projectId as string) as any;
+  const row = db
+    .query("SELECT * FROM projects WHERE id = ?")
+    .get(params.projectId as string) as any;
   if (!row) return { error: "Project not found" };
-  return { id: row.id, name: row.name, path: row.path, techStack: JSON.parse(row.techStack || "[]") };
+  return {
+    id: row.id,
+    name: row.name,
+    path: row.path,
+    techStack: JSON.parse(row.techStack || "[]"),
+  };
 }
 
 export function listTasks(params: Record<string, unknown>): unknown {
@@ -49,7 +64,10 @@ export function listTasks(params: Record<string, unknown>): unknown {
 
 export function getTask(params: Record<string, unknown>): unknown {
   const db = getDb();
-  const row = db.query("SELECT id, title, description, prompt, status, priority, milestoneId FROM tasks WHERE id = ?")
+  const row = db
+    .query(
+      "SELECT id, title, description, prompt, status, priority, milestoneId FROM tasks WHERE id = ?",
+    )
     .get(params.taskId as string);
   if (!row) return { error: "Task not found" };
   return row;
@@ -59,11 +77,10 @@ export function createTask(params: Record<string, unknown>): unknown {
   const db = getDb();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const metadata = params.metadata && typeof params.metadata === "object"
-    ? JSON.stringify(params.metadata)
-    : "{}";
+  const metadata =
+    params.metadata && typeof params.metadata === "object" ? JSON.stringify(params.metadata) : "{}";
   db.query(
-    "INSERT INTO tasks (id, projectId, title, description, status, priority, sortOrder, metadata, createdAt, updatedAt, inboxAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO tasks (id, projectId, title, description, status, priority, sortOrder, metadata, createdAt, updatedAt, inboxAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     params.projectId as string,
@@ -118,14 +135,18 @@ export function updateTask(params: Record<string, unknown>): unknown {
   vals.push(now);
   vals.push(params.taskId as string);
 
-  db.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...(vals as [string, ...string[]]));
+  db.query(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(
+    ...(vals as [string, ...string[]]),
+  );
 
   if (
     params.title !== undefined ||
     params.description !== undefined ||
     params.status !== undefined
   ) {
-    const updated = db.query("SELECT * FROM tasks WHERE id = ?").get(params.taskId as string) as any;
+    const updated = db
+      .query("SELECT * FROM tasks WHERE id = ?")
+      .get(params.taskId as string) as any;
     if (updated) {
       embedTaskInBackground({
         projectId: updated.projectId,
@@ -149,30 +170,51 @@ export function deleteTask(params: Record<string, unknown>): unknown {
 
 export function getAllTasks(_params: Record<string, unknown>): unknown {
   const db = getDb();
-  return db.query(
-    "SELECT t.id, t.title, t.status, t.priority, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id ORDER BY t.updatedAt DESC LIMIT 100"
-  ).all();
+  return db
+    .query(
+      "SELECT t.id, t.title, t.status, t.priority, p.name as projectName FROM tasks t JOIN projects p ON t.projectId = p.id ORDER BY t.updatedAt DESC LIMIT 100",
+    )
+    .all();
 }
 
-function gitStatus(params: Record<string, unknown>): unknown {
+function gitStatus(params: Record<string, unknown>, ctx?: ToolContext): unknown {
   const db = getDb();
-  const project = db.query("SELECT path FROM projects WHERE id = ?").get(params.projectId as string) as any;
+  const project = db
+    .query("SELECT path FROM projects WHERE id = ?")
+    .get(params.projectId as string) as any;
   if (!project) return { error: "Project not found" };
-  // Return minimal info — full git status requires spawning
-  return { projectPath: project.path, note: "Use git CLI for detailed status" };
+  // When invoked from a run's worktree endpoint, report that worktree's path.
+  const cwd = ctx?.cwd ?? project.path;
+  return {
+    projectPath: cwd,
+    isolated: !!ctx?.cwd,
+    note: "Use git CLI for detailed status",
+  };
 }
 
-async function gitDiff(params: Record<string, unknown>): Promise<unknown> {
+async function gitDiff(params: Record<string, unknown>, ctx?: ToolContext): Promise<unknown> {
   const db = getDb();
-  const project = db.query("SELECT path FROM projects WHERE id = ?").get(params.projectId as string) as any;
+  const project = db
+    .query("SELECT path FROM projects WHERE id = ?")
+    .get(params.projectId as string) as any;
   if (!project) return { error: "Project not found" };
+  // Diff the run's worktree when available, else the project's main tree.
+  const cwd = ctx?.cwd ?? project.path;
   try {
-    const result = await spawn(["git", "diff", "HEAD", "--stat", "--patch", "--no-color"], { cwd: project.path, timeout: 10000 });
+    const result = await spawn(["git", "diff", "HEAD", "--stat", "--patch", "--no-color"], {
+      cwd,
+      timeout: 10000,
+    });
     if (result.exitCode !== 0) return { error: "git diff failed", stderr: result.stderr };
     const lines = result.stdout.split("\n");
     if (lines.length > 300) {
-      const statResult = await spawn(["git", "diff", "HEAD", "--stat", "--no-color"], { cwd: project.path });
-      return { stat: statResult.stdout.trim(), note: `Full diff too large (${lines.length} lines), showing stat only` };
+      const statResult = await spawn(["git", "diff", "HEAD", "--stat", "--no-color"], {
+        cwd,
+      });
+      return {
+        stat: statResult.stdout.trim(),
+        note: `Full diff too large (${lines.length} lines), showing stat only`,
+      };
     }
     return { diff: result.stdout.trim() || "(no changes)" };
   } catch (e: any) {
@@ -183,9 +225,11 @@ async function gitDiff(params: Record<string, unknown>): Promise<unknown> {
 export function listArtifacts(params: Record<string, unknown>): unknown {
   const db = getDb();
   const projectId = params.projectId as string;
-  const rows = db.query(
-    "SELECT id, filename, type, description, tags, sizeBytes, mimeType FROM project_artifacts WHERE projectId = ? ORDER BY updatedAt DESC LIMIT 50"
-  ).all(projectId);
+  const rows = db
+    .query(
+      "SELECT id, filename, type, description, tags, sizeBytes, mimeType FROM project_artifacts WHERE projectId = ? ORDER BY updatedAt DESC LIMIT 50",
+    )
+    .all(projectId);
   return (rows as any[]).map((r) => ({
     ...r,
     tags: JSON.parse(r.tags || "[]"),
@@ -194,9 +238,9 @@ export function listArtifacts(params: Record<string, unknown>): unknown {
 
 export function readArtifact(params: Record<string, unknown>): unknown {
   const db = getDb();
-  const row = db.query(
-    "SELECT * FROM project_artifacts WHERE id = ?"
-  ).get(params.artifactId as string) as any;
+  const row = db
+    .query("SELECT * FROM project_artifacts WHERE id = ?")
+    .get(params.artifactId as string) as any;
   if (!row) return { error: "Artifact not found" };
 
   const artifactsDir = getProjectArtifactsDir(row.projectId);
@@ -205,7 +249,8 @@ export function readArtifact(params: Record<string, unknown>): unknown {
   if (!fs.existsSync(filePath)) return { error: "File not found on disk" };
 
   const isText = row.mimeType.startsWith("text/") || row.mimeType === "application/json";
-  if (!isText) return { id: row.id, filename: row.filename, note: "Binary file — cannot display content" };
+  if (!isText)
+    return { id: row.id, filename: row.filename, note: "Binary file — cannot display content" };
 
   return {
     id: row.id,
@@ -218,13 +263,17 @@ export function readArtifact(params: Record<string, unknown>): unknown {
 export function listGraphNodes(params: Record<string, unknown>): unknown {
   const db = getDb();
   const projectId = params.projectId as string;
-  const nodes = (db.query(
-    "SELECT id, label, type, description FROM project_graph_nodes WHERE projectId = ? ORDER BY createdAt ASC"
-  ).all(projectId) as any[]);
+  const nodes = db
+    .query(
+      "SELECT id, label, type, description FROM project_graph_nodes WHERE projectId = ? ORDER BY createdAt ASC",
+    )
+    .all(projectId) as any[];
 
-  const edges = (db.query(
-    "SELECT sourceNodeId, targetNodeId, label, type FROM project_graph_edges WHERE projectId = ?"
-  ).all(projectId) as any[]);
+  const edges = db
+    .query(
+      "SELECT sourceNodeId, targetNodeId, label, type FROM project_graph_edges WHERE projectId = ?",
+    )
+    .all(projectId) as any[];
 
   return { nodes, edges };
 }
@@ -243,17 +292,21 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   const db = getDb();
   const scored: any[] = [];
 
+  // Embed the query once and reuse the vector across all branches.
+  const queryVec = await embed(query);
+
   if (includeArtifacts) {
-    const artifactRows = db.query(
-      `SELECT e.artifactId, e.chunkIdx, e.content, e.vector,
+    const artifactRows = db
+      .query(
+        `SELECT e.artifactId, e.chunkIdx, e.content, e.vector,
               a.filename, a.type, a.description
        FROM artifact_embeddings e
        JOIN project_artifacts a ON a.id = e.artifactId
        WHERE e.projectId = ?`,
-    ).all(projectId) as any[];
+      )
+      .all(projectId) as any[];
 
     if (artifactRows.length > 0) {
-      const queryVec = await embed(query);
       for (const row of artifactRows) {
         scored.push({
           kind: "artifact",
@@ -270,16 +323,17 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   }
 
   if (includeTasks) {
-    const taskRows = db.query(
-      `SELECT e.taskId, e.chunkIdx, e.content, e.vector,
+    const taskRows = db
+      .query(
+        `SELECT e.taskId, e.chunkIdx, e.content, e.vector,
               t.title, t.status, t.priority, t.taskNumber
        FROM task_embeddings e
        JOIN tasks t ON t.id = e.taskId
        WHERE e.projectId = ?`,
-    ).all(projectId) as any[];
+      )
+      .all(projectId) as any[];
 
     if (taskRows.length > 0) {
-      const queryVec = await embed(query);
       for (const row of taskRows) {
         scored.push({
           kind: "task",
@@ -298,16 +352,17 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
 
   const includeGraphNodes = !types || types.includes("graph_node");
   if (includeGraphNodes) {
-    const nodeRows = db.query(
-      `SELECT e.nodeId, e.chunkIdx, e.content, e.vector,
+    const nodeRows = db
+      .query(
+        `SELECT e.nodeId, e.chunkIdx, e.content, e.vector,
               n.label, n.type, n.description
        FROM graph_node_embeddings e
        JOIN project_graph_nodes n ON n.id = e.nodeId
        WHERE e.projectId = ?`,
-    ).all(projectId) as any[];
+      )
+      .all(projectId) as any[];
 
     if (nodeRows.length > 0) {
-      const queryVec = await embed(query);
       for (const row of nodeRows) {
         scored.push({
           kind: "graph_node",
@@ -324,7 +379,12 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
   }
 
   if (scored.length === 0) {
-    return { query, model: EMBEDDING_MODEL, results: [], note: "No embeddings yet — POST to /api/projects/:id/knowledge/backfill" };
+    return {
+      query,
+      model: EMBEDDING_MODEL,
+      results: [],
+      note: "No embeddings yet — POST to /api/projects/:id/knowledge/backfill",
+    };
   }
 
   scored.sort((a, b) => b.score - a.score);
@@ -361,7 +421,10 @@ export const tools: ToolHandler[] = [
         type: "object",
         properties: {
           projectId: { type: "string", description: "Project ID" },
-          status: { type: "string", description: "Filter by status (backlog, todo, in_progress, done, approved, archived)" },
+          status: {
+            type: "string",
+            description: "Filter by status (backlog, todo, in_progress, done, approved, archived)",
+          },
         },
         required: ["projectId"],
       },
@@ -383,7 +446,8 @@ export const tools: ToolHandler[] = [
   {
     definition: {
       name: "create_task",
-      description: "Create a new task in a project. The metadata field is a JSON object for orchestration context (e.g. {type: 'qa-test', qa_scenario: '...', bug_report: {...}, parent_task: '<id>'}).",
+      description:
+        "Create a new task in a project. The metadata field is a JSON object for orchestration context (e.g. {type: 'qa-test', qa_scenario: '...', bug_report: {...}, parent_task: '<id>'}).",
       inputSchema: {
         type: "object",
         properties: {
@@ -392,7 +456,10 @@ export const tools: ToolHandler[] = [
           description: { type: "string" },
           status: { type: "string" },
           priority: { type: "string" },
-          promptProfile: { type: "string", enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"] },
+          promptProfile: {
+            type: "string",
+            enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"],
+          },
           metadata: { type: "object", description: "Arbitrary JSON metadata for orchestration." },
         },
         required: ["projectId", "title"],
@@ -413,7 +480,10 @@ export const tools: ToolHandler[] = [
           status: { type: "string" },
           priority: { type: "string" },
           milestoneId: { type: "string" },
-          promptProfile: { type: "string", enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"] },
+          promptProfile: {
+            type: "string",
+            enum: ["auto", "quick-fix", "feature", "refactor", "bug-fix", "docs"],
+          },
           metadata: { type: "object", description: "Replaces the full metadata JSON object." },
         },
         required: ["taskId"],
@@ -504,7 +574,8 @@ export const tools: ToolHandler[] = [
   {
     definition: {
       name: "search_knowledge",
-      description: "Semantic search across a project's artifacts (docs/specs/diagrams), tasks (title + description + prompt), and knowledge graph nodes (label + type + description). Returns ranked chunks. Each result has a 'kind' field ('artifact', 'task', or 'graph_node') and the corresponding entity metadata.",
+      description:
+        "Semantic search across a project's artifacts (docs/specs/diagrams), tasks (title + description + prompt), and knowledge graph nodes (label + type + description). Returns ranked chunks. Each result has a 'kind' field ('artifact', 'task', or 'graph_node') and the corresponding entity metadata.",
       inputSchema: {
         type: "object",
         properties: {
@@ -513,7 +584,8 @@ export const tools: ToolHandler[] = [
           k: { type: "number", description: "Number of results to return (default 5, max 20)" },
           minScore: {
             type: "number",
-            description: "Optional cosine-similarity floor (0–1). Hits below this score are dropped. Default 0.",
+            description:
+              "Optional cosine-similarity floor (0–1). Hits below this score are dropped. Default 0.",
           },
           types: {
             type: "array",

@@ -56,10 +56,7 @@ function makeBlock(type: string, content: Record<string, unknown> = {}): NotionB
 describe("extractTitle", () => {
   test("returns title from rich text array on title field", () => {
     const obj = makeObj({
-      title: [
-        { plain_text: "Hello " },
-        { plain_text: "World" },
-      ],
+      title: [{ plain_text: "Hello " }, { plain_text: "World" }],
     });
     expect(extractTitle(obj)).toBe("Hello World");
   });
@@ -191,31 +188,31 @@ describe("richTextToMarkdown", () => {
   });
 
   test("renders strikethrough text", () => {
-    expect(richTextToMarkdown([makeRichText("deleted", { strikethrough: true })])).toBe("~~deleted~~");
+    expect(richTextToMarkdown([makeRichText("deleted", { strikethrough: true })])).toBe(
+      "~~deleted~~",
+    );
   });
 
   test("renders linked text", () => {
-    expect(
-      richTextToMarkdown([makeRichText("click", { href: "https://example.com" })]),
-    ).toBe("[click](https://example.com)");
+    expect(richTextToMarkdown([makeRichText("click", { href: "https://example.com" })])).toBe(
+      "[click](https://example.com)",
+    );
   });
 
   test("renders bold + italic combined", () => {
-    expect(
-      richTextToMarkdown([makeRichText("strong em", { bold: true, italic: true })]),
-    ).toBe("***strong em***");
+    expect(richTextToMarkdown([makeRichText("strong em", { bold: true, italic: true })])).toBe(
+      "***strong em***",
+    );
   });
 
   test("renders bold + code combined", () => {
-    expect(
-      richTextToMarkdown([makeRichText("x", { bold: true, code: true })]),
-    ).toBe("`**x**`");
+    expect(richTextToMarkdown([makeRichText("x", { bold: true, code: true })])).toBe("`**x**`");
   });
 
   test("renders bold link", () => {
-    expect(
-      richTextToMarkdown([makeRichText("link", { bold: true, href: "https://a.com" })]),
-    ).toBe("[**link**](https://a.com)");
+    expect(richTextToMarkdown([makeRichText("link", { bold: true, href: "https://a.com" })])).toBe(
+      "[**link**](https://a.com)",
+    );
   });
 
   test("concatenates multiple rich text segments", () => {
@@ -281,7 +278,9 @@ describe("blocksToMarkdown", () => {
   });
 
   test("renders code block with language", () => {
-    const blocks = [makeBlock("code", { rich_text: [makeRichText("const x = 1;")], language: "typescript" })];
+    const blocks = [
+      makeBlock("code", { rich_text: [makeRichText("const x = 1;")], language: "typescript" }),
+    ];
     expect(blocksToMarkdown(blocks)).toBe("```typescript\nconst x = 1;\n```");
   });
 
@@ -359,9 +358,7 @@ describe("blocksToMarkdown", () => {
       makeBlock("bulleted_list_item", { rich_text: [makeRichText("Item A")] }),
       makeBlock("bulleted_list_item", { rich_text: [makeRichText("Item B")] }),
     ];
-    expect(blocksToMarkdown(blocks)).toBe(
-      "# Title\n\nSome text.\n\n- Item A\n- Item B",
-    );
+    expect(blocksToMarkdown(blocks)).toBe("# Title\n\nSome text.\n\n- Item A\n- Item B");
   });
 
   test("renders toggle block", () => {

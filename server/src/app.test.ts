@@ -29,9 +29,7 @@ beforeAll(async () => {
   await app.ready();
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 // ── Security headers ────────────────────────────────────────
 
@@ -51,9 +49,9 @@ describe("security headers", () => {
     expect(res.headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
   });
 
-  test("responses include X-XSS-Protection", async () => {
+  test("X-XSS-Protection is disabled (deprecated, can introduce vulns)", async () => {
     const res = await app.inject({ method: "GET", url: "/api/projects" });
-    expect(res.headers["x-xss-protection"]).toBe("1; mode=block");
+    expect(res.headers["x-xss-protection"]).toBe("0");
   });
 
   test("responses include Content-Security-Policy", async () => {
@@ -185,7 +183,9 @@ describe("production mode", () => {
       // in the test environment; what matters is the branch was exercised.
     } finally {
       process.env.NODE_ENV = originalEnv;
-      try { await prodApp?.close(); } catch {}
+      try {
+        await prodApp?.close();
+      } catch {}
     }
   });
 });

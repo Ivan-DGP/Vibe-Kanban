@@ -45,8 +45,15 @@ export function useGitHubMapping(projectId: string | undefined) {
 export function useSetGitHubMapping() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, githubAccountId, subPath }: { projectId: string; githubAccountId: string; subPath?: string }) =>
-      api.github.mapping.set(projectId, githubAccountId, subPath),
+    mutationFn: ({
+      projectId,
+      githubAccountId,
+      subPath,
+    }: {
+      projectId: string;
+      githubAccountId: string;
+      subPath?: string;
+    }) => api.github.mapping.set(projectId, githubAccountId, subPath),
     onSuccess: (_, { projectId }) =>
       qc.invalidateQueries({ queryKey: ["github-mapping", projectId] }),
   });

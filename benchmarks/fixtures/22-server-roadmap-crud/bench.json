@@ -1,0 +1,108 @@
+{
+  "id": "22-server-roadmap-crud",
+  "title": "Server: roadmap items CRUD with dependsOn JSON round-trip",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create two roadmap items, the second depending on the first, list them, patch status, delete and verify 404.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create item A",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/roadmap",
+      "payload": {
+        "title": "Foundation",
+        "description": "build the floor",
+        "status": "planned",
+        "color": "#0af"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "title", "value": "Foundation" },
+          { "path": "status", "value": "planned" },
+          { "path": "sortOrder", "value": 1 }
+        ],
+        "saveAs": "itemA"
+      }
+    },
+    {
+      "name": "create item B depending on A",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/roadmap",
+      "payload": {
+        "title": "Walls",
+        "status": "planned",
+        "dependsOn": ["${itemA.id}"]
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "title", "value": "Walls" },
+          { "path": "sortOrder", "value": 2 },
+          { "path": "dependsOn[0]", "value": "${itemA.id}" }
+        ],
+        "saveAs": "itemB"
+      }
+    },
+    {
+      "name": "list ordered by sortOrder",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/roadmap",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].id", "value": "${itemA.id}" },
+          { "path": "[1].id", "value": "${itemB.id}" },
+          { "path": "[1].dependsOn[0]", "value": "${itemA.id}" }
+        ]
+      }
+    },
+    {
+      "name": "patch A to in-progress",
+      "method": "PATCH",
+      "url": "/api/roadmap/${itemA.id}",
+      "payload": { "status": "in_progress", "endDate": "2026-12-31" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "status", "value": "in_progress" },
+          { "path": "endDate", "value": "2026-12-31" }
+        ]
+      }
+    },
+    {
+      "name": "delete A",
+      "method": "DELETE",
+      "url": "/api/roadmap/${itemA.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "list now has only B",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/roadmap",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "[0].id", "value": "${itemB.id}" }]
+      }
+    },
+    {
+      "name": "patch deleted A → 404",
+      "method": "PATCH",
+      "url": "/api/roadmap/${itemA.id}",
+      "payload": { "status": "completed" },
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "delete A again → 404",
+      "method": "DELETE",
+      "url": "/api/roadmap/${itemA.id}",
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

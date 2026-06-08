@@ -33,8 +33,21 @@ interface HeaderRow {
 
 interface RequestBuilderProps {
   request: ApiRequest | null;
-  onSave: (updates: { name?: string; method?: HttpMethod; url?: string; headers?: string; body?: string; lastResponseStatus?: number | null; lastResponseTime?: number | null }) => void;
-  onExecute: (params: { method: HttpMethod; url: string; headers: Record<string, string>; body?: string }) => Promise<ApiRequestExecuteResult>;
+  onSave: (updates: {
+    name?: string;
+    method?: HttpMethod;
+    url?: string;
+    headers?: string;
+    body?: string;
+    lastResponseStatus?: number | null;
+    lastResponseTime?: number | null;
+  }) => void;
+  onExecute: (params: {
+    method: HttpMethod;
+    url: string;
+    headers: Record<string, string>;
+    body?: string;
+  }) => Promise<ApiRequestExecuteResult>;
   executing: boolean;
 }
 
@@ -64,7 +77,12 @@ function headersToRecord(rows: HeaderRow[]): Record<string, string> {
   return obj;
 }
 
-export default function RequestBuilder({ request, onSave, onExecute, executing }: RequestBuilderProps) {
+export default function RequestBuilder({
+  request,
+  onSave,
+  onExecute,
+  executing,
+}: RequestBuilderProps) {
   const [name, setName] = useState("");
   const [method, setMethod] = useState<HttpMethod>("GET");
   const [url, setUrl] = useState("");
@@ -191,12 +209,18 @@ export default function RequestBuilder({ request, onSave, onExecute, executing }
       {/* URL bar */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-secondary/20">
         <Select value={method} onValueChange={(v) => setMethod(v as HttpMethod)}>
-          <SelectTrigger className={cn("w-28 h-9 text-xs font-bold font-mono", METHOD_COLORS[method])}>
+          <SelectTrigger
+            className={cn("w-28 h-9 text-xs font-bold font-mono", METHOD_COLORS[method])}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {METHODS.map((m) => (
-              <SelectItem key={m} value={m} className={cn("text-xs font-mono font-bold", METHOD_COLORS[m])}>
+              <SelectItem
+                key={m}
+                value={m}
+                className={cn("text-xs font-mono font-bold", METHOD_COLORS[m])}
+              >
                 {m}
               </SelectItem>
             ))}
@@ -208,7 +232,9 @@ export default function RequestBuilder({ request, onSave, onExecute, executing }
           onChange={(e) => setUrl(e.target.value)}
           placeholder="http://localhost:3000/api/..."
           className="flex-1 h-9 font-mono text-sm"
-          onKeyDown={(e) => { if (e.key === "Enter") handleExecute(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleExecute();
+          }}
         />
 
         <Button
@@ -228,10 +254,14 @@ export default function RequestBuilder({ request, onSave, onExecute, executing }
             <TabsTrigger value="headers" className="text-xs">
               Headers
               {headers.filter((h) => h.key.trim()).length > 0 && (
-                <span className="ml-1 text-[10px] text-muted-foreground">({headers.filter((h) => h.key.trim()).length})</span>
+                <span className="ml-1 text-[10px] text-muted-foreground">
+                  ({headers.filter((h) => h.key.trim()).length})
+                </span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="body" className="text-xs">Body</TabsTrigger>
+            <TabsTrigger value="body" className="text-xs">
+              Body
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="headers" className="flex-1 overflow-auto px-4 pb-2 mt-0">
@@ -260,7 +290,12 @@ export default function RequestBuilder({ request, onSave, onExecute, executing }
                   </Button>
                 </div>
               ))}
-              <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={handleAddHeader}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs gap-1"
+                onClick={handleAddHeader}
+              >
                 <Plus className="h-3 w-3" /> Add Header
               </Button>
             </div>
@@ -278,7 +313,10 @@ export default function RequestBuilder({ request, onSave, onExecute, executing }
 
         {/* Response section */}
         {response && (
-          <div className="border-t border-border/50 flex flex-col overflow-hidden" style={{ maxHeight: "50%" }}>
+          <div
+            className="border-t border-border/50 flex flex-col overflow-hidden"
+            style={{ maxHeight: "50%" }}
+          >
             <div className="flex items-center gap-3 px-4 py-2 bg-secondary/30 border-b border-border/40">
               <span className="text-xs font-medium text-muted-foreground">Response</span>
               <span className={cn("text-sm font-bold font-mono", statusColor(response.status))}>
@@ -296,14 +334,24 @@ export default function RequestBuilder({ request, onSave, onExecute, executing }
                   onClick={handleCopyResponse}
                   title="Copy response"
                 >
-                  {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+                  {copied ? (
+                    <Check className="h-3 w-3 text-green-400" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
                 </Button>
               </div>
             </div>
 
-            <Tabs value={responseTab} onValueChange={setResponseTab} className="flex-1 flex flex-col overflow-hidden">
+            <Tabs
+              value={responseTab}
+              onValueChange={setResponseTab}
+              className="flex-1 flex flex-col overflow-hidden"
+            >
               <TabsList className="mx-4 mt-1 w-fit">
-                <TabsTrigger value="body" className="text-xs">Body</TabsTrigger>
+                <TabsTrigger value="body" className="text-xs">
+                  Body
+                </TabsTrigger>
                 <TabsTrigger value="headers" className="text-xs">
                   Headers ({Object.keys(response.headers).length})
                 </TabsTrigger>

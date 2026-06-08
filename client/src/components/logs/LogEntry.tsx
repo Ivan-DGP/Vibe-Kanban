@@ -18,13 +18,21 @@ export default function LogEntry({ log }: LogEntryProps) {
         className="flex items-center gap-2 text-xs cursor-pointer"
         onClick={() => log.details && setExpanded(!expanded)}
       >
-        {log.details && (
-          expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />
-        )}
-        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${LOG_LEVEL_COLORS[log.level]}`}>
+        {log.details &&
+          (expanded ? (
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0" />
+          ))}
+        <Badge
+          variant="outline"
+          className={`text-[10px] px-1.5 py-0 ${LOG_LEVEL_COLORS[log.level]}`}
+        >
           {log.level}
         </Badge>
-        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{log.category}</Badge>
+        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+          {log.category}
+        </Badge>
         <span className="flex-1 truncate">{log.message}</span>
         <span className="text-muted-foreground shrink-0">
           {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}

@@ -1,5 +1,15 @@
 import { useNavigate } from "react-router-dom";
-import { Star, ExternalLink, GitBranch, Inbox, Loader2, CheckCircle2, ShieldCheck, AlertTriangle, FolderOpen } from "lucide-react";
+import {
+  Star,
+  ExternalLink,
+  GitBranch,
+  Inbox,
+  Loader2,
+  CheckCircle2,
+  ShieldCheck,
+  AlertTriangle,
+  FolderOpen,
+} from "lucide-react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,9 +18,24 @@ import { useUpdateProject } from "@/hooks";
 import { TECH_STACK_COLORS } from "@/lib/constants";
 import type { Project } from "@vibe-kanban/shared";
 
+function isHttpUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 interface ProjectCardProps {
   project: Project;
-  taskCounts?: { inbox: number; inProgress: number; done: number; approved: number; urgent: number };
+  taskCounts?: {
+    inbox: number;
+    inProgress: number;
+    done: number;
+    approved: number;
+    urgent: number;
+  };
   gitBranch?: string;
 }
 
@@ -31,7 +56,9 @@ export default function ProjectCard({ project, taskCounts, gitBranch }: ProjectC
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{project.name}</h3>
+            <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+              {project.name}
+            </h3>
             {project.category && (
               <span className="text-xs text-muted-foreground/70">{project.category}</span>
             )}
@@ -141,19 +168,33 @@ export default function ProjectCard({ project, taskCounts, gitBranch }: ProjectC
         {/* External links */}
         {project.externalLinks.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {project.externalLinks.map((link, i) => (
-              <a
-                key={i}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ExternalLink className="h-3 w-3" />
-                {link.label}
-              </a>
-            ))}
+            {project.externalLinks.map((link, i) => {
+              // Only http(s) links are safe as hrefs; reject javascript:/data: etc.
+              // (these URLs can arrive via import/Sheets sync — stored XSS vector).
+              const safeUrl = isHttpUrl(link.url) ? link.url : null;
+              return safeUrl ? (
+                <a
+                  key={i}
+                  href={safeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {link.label}
+                </a>
+              ) : (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                  title={link.url}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  {link.label}
+                </span>
+              );
+            })}
           </div>
         )}
       </CardContent>

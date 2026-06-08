@@ -26,7 +26,9 @@ export default function TerminalView({ sessionId }: TerminalViewProps) {
 
     const safeFit = () => {
       if (disposed || !fitAddon || !term) return;
-      try { fitAddon.fit(); } catch {}
+      try {
+        fitAddon.fit();
+      } catch {}
     };
 
     const initTerminal = () => {

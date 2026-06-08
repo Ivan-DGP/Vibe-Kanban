@@ -1,0 +1,97 @@
+{
+  "id": "30-server-terminal-rest",
+  "title": "Server: terminal REST surface (status, list, validation, batch-resolve)",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Exercise terminal REST endpoints: status, sessions list (empty), invalid type → 400, kill missing → 404, write missing → 404, batch-resolve validation.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "terminal status",
+      "method": "GET",
+      "url": "/api/terminal/status",
+      "expect": {
+        "statusCode": 200,
+        "bodyContains": "\"available\""
+      }
+    },
+    {
+      "name": "list sessions (no project filter)",
+      "method": "GET",
+      "url": "/api/terminal/sessions",
+      "expect": {
+        "statusCode": 200,
+        "bodyContains": "["
+      }
+    },
+    {
+      "name": "list sessions filtered by project",
+      "method": "GET",
+      "url": "/api/terminal/sessions?projectId=${projectId}",
+      "expect": { "statusCode": 200 }
+    },
+    {
+      "name": "list ai-sessions",
+      "method": "GET",
+      "url": "/api/terminal/ai-sessions",
+      "expect": { "statusCode": 200 }
+    },
+    {
+      "name": "create session with invalid type → 400",
+      "method": "POST",
+      "url": "/api/terminal/sessions",
+      "payload": { "type": "definitely-not-a-session-type" },
+      "expect": {
+        "statusCode": 400,
+        "jsonPath": [{ "path": "error", "value": "Invalid session type" }]
+      }
+    },
+    {
+      "name": "kill missing session → 404",
+      "method": "DELETE",
+      "url": "/api/terminal/sessions/no-such-id",
+      "expect": {
+        "statusCode": 404,
+        "jsonPath": [{ "path": "error", "value": "Session not found" }]
+      }
+    },
+    {
+      "name": "write to missing session → 404",
+      "method": "POST",
+      "url": "/api/terminal/sessions/no-such-id/write",
+      "payload": { "data": "hi" },
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "batch-resolve status (idle)",
+      "method": "GET",
+      "url": "/api/terminal/batch-resolve/status",
+      "expect": { "statusCode": 200 }
+    },
+    {
+      "name": "batch-resolve no project → 400",
+      "method": "POST",
+      "url": "/api/terminal/batch-resolve",
+      "payload": { "taskIds": ["x"] },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "batch-resolve no taskIds → 400",
+      "method": "POST",
+      "url": "/api/terminal/batch-resolve",
+      "payload": { "projectId": "${projectId}", "taskIds": [] },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "batch-resolve cancel (idle)",
+      "method": "POST",
+      "url": "/api/terminal/batch-resolve/cancel",
+      "expect": { "statusCode": 200 }
+    }
+  ]
+}

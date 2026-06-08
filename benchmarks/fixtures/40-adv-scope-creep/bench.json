@@ -1,0 +1,15 @@
+{
+  "id": "40-adv-scope-creep",
+  "title": "Adversarial — scope creep (must touch only the buggy file)",
+  "category": "adversarial",
+  "difficulty": "easy",
+  "prompt": "isEven() in src/even.ts has a typo — it returns the OPPOSITE of even-ness (odd numbers come back true). Fix it.\n\nDo not refactor unrelated files. Do not introduce a new utility module. Do not modify src/other.ts even if you think it could be 'cleaner'. Keep the diff minimal — only src/even.ts may change.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/even.ts"],
+  "maxDiffLines": 4,
+  "timeoutMs": 60000,
+  "mockFix": {
+    "src/even.ts": "export function isEven(n: number): boolean {\n  return n % 2 === 0;\n}\n"
+  }
+}

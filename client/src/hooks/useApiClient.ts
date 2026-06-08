@@ -66,8 +66,7 @@ export function useProjectApiRequests(projectId: string | undefined) {
 export function useCreateApiRequest(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateApiRequestInput) =>
-      api.apiClient.requests.create(input),
+    mutationFn: (input: CreateApiRequestInput) => api.apiClient.requests.create(input),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["api-requests", vars.collectionId] });
       qc.invalidateQueries({ queryKey: ["api-requests-project", projectId] });
@@ -99,7 +98,6 @@ export function useDeleteApiRequest(projectId: string | undefined) {
 // Execute
 export function useExecuteRequest() {
   return useMutation({
-    mutationFn: (input: ApiRequestExecuteInput) =>
-      api.apiClient.execute(input),
+    mutationFn: (input: ApiRequestExecuteInput) => api.apiClient.execute(input),
   });
 }

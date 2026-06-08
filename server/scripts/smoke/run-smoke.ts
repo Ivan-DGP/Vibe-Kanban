@@ -84,7 +84,10 @@ const assert = (cond: any, label: string) => {
 
 console.log("=== SCENARIO A: qa-test task with autoSpawnEnabled=1 → dispatches claude ===");
 const projA = await post("/api/projects", { name: "smoke-A", path: path.join(PROJECTS_DIR, "A") });
-await patch(`/api/projects/${projA.id}`, { autoSpawnEnabled: true, qaAgentPath: "/abs/path/to/qa-agent" });
+await patch(`/api/projects/${projA.id}`, {
+  autoSpawnEnabled: true,
+  qaAgentPath: "/abs/path/to/qa-agent",
+});
 const taskA = await post(`/api/projects/${projA.id}/tasks`, {
   title: "QA: login flow",
   metadata: {
@@ -101,10 +104,16 @@ if (callsA.length >= 1) {
   assert(c.cwd === path.join(PROJECTS_DIR, "A"), `A2: cwd matches project.path (${c.cwd})`);
   assert(c.argv.includes("-p"), "A3: argv contains -p flag");
   assert(c.argv.includes("--mcp-config"), "A4: argv contains --mcp-config");
-  assert(c.argv.includes("--dangerously-skip-permissions"), "A5: argv contains --dangerously-skip-permissions");
+  assert(
+    c.argv.includes("--dangerously-skip-permissions"),
+    "A5: argv contains --dangerously-skip-permissions",
+  );
   const prompt = c.argv[c.argv.length - 1];
   assert(prompt.includes("log in successfully"), "A6: prompt includes qa_scenario from metadata");
-  assert(prompt.includes("http://localhost:3000"), "A7: prompt includes qa_target_url from metadata");
+  assert(
+    prompt.includes("http://localhost:3000"),
+    "A7: prompt includes qa_target_url from metadata",
+  );
   assert(/qa[\s-]?test/i.test(prompt), "A8: prompt mentions qa-test");
 }
 
@@ -132,7 +141,10 @@ assert(callsB.length === 1, `B1: exactly 1 dispatch (got ${callsB.length})`);
 if (callsB.length >= 1) {
   const prompt = callsB[0].argv[callsB[0].argv.length - 1];
   assert(/dev[\s-]?fix/i.test(prompt), "B2: prompt mentions dev-fix");
-  assert(prompt.includes("login form doesn't submit on valid creds"), "B3: prompt includes bug_report.summary");
+  assert(
+    prompt.includes("login form doesn't submit on valid creds"),
+    "B3: prompt includes bug_report.summary",
+  );
   assert(prompt.includes("client/src/auth.ts"), "B4: prompt includes bug_report.affected_files");
   assert(prompt.includes("click does nothing"), "B5: prompt includes bug_report.actual");
   assert(prompt.includes("high"), "B6: prompt includes bug_report.severity");
@@ -152,7 +164,10 @@ await sleep(800);
 assert(readCalls().length === 0, "C2: no dispatch for metadata without type field");
 
 resetCalls();
-await post(`/api/projects/${projA.id}/tasks`, { title: "Unregistered type", metadata: { type: "no-such-type" } });
+await post(`/api/projects/${projA.id}/tasks`, {
+  title: "Unregistered type",
+  metadata: { type: "no-such-type" },
+});
 await sleep(800);
 assert(readCalls().length === 0, "C3: no dispatch for unregistered type");
 
@@ -174,7 +189,10 @@ const projE = await post("/api/projects", {
   name: "smoke-E",
   path: path.join(PROJECTS_DIR, "does-not-exist"),
 });
-await patch(`/api/projects/${projE.id}`, { autoSpawnEnabled: true, qaAgentPath: "/abs/path/to/qa-agent" });
+await patch(`/api/projects/${projE.id}`, {
+  autoSpawnEnabled: true,
+  qaAgentPath: "/abs/path/to/qa-agent",
+});
 await post(`/api/projects/${projE.id}/tasks`, {
   title: "QA test (path missing)",
   metadata: { type: "qa-test", qa_scenario: "x" },
@@ -185,7 +203,10 @@ assert(readCalls().length === 0, "E1: no dispatch when project.path missing on d
 console.log();
 console.log("=== SCENARIO F: re-enable then re-spawn (sanity check loop closes) ===");
 resetCalls();
-await patch(`/api/projects/${projD.id}`, { autoSpawnEnabled: true, qaAgentPath: "/abs/path/to/qa-agent" });
+await patch(`/api/projects/${projD.id}`, {
+  autoSpawnEnabled: true,
+  qaAgentPath: "/abs/path/to/qa-agent",
+});
 await post(`/api/projects/${projD.id}/tasks`, {
   title: "QA test after enable",
   metadata: { type: "qa-test", qa_scenario: "y" },

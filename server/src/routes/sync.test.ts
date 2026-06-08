@@ -7,9 +7,7 @@ import { buildApp } from "../app";
 describe("APPS_SCRIPT_REGEX", () => {
   test("matches a valid Google Apps Script URL", () => {
     expect(
-      APPS_SCRIPT_REGEX.test(
-        "https://script.google.com/macros/s/AKfycbxExample123/exec",
-      ),
+      APPS_SCRIPT_REGEX.test("https://script.google.com/macros/s/AKfycbxExample123/exec"),
     ).toBe(true);
   });
 
@@ -22,19 +20,15 @@ describe("APPS_SCRIPT_REGEX", () => {
   });
 
   test("matches a URL with /dev suffix", () => {
-    expect(
-      APPS_SCRIPT_REGEX.test(
-        "https://script.google.com/macros/s/AKfycbxExample/dev",
-      ),
-    ).toBe(true);
+    expect(APPS_SCRIPT_REGEX.test("https://script.google.com/macros/s/AKfycbxExample/dev")).toBe(
+      true,
+    );
   });
 
   test("rejects http:// (non-TLS)", () => {
-    expect(
-      APPS_SCRIPT_REGEX.test(
-        "http://script.google.com/macros/s/AKfycbxExample/exec",
-      ),
-    ).toBe(false);
+    expect(APPS_SCRIPT_REGEX.test("http://script.google.com/macros/s/AKfycbxExample/exec")).toBe(
+      false,
+    );
   });
 
   test("rejects a completely unrelated URL", () => {
@@ -46,15 +40,11 @@ describe("APPS_SCRIPT_REGEX", () => {
   });
 
   test("rejects a URL without the /macros/s/ path segment", () => {
-    expect(
-      APPS_SCRIPT_REGEX.test("https://script.google.com/other/path"),
-    ).toBe(false);
+    expect(APPS_SCRIPT_REGEX.test("https://script.google.com/other/path")).toBe(false);
   });
 
   test("rejects a URL that ends at /macros/s/ (nothing after)", () => {
-    expect(
-      APPS_SCRIPT_REGEX.test("https://script.google.com/macros/s/"),
-    ).toBe(false);
+    expect(APPS_SCRIPT_REGEX.test("https://script.google.com/macros/s/")).toBe(false);
   });
 
   test("rejects null-ish inputs coerced to string", () => {
@@ -63,11 +53,9 @@ describe("APPS_SCRIPT_REGEX", () => {
   });
 
   test("rejects a URL with extra prefix domain", () => {
-    expect(
-      APPS_SCRIPT_REGEX.test(
-        "https://evil.script.google.com/macros/s/deploy/exec",
-      ),
-    ).toBe(false);
+    expect(APPS_SCRIPT_REGEX.test("https://evil.script.google.com/macros/s/deploy/exec")).toBe(
+      false,
+    );
   });
 });
 
@@ -81,9 +69,7 @@ describe("sync routes integration", () => {
     await app.ready();
   });
 
-  afterAll(async () => {
-    
-  });
+  afterAll(async () => {});
 
   // --- /sync/push ---
 

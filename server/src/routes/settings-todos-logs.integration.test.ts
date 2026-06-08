@@ -8,9 +8,7 @@ beforeAll(async () => {
   await app.ready();
 });
 
-afterAll(async () => {
-  
-});
+afterAll(async () => {});
 
 // ---------------------------------------------------------------------------
 // Settings

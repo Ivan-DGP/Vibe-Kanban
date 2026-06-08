@@ -6,14 +6,19 @@ import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
 import { getDb, closeDb } from "./db";
 import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
+import { markOrphans as markOrphanBenchRuns } from "./services/benchRunsRepo";
+import { markInterruptedRuns, cancelAllHeadlessRuns } from "./services/headlessClaude";
 
 export async function buildApp(opts: { bodyLimit?: number } = {}) {
   const app = Fastify({ logger: true, bodyLimit: opts.bodyLimit });
 
-  // Initialize database
   getDb();
 
-  // Register multi-session orchestration spawn configs
+  // bench_runs left 'running' across boot were killed mid-flight; mark failed before serving.
+  markOrphanBenchRuns();
+  // Same for task AI runs interrupted by a crash/restart.
+  markInterruptedRuns();
+
   registerSpawnConfigs();
 
   // Plugins
@@ -56,6 +61,7 @@ export async function buildApp(opts: { bodyLimit?: number } = {}) {
   await app.register(import("./routes/graph"), { prefix: "/api" });
   await app.register(import("./routes/knowledge"), { prefix: "/api" });
   await app.register(import("./routes/terminal"), { prefix: "/api" });
+  await app.register(import("./routes/benchmarks"), { prefix: "/api" });
   await app.register(import("./routes/terminalWs"), { prefix: "/ws" });
   await app.register(import("./routes/mcp"), { prefix: "/mcp" });
 
@@ -65,27 +71,32 @@ export async function buildApp(opts: { bodyLimit?: number } = {}) {
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("X-Frame-Options", "DENY");
     reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
-    reply.header("X-XSS-Protection", "1; mode=block");
+    // The legacy XSS auditor is deprecated and can itself introduce vulns; disable it.
+    reply.header("X-XSS-Protection", "0");
+    // script-src drops 'unsafe-inline' so an injected <script> cannot run; the
+    // Vite build loads JS as external modules. style-src keeps 'unsafe-inline'
+    // because Tailwind/inline styles require it.
     reply.header(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:3001 ws://127.0.0.1:3001 https://api.anthropic.com; img-src 'self' data:; font-src 'self' data:",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:3001 ws://127.0.0.1:3001 https://api.anthropic.com; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     );
   });
 
-  app.setErrorHandler((error: Error & { validation?: unknown; statusCode?: number }, _request, reply) => {
-    app.log.error(error);
-    if (error.validation) {
-      return reply.code(400).send({ error: "Validation error", details: error.validation });
-    }
-    const statusCode = error.statusCode || 500;
-    const message = statusCode >= 500
-      ? "Internal Server Error"
-      : error.message || "Error";
-    return reply.code(statusCode).send({ error: message });
-  });
+  app.setErrorHandler(
+    (error: Error & { validation?: unknown; statusCode?: number }, _request, reply) => {
+      app.log.error(error);
+      if (error.validation) {
+        return reply.code(400).send({ error: "Validation error", details: error.validation });
+      }
+      const statusCode = error.statusCode || 500;
+      const message = statusCode >= 500 ? "Internal Server Error" : error.message || "Error";
+      return reply.code(statusCode).send({ error: message });
+    },
+  );
 
   // Cleanup on shutdown
   app.addHook("onClose", () => {
+    cancelAllHeadlessRuns();
     closeDb();
   });
 

@@ -1,0 +1,15 @@
+{
+  "id": "01-bug-fix-arithmetic",
+  "title": "Fix sum() for negative numbers",
+  "category": "bug-fix",
+  "difficulty": "easy",
+  "prompt": "There is a bug in src/sum.ts. The sum() function returns 0 whenever either argument is negative — it should return the actual sum (a + b) for ALL real numbers, including negatives.\n\nFix the bug in src/sum.ts. The failing tests in tests/target.test.ts must pass after your fix. The tests in tests/regression.test.ts must continue to pass — do not break them.\n\nDo not modify the tests. Do not add new files. Keep the change minimal.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/sum.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/sum.ts": "export function sum(a: number, b: number): number {\n  return a + b;\n}\n"
+  }
+}

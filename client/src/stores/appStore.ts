@@ -31,15 +31,13 @@ interface AppStore {
   // Active milestone per project
   activeMilestones: Record<string, string | null>;
   setActiveMilestone: (projectId: string, milestoneId: string | null) => void;
-
 }
 
 export const useAppStore = create<AppStore>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
-      toggleSidebar: () =>
-        set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
       commandPaletteOpen: false,
       globalSearchOpen: false,
@@ -50,8 +48,7 @@ export const useAppStore = create<AppStore>()(
 
       terminalVisible: false,
       terminalHeight: 300,
-      toggleTerminal: () =>
-        set((s) => ({ terminalVisible: !s.terminalVisible })),
+      toggleTerminal: () => set((s) => ({ terminalVisible: !s.terminalVisible })),
       setTerminalHeight: (h) => set({ terminalHeight: h }),
 
       onboardingComplete: false,
@@ -68,7 +65,6 @@ export const useAppStore = create<AppStore>()(
         set((s) => ({
           activeMilestones: { ...s.activeMilestones, [projectId]: milestoneId },
         })),
-
     }),
     {
       name: "vibe-kanban-app",

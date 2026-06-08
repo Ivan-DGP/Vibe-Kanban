@@ -1,2 +1,2 @@
 #!/bin/sh
-bun run check && bun run lint
+bun run check && bun run lint && bun run format:check

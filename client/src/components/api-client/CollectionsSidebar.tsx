@@ -53,7 +53,9 @@ export default function CollectionsSidebar({
   return (
     <div className="w-64 border-r border-border/50 flex flex-col bg-card/30">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/40">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/60">Collections</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
+          Collections
+        </span>
         <Button
           size="icon"
           variant="ghost"
@@ -66,7 +68,13 @@ export default function CollectionsSidebar({
 
       {creating && (
         <div className="px-2 py-2 border-b border-border/40">
-          <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="flex gap-1">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreate();
+            }}
+            className="flex gap-1"
+          >
             <Input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -74,7 +82,9 @@ export default function CollectionsSidebar({
               className="h-7 text-xs"
               autoFocus
             />
-            <Button size="sm" className="h-7 text-xs px-2" type="submit">Add</Button>
+            <Button size="sm" className="h-7 text-xs px-2" type="submit">
+              Add
+            </Button>
           </form>
         </div>
       )}
@@ -106,14 +116,20 @@ export default function CollectionsSidebar({
                 <span className="text-xs font-medium truncate flex-1">{col.name}</span>
                 <span className="text-[10px] text-muted-foreground/40">{colRequests.length}</span>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onCreateRequest(col.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCreateRequest(col.id);
+                  }}
                   className="hidden group-hover:block p-0.5 rounded hover:bg-accent text-muted-foreground/60"
                   title="Add request"
                 >
                   <Plus className="h-3 w-3" />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDeleteCollection(col.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteCollection(col.id);
+                  }}
                   className="hidden group-hover:block p-0.5 rounded hover:bg-red-500/15 text-red-400/60"
                   title="Delete collection"
                 >
@@ -135,21 +151,34 @@ export default function CollectionsSidebar({
                       onClick={() => onSelectRequest(req)}
                     >
                       <FileJson className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-                      <span className={cn("text-[10px] font-mono font-bold shrink-0 w-8", METHOD_COLORS[req.method])}>
+                      <span
+                        className={cn(
+                          "text-[10px] font-mono font-bold shrink-0 w-8",
+                          METHOD_COLORS[req.method],
+                        )}
+                      >
                         {req.method.slice(0, 3)}
                       </span>
                       <span className="text-xs truncate flex-1">{req.name}</span>
                       {req.lastResponseStatus && (
-                        <span className={cn(
-                          "text-[10px] font-mono",
-                          req.lastResponseStatus >= 200 && req.lastResponseStatus < 300 ? "text-green-400" :
-                          req.lastResponseStatus >= 400 ? "text-red-400" : "text-yellow-400",
-                        )}>
+                        <span
+                          className={cn(
+                            "text-[10px] font-mono",
+                            req.lastResponseStatus >= 200 && req.lastResponseStatus < 300
+                              ? "text-green-400"
+                              : req.lastResponseStatus >= 400
+                                ? "text-red-400"
+                                : "text-yellow-400",
+                          )}
+                        >
                           {req.lastResponseStatus}
                         </span>
                       )}
                       <button
-                        onClick={(e) => { e.stopPropagation(); onDeleteRequest(req.id); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteRequest(req.id);
+                        }}
                         className="hidden group-hover/req:block p-0.5 rounded hover:bg-red-500/15 text-red-400/60"
                       >
                         <Trash2 className="h-2.5 w-2.5" />

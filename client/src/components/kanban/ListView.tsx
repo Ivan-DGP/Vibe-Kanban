@@ -1,4 +1,11 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import PriorityBadge from "@/components/tasks/PriorityBadge";
 import { Badge } from "@/components/ui/badge";
 import { STATUS_LABELS } from "@/lib/constants";
@@ -31,7 +38,9 @@ export default function ListView({ tasks, onTaskClick }: ListViewProps) {
               onClick={() => onTaskClick(task)}
             >
               <TableCell className="font-medium">{task.title}</TableCell>
-              <TableCell><PriorityBadge priority={task.priority} /></TableCell>
+              <TableCell>
+                <PriorityBadge priority={task.priority} />
+              </TableCell>
               <TableCell>
                 <Badge variant="secondary" className="text-[10px]">
                   {STATUS_LABELS[task.status]}

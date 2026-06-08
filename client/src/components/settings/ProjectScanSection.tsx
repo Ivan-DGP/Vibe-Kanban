@@ -16,10 +16,16 @@ export default function ProjectScanSection() {
   const create = useCreateProject();
 
   const handleScan = () => {
-    const list = dirs.split("\n").map((d) => d.trim()).filter(Boolean);
+    const list = dirs
+      .split("\n")
+      .map((d) => d.trim())
+      .filter(Boolean);
     if (list.length === 0) return;
     scan.mutate(list, {
-      onSuccess: (results) => { setScanned(results); setSelected(new Set(results.map((_, i) => i))); },
+      onSuccess: (results) => {
+        setScanned(results);
+        setSelected(new Set(results.map((_, i) => i)));
+      },
     });
   };
 
@@ -42,24 +48,42 @@ export default function ProjectScanSection() {
         rows={3}
       />
       <Button variant="outline" size="sm" onClick={handleScan} disabled={scan.isPending}>
-        {scan.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FolderSearch className="h-4 w-4 mr-1" />}
+        {scan.isPending ? (
+          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+        ) : (
+          <FolderSearch className="h-4 w-4 mr-1" />
+        )}
         Scan
       </Button>
 
       {scanned.length > 0 && (
         <ScrollArea className="h-[200px] border rounded-md p-2">
           {scanned.map((p, i) => (
-            <label key={i} className="flex items-start gap-2 p-1.5 rounded hover:bg-accent cursor-pointer">
-              <Checkbox checked={selected.has(i)} onCheckedChange={() => {
-                const s = new Set(selected);
-                if (s.has(i)) { s.delete(i); } else { s.add(i); }
-                setSelected(s);
-              }} />
+            <label
+              key={i}
+              className="flex items-start gap-2 p-1.5 rounded hover:bg-accent cursor-pointer"
+            >
+              <Checkbox
+                checked={selected.has(i)}
+                onCheckedChange={() => {
+                  const s = new Set(selected);
+                  if (s.has(i)) {
+                    s.delete(i);
+                  } else {
+                    s.add(i);
+                  }
+                  setSelected(s);
+                }}
+              />
               <div>
                 <div className="text-sm font-medium">{p.name}</div>
                 <div className="text-xs text-muted-foreground">{p.path}</div>
                 <div className="flex gap-1 mt-0.5">
-                  {p.techStack.map((t) => <Badge key={t} variant="outline" className="text-[10px] px-1 py-0">{t}</Badge>)}
+                  {p.techStack.map((t) => (
+                    <Badge key={t} variant="outline" className="text-[10px] px-1 py-0">
+                      {t}
+                    </Badge>
+                  ))}
                 </div>
               </div>
             </label>

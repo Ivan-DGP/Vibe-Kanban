@@ -452,7 +452,10 @@ describe("readDependencies", () => {
       path.join(dir, "package.json"),
       JSON.stringify({ dependencies: { express: "^4.18.0" } }),
     );
-    fs.writeFileSync(path.join(dir, "docker-compose.yml"), "version: '3'\nservices:\n  web:\n    image: node:18\n");
+    fs.writeFileSync(
+      path.join(dir, "docker-compose.yml"),
+      "version: '3'\nservices:\n  web:\n    image: node:18\n",
+    );
     const result = readDependencies(dir);
     expect(result).not.toBeNull();
     expect(result).toContain("[package.json]");
@@ -506,7 +509,10 @@ describe("readKeyFileSnippets", () => {
   test("reads entry point files", () => {
     const dir = path.join(tmpDir, "snippets-entry");
     fs.mkdirSync(path.join(dir, "src"), { recursive: true });
-    fs.writeFileSync(path.join(dir, "src", "index.ts"), 'console.log("hello");\nexport default {};');
+    fs.writeFileSync(
+      path.join(dir, "src", "index.ts"),
+      'console.log("hello");\nexport default {};',
+    );
     const result = readKeyFileSnippets(dir);
     expect(result).not.toBeNull();
     expect(result).toContain("[src/index.ts]");

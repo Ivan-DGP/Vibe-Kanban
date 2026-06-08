@@ -3,6 +3,7 @@ import { useProjects } from "@/hooks";
 import { useProjectStats } from "@/hooks/useProjectStats";
 import { Skeleton } from "@/components/ui/skeleton";
 import WorkingOnBanner from "@/components/dashboard/WorkingOnBanner";
+import DriftTile from "@/components/dashboard/DriftTile";
 import CategoryFilter from "@/components/dashboard/CategoryFilter";
 import ProjectCard from "@/components/dashboard/ProjectCard";
 import AddProjectDialog from "@/components/dashboard/AddProjectDialog";
@@ -37,13 +38,10 @@ export default function Dashboard() {
       </div>
 
       <WorkingOnBanner />
+      <DriftTile />
 
       {categories.length > 0 && (
-        <CategoryFilter
-          categories={categories}
-          activeFilter={filter}
-          onFilterChange={setFilter}
-        />
+        <CategoryFilter categories={categories} activeFilter={filter} onFilterChange={setFilter} />
       )}
 
       {isLoading ? (
@@ -58,7 +56,9 @@ export default function Dashboard() {
             <span className="text-2xl">+</span>
           </div>
           <p className="text-lg font-medium">No projects yet</p>
-          <p className="text-sm mt-1 text-muted-foreground/60">Add a project manually or scan your directories</p>
+          <p className="text-sm mt-1 text-muted-foreground/60">
+            Add a project manually or scan your directories
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

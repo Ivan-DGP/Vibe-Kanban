@@ -1,0 +1,151 @@
+{
+  "id": "24-server-artifacts-crud",
+  "title": "Server: artifacts list + create + update + content + delete",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create two artifacts of different types, list with type filter, fetch content, patch tags, delete and verify 404.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create artifact (document)",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/artifacts",
+      "payload": {
+        "filename": "spec.md",
+        "type": "document",
+        "description": "spec doc",
+        "tags": ["spec", "v1"],
+        "content": "# Spec\nhello bench"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "filename", "value": "spec.md" },
+          { "path": "type", "value": "document" },
+          { "path": "mimeType", "value": "text/markdown" },
+          { "path": "tags[0]", "value": "spec" }
+        ],
+        "saveAs": "doc"
+      }
+    },
+    {
+      "name": "create artifact (research)",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/artifacts",
+      "payload": {
+        "filename": "notes.txt",
+        "type": "research",
+        "content": "research notes"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "type", "value": "research" },
+          { "path": "mimeType", "value": "text/plain" }
+        ],
+        "saveAs": "research"
+      }
+    },
+    {
+      "name": "list returns total + items",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/artifacts",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "total", "value": 2 },
+          { "path": "hasMore", "value": false }
+        ]
+      }
+    },
+    {
+      "name": "filter by type=document",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/artifacts?type=document",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "total", "value": 1 },
+          { "path": "items[0].id", "value": "${doc.id}" }
+        ]
+      }
+    },
+    {
+      "name": "search by filename substring",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/artifacts?search=note",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "total", "value": 1 },
+          { "path": "items[0].id", "value": "${research.id}" }
+        ]
+      }
+    },
+    {
+      "name": "fetch artifact content (utf-8)",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/artifacts/${doc.id}/content",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "encoding", "value": "utf-8" },
+          { "path": "content", "value": "# Spec\nhello bench" }
+        ]
+      }
+    },
+    {
+      "name": "patch tags + description",
+      "method": "PATCH",
+      "url": "/api/projects/${projectId}/artifacts/${doc.id}",
+      "payload": { "description": "spec v2", "tags": ["spec", "v2", "approved"] },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "description", "value": "spec v2" },
+          { "path": "tags[2]", "value": "approved" }
+        ]
+      }
+    },
+    {
+      "name": "patch missing artifact → 404",
+      "method": "PATCH",
+      "url": "/api/projects/${projectId}/artifacts/00000000-0000-0000-0000-000000000000",
+      "payload": { "description": "ghost" },
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "create with no filename → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/artifacts",
+      "payload": { "type": "document", "content": "no name" },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "delete research artifact",
+      "method": "DELETE",
+      "url": "/api/projects/${projectId}/artifacts/${research.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "get deleted → 404",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/artifacts/${research.id}",
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "list now has 1",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/artifacts",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "total", "value": 1 }]
+      }
+    }
+  ]
+}

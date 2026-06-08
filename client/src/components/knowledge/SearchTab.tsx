@@ -30,16 +30,13 @@ export default function SearchTab({ projectId }: SearchTabProps) {
     const q = query.trim();
     if (!q) return;
     const types =
-      filter === "all"
-        ? undefined
-        : ([filter] as ("artifact" | "task" | "graph_node")[]);
+      filter === "all" ? undefined : ([filter] as ("artifact" | "task" | "graph_node")[]);
     search.mutate({ query: q, k: 10, types });
   };
 
   const results = search.data?.results ?? [];
   const s = stats.data;
-  const totalPending =
-    (s?.pending ?? 0) + (s?.pendingTasks ?? 0) + (s?.pendingGraphNodes ?? 0);
+  const totalPending = (s?.pending ?? 0) + (s?.pendingTasks ?? 0) + (s?.pendingGraphNodes ?? 0);
   const indexing = totalPending > 0 || backfill.isPending;
 
   const filterLabels: Record<FilterMode, string> = {
@@ -94,9 +91,7 @@ export default function SearchTab({ projectId }: SearchTabProps) {
               <span>
                 · {s.embeddedGraphNodes}/{s.graphNodeCount} nodes · {s.graphNodeChunkCount} chunks
               </span>
-              {totalPending > 0 && (
-                <span className="text-amber-500">· {totalPending} pending</span>
-              )}
+              {totalPending > 0 && <span className="text-amber-500">· {totalPending} pending</span>}
             </>
           ) : (
             <span>Loading stats…</span>
@@ -115,7 +110,9 @@ export default function SearchTab({ projectId }: SearchTabProps) {
       </div>
 
       {search.isError && (
-        <div className="text-sm text-red-500">Search failed: {(search.error as Error)?.message}</div>
+        <div className="text-sm text-red-500">
+          Search failed: {(search.error as Error)?.message}
+        </div>
       )}
 
       {search.data && results.length === 0 && (
@@ -153,8 +150,12 @@ function ArtifactCard({ hit }: { hit: KnowledgeArtifactHit }) {
         <div className="flex items-center gap-2 min-w-0">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-sm font-medium truncate">{hit.artifact.filename}</span>
-          <Badge variant="outline" className="shrink-0 text-[10px]">{hit.artifact.type}</Badge>
-          <Badge variant="secondary" className="shrink-0 text-[10px]">artifact</Badge>
+          <Badge variant="outline" className="shrink-0 text-[10px]">
+            {hit.artifact.type}
+          </Badge>
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            artifact
+          </Badge>
         </div>
         <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{scorePct}%</span>
       </div>
@@ -176,8 +177,12 @@ function TaskCard({ hit }: { hit: KnowledgeTaskHit }) {
           <span className="text-sm font-medium truncate">
             #{hit.task.taskNumber} · {hit.task.title}
           </span>
-          <Badge variant="outline" className="shrink-0 text-[10px]">{hit.task.status}</Badge>
-          <Badge variant="secondary" className="shrink-0 text-[10px]">task</Badge>
+          <Badge variant="outline" className="shrink-0 text-[10px]">
+            {hit.task.status}
+          </Badge>
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            task
+          </Badge>
         </div>
         <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{scorePct}%</span>
       </div>
@@ -197,8 +202,12 @@ function GraphNodeCard({ hit }: { hit: KnowledgeGraphNodeHit }) {
         <div className="flex items-center gap-2 min-w-0">
           <Network className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-sm font-medium truncate">{hit.graphNode.label}</span>
-          <Badge variant="outline" className="shrink-0 text-[10px]">{hit.graphNode.type}</Badge>
-          <Badge variant="secondary" className="shrink-0 text-[10px]">graph node</Badge>
+          <Badge variant="outline" className="shrink-0 text-[10px]">
+            {hit.graphNode.type}
+          </Badge>
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            graph node
+          </Badge>
         </div>
         <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{scorePct}%</span>
       </div>

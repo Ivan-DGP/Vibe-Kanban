@@ -21,9 +21,9 @@ const todoRoutes: FastifyPluginAsync = async (fastify) => {
     const id = uuid();
     const ts = now();
 
-    const maxOrder = db
-      .prepare("SELECT MAX(sortOrder) as m FROM todos")
-      .get() as { m: number | null };
+    const maxOrder = db.prepare("SELECT MAX(sortOrder) as m FROM todos").get() as {
+      m: number | null;
+    };
     const sortOrder = (maxOrder?.m ?? 0) + 1;
 
     db.prepare(
@@ -42,9 +42,11 @@ const todoRoutes: FastifyPluginAsync = async (fastify) => {
 
     db.transaction(() => {
       for (const todo of todos) {
-        db.prepare(
-          "UPDATE todos SET sortOrder = ?, updatedAt = ? WHERE id = ?",
-        ).run(todo.sortOrder, now(), todo.id);
+        db.prepare("UPDATE todos SET sortOrder = ?, updatedAt = ? WHERE id = ?").run(
+          todo.sortOrder,
+          now(),
+          todo.id,
+        );
       }
     })();
 
@@ -90,9 +92,7 @@ const todoRoutes: FastifyPluginAsync = async (fastify) => {
     values.push(now());
 
     values.push(id);
-    db.prepare(`UPDATE todos SET ${fields.join(", ")} WHERE id = ?`).run(
-      ...values,
-    );
+    db.prepare(`UPDATE todos SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
     const row = db.prepare("SELECT * FROM todos WHERE id = ?").get(id) as any;
     return { ...row, completed: !!row.completed };

@@ -40,7 +40,7 @@ describe("vectorToBlob / vectorFromBlob", () => {
 
   test("roundtrip handles full embedding dimension", () => {
     const v = new Float32Array(EMBEDDING_DIM);
-    for (let i = 0; i < EMBEDDING_DIM; i++) v[i] = (i / EMBEDDING_DIM) - 0.5;
+    for (let i = 0; i < EMBEDDING_DIM; i++) v[i] = i / EMBEDDING_DIM - 0.5;
     const blob = vectorToBlob(v);
     const out = vectorFromBlob(blob);
     expect(out.length).toBe(EMBEDDING_DIM);

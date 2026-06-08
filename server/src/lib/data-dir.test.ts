@@ -87,8 +87,7 @@ describe("data-dir", () => {
     const tmpName = tasksDir + "__missing_snap_test__";
     // Self-heal if a prior crashed run left tmpName behind
     if (fs.existsSync(tmpName)) {
-      if (fs.existsSync(tasksDir))
-        fs.rmSync(tasksDir, { recursive: true, force: true });
+      if (fs.existsSync(tasksDir)) fs.rmSync(tasksDir, { recursive: true, force: true });
       fs.renameSync(tmpName, tasksDir);
     }
     fs.renameSync(tasksDir, tmpName);
@@ -98,8 +97,7 @@ describe("data-dir", () => {
       expect(result).toBe(tasksDir);
       expect(fs.existsSync(tasksDir)).toBe(true);
     } finally {
-      if (fs.existsSync(tasksDir))
-        fs.rmSync(tasksDir, { recursive: true, force: true });
+      if (fs.existsSync(tasksDir)) fs.rmSync(tasksDir, { recursive: true, force: true });
       fs.renameSync(tmpName, tasksDir);
     }
   });

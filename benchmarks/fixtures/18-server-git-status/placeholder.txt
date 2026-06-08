@@ -1,0 +1,1 @@
+bench fixture placeholder so git init can produce a baseline commit

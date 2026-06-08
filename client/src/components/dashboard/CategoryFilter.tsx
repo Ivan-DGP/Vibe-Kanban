@@ -7,14 +7,23 @@ interface CategoryFilterProps {
   onFilterChange: (filter: string) => void;
 }
 
-export default function CategoryFilter({ categories, activeFilter, onFilterChange }: CategoryFilterProps) {
+export default function CategoryFilter({
+  categories,
+  activeFilter,
+  onFilterChange,
+}: CategoryFilterProps) {
   return (
     <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-1">
       <FilterPill active={activeFilter === "all"} onClick={() => onFilterChange("all")}>
         All
       </FilterPill>
       <FilterPill active={activeFilter === "favorites"} onClick={() => onFilterChange("favorites")}>
-        <Star className={cn("h-3 w-3", activeFilter === "favorites" && "fill-yellow-500 text-yellow-500")} />
+        <Star
+          className={cn(
+            "h-3 w-3",
+            activeFilter === "favorites" && "fill-yellow-500 text-yellow-500",
+          )}
+        />
         Favorites
       </FilterPill>
       {categories.map((cat) => (
@@ -26,7 +35,15 @@ export default function CategoryFilter({ categories, activeFilter, onFilterChang
   );
 }
 
-function FilterPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}

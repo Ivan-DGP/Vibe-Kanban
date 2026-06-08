@@ -1,9 +1,21 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Loader2, Trash2, Plus, X } from "lucide-react";
 import {
@@ -26,7 +38,11 @@ interface ProjectSettingsDialogProps {
   project: Project;
 }
 
-export default function ProjectSettingsDialog({ open, onOpenChange, project }: ProjectSettingsDialogProps) {
+export default function ProjectSettingsDialog({
+  open,
+  onOpenChange,
+  project,
+}: ProjectSettingsDialogProps) {
   const [name, setName] = useState(project.name);
   const [category, setCategory] = useState(project.category ?? "");
   const [aiCommitMode, setAiCommitMode] = useState(project.aiCommitMode);
@@ -99,9 +115,18 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
   };
 
   const handleDelete = async () => {
-    if (!await confirm({ title: "Delete Project", description: `Delete project "${project.name}"? Tasks will also be deleted.` })) return;
+    if (
+      !(await confirm({
+        title: "Delete Project",
+        description: `Delete project "${project.name}"? Tasks will also be deleted.`,
+      }))
+    )
+      return;
     deleteProject.mutate(project.id, {
-      onSuccess: () => { onOpenChange(false); navigate("/"); },
+      onSuccess: () => {
+        onOpenChange(false);
+        navigate("/");
+      },
     });
   };
 
@@ -129,20 +154,31 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
 
           <div className="space-y-2">
             <Label>Category</Label>
-            <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Work, Personal, etc." />
+            <Input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="Work, Personal, etc."
+            />
           </div>
 
           <div className="space-y-2">
             <Label>AI Commit Mode</Label>
-            <Select value={aiCommitMode} onValueChange={(v) => setAiCommitMode(v as typeof aiCommitMode)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select
+              value={aiCommitMode}
+              onValueChange={(v) => setAiCommitMode(v as typeof aiCommitMode)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="commit">Auto Commit</SelectItem>
                 <SelectItem value="stage">Stage Only</SelectItem>
                 <SelectItem value="none">No Commit</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-[10px] text-muted-foreground">How AI handles git after resolving tasks</p>
+            <p className="text-[10px] text-muted-foreground">
+              How AI handles git after resolving tasks
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -151,32 +187,42 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               value={githubAccountId || "__none__"}
               onValueChange={(v) => setGithubAccountId(v === "__none__" ? "" : v)}
             >
-              <SelectTrigger><SelectValue placeholder="Use system git credentials" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Use system git credentials" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">None (system git credentials)</SelectItem>
                 {githubAccounts?.map((acct) => (
                   <SelectItem key={acct.id} value={acct.id}>
-                    {acct.name}{acct.username ? ` — @${acct.username}` : ""}
+                    {acct.name}
+                    {acct.username ? ` — @${acct.username}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-[10px] text-muted-foreground">
-              Used for push/pull/commit on this project. Token authenticates HTTPS pushes; SSH remotes still use system keys.
+              Used for push/pull/commit on this project. Token authenticates HTTPS pushes; SSH
+              remotes still use system keys.
             </p>
           </div>
 
           <div className="space-y-2">
             <Label>Directory Tree Depth</Label>
             <Select value={String(treeDepth)} onValueChange={(v) => setTreeDepth(Number(v))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {[2, 3, 4, 5, 6].map((d) => (
-                  <SelectItem key={d} value={String(d)}>{d} levels{d === 3 ? " (default)" : ""}</SelectItem>
+                  <SelectItem key={d} value={String(d)}>
+                    {d} levels{d === 3 ? " (default)" : ""}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[10px] text-muted-foreground">Depth of the project tree included in AI context</p>
+            <p className="text-[10px] text-muted-foreground">
+              Depth of the project tree included in AI context
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -188,7 +234,9 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               className="w-full min-h-[80px] rounded-md border bg-background px-3 py-2 text-xs resize-y"
               rows={3}
             />
-            <p className="text-[10px] text-muted-foreground">Injected into AI resolve and analyze prompts for all tasks in this project</p>
+            <p className="text-[10px] text-muted-foreground">
+              Injected into AI resolve and analyze prompts for all tasks in this project
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -197,14 +245,29 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               <div key={i} className="flex items-center gap-2 text-xs">
                 <span className="font-medium">{link.label}</span>
                 <span className="text-muted-foreground truncate flex-1">{link.url}</span>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeLink(i)}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => removeLink(i)}
+                >
                   <X className="h-3 w-3" />
                 </Button>
               </div>
             ))}
             <div className="flex gap-1.5">
-              <Input value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} placeholder="Label" className="h-7 text-xs" />
-              <Input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="URL" className="h-7 text-xs flex-1" />
+              <Input
+                value={newLinkLabel}
+                onChange={(e) => setNewLinkLabel(e.target.value)}
+                placeholder="Label"
+                className="h-7 text-xs"
+              />
+              <Input
+                value={newLinkUrl}
+                onChange={(e) => setNewLinkUrl(e.target.value)}
+                placeholder="URL"
+                className="h-7 text-xs flex-1"
+              />
               <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={addLink}>
                 <Plus className="h-3.5 w-3.5" />
               </Button>
@@ -225,12 +288,15 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
                   <SelectItem value="__none__">None</SelectItem>
                   {notionDbs?.databases.map((db) => (
                     <SelectItem key={db.id} value={db.id}>
-                      {db.icon ? `${db.icon} ` : ""}{db.title}
+                      {db.icon ? `${db.icon} ` : ""}
+                      {db.title}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[10px] text-muted-foreground">Link a Notion database to view its pages as project context</p>
+              <p className="text-[10px] text-muted-foreground">
+                Link a Notion database to view its pages as project context
+              </p>
             </div>
           )}
 
@@ -239,7 +305,8 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
               <div>
                 <Label className="text-sm">Auto-spawn Claude sessions</Label>
                 <p className="text-[10px] text-muted-foreground">
-                  When a task is created with <code>metadata.type</code> = <code>qa-test</code> or <code>dev-fix</code>, dispatch a headless Claude session automatically.
+                  When a task is created with <code>metadata.type</code> = <code>qa-test</code> or{" "}
+                  <code>dev-fix</code>, dispatch a headless Claude session automatically.
                 </p>
               </div>
               <Switch checked={autoSpawnEnabled} onCheckedChange={setAutoSpawnEnabled} />
@@ -266,7 +333,8 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
                   />
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  Required for <code>qa-test</code> tasks. Leave blank for <code>dev-fix</code>-only flows.
+                  Required for <code>qa-test</code> tasks. Leave blank for <code>dev-fix</code>-only
+                  flows.
                 </p>
               </div>
             )}
@@ -283,7 +351,9 @@ export default function ProjectSettingsDialog({ open, onOpenChange, project }: P
             Delete Project
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSave} disabled={updateProject.isPending || !name.trim()}>
               {updateProject.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
               Save

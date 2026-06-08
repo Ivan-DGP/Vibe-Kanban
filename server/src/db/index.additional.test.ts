@@ -17,9 +17,7 @@ describe("getDb initializes the database correctly", () => {
   test("core tables exist after getDb()", () => {
     const db = getDb();
     const tables = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
-      )
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as { name: string }[];
     const tableNames = tables.map((t) => t.name);
 
@@ -49,9 +47,9 @@ describe("getDb initializes the database correctly", () => {
 describe("migration versions are sequential in the DB", () => {
   test("all recorded migrations have sequential version numbers starting from 1", () => {
     const db = getDb();
-    const rows = db
-      .prepare("SELECT version FROM _migrations ORDER BY version")
-      .all() as { version: number }[];
+    const rows = db.prepare("SELECT version FROM _migrations ORDER BY version").all() as {
+      version: number;
+    }[];
 
     expect(rows.length).toBeGreaterThanOrEqual(1);
 
@@ -62,12 +60,10 @@ describe("migration versions are sequential in the DB", () => {
 
   test("the highest migration version matches the count of migrations", () => {
     const db = getDb();
-    const maxResult = db
-      .prepare("SELECT MAX(version) AS v FROM _migrations")
-      .get() as { v: number };
-    const countResult = db
-      .prepare("SELECT COUNT(*) AS c FROM _migrations")
-      .get() as { c: number };
+    const maxResult = db.prepare("SELECT MAX(version) AS v FROM _migrations").get() as {
+      v: number;
+    };
+    const countResult = db.prepare("SELECT COUNT(*) AS c FROM _migrations").get() as { c: number };
 
     expect(maxResult.v).toBe(countResult.c);
   });
@@ -79,37 +75,24 @@ describe("migration runner is idempotent", () => {
   test("calling getDb() twice does not re-run migrations (same count)", () => {
     const db1 = getDb();
     const countBefore = (
-      db1
-        .prepare("SELECT COUNT(*) AS c FROM _migrations")
-        .get() as { c: number }
+      db1.prepare("SELECT COUNT(*) AS c FROM _migrations").get() as { c: number }
     ).c;
 
     // Call getDb again (returns same singleton, no migrations re-run)
     const db2 = getDb();
-    const countAfter = (
-      db2
-        .prepare("SELECT COUNT(*) AS c FROM _migrations")
-        .get() as { c: number }
-    ).c;
+    const countAfter = (db2.prepare("SELECT COUNT(*) AS c FROM _migrations").get() as { c: number })
+      .c;
 
     expect(countBefore).toBe(countAfter);
   });
 
   test("getDb() always returns the same migration count", () => {
     const db = getDb();
-    const countA = (
-      db
-        .prepare("SELECT COUNT(*) AS c FROM _migrations")
-        .get() as { c: number }
-    ).c;
+    const countA = (db.prepare("SELECT COUNT(*) AS c FROM _migrations").get() as { c: number }).c;
 
     // Call again — singleton, same result
     const db2 = getDb();
-    const countB = (
-      db2
-        .prepare("SELECT COUNT(*) AS c FROM _migrations")
-        .get() as { c: number }
-    ).c;
+    const countB = (db2.prepare("SELECT COUNT(*) AS c FROM _migrations").get() as { c: number }).c;
 
     expect(countA).toBe(countB);
   });
@@ -141,9 +124,9 @@ describe("transaction support", () => {
     });
     txn();
 
-    const row = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get(uniqueKey) as { value: string } | null;
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(uniqueKey) as {
+      value: string;
+    } | null;
     expect(row).toBeTruthy();
     expect(row!.value).toBe("committed-value");
   });
@@ -164,9 +147,7 @@ describe("transaction support", () => {
     expect(() => txn()).toThrow("intentional rollback");
 
     // Verify the row was NOT persisted
-    const row = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get(rollbackKey);
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(rollbackKey);
     expect(row).toBeFalsy();
   });
 
@@ -176,23 +157,17 @@ describe("transaction support", () => {
     const key2 = `tx-test-multi-2-${crypto.randomUUID()}`;
 
     const txn = db.transaction(() => {
-      db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(
-        key1,
-        "value-1",
-      );
-      db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(
-        key2,
-        "value-2",
-      );
+      db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(key1, "value-1");
+      db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(key2, "value-2");
     });
     txn();
 
-    const row1 = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get(key1) as { value: string } | null;
-    const row2 = db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .get(key2) as { value: string } | null;
+    const row1 = db.prepare("SELECT value FROM settings WHERE key = ?").get(key1) as {
+      value: string;
+    } | null;
+    const row2 = db.prepare("SELECT value FROM settings WHERE key = ?").get(key2) as {
+      value: string;
+    } | null;
 
     expect(row1).toBeTruthy();
     expect(row1!.value).toBe("value-1");

@@ -51,12 +51,7 @@ export default function NotionPanel({ databaseId, projectId }: NotionPanelProps)
   }
 
   if (selectedPageId) {
-    return (
-      <NotionPageView
-        pageId={selectedPageId}
-        onBack={() => setSelectedPageId(null)}
-      />
-    );
+    return <NotionPageView pageId={selectedPageId} onBack={() => setSelectedPageId(null)} />;
   }
 
   const pages = data?.pages ?? [];
@@ -92,11 +87,7 @@ export default function NotionPanel({ databaseId, projectId }: NotionPanelProps)
         <ScrollArea className="flex-1">
           <div className="divide-y divide-border/40">
             {pages.map((page) => (
-              <PageRow
-                key={page.id}
-                page={page}
-                onClick={() => setSelectedPageId(page.id)}
-              />
+              <PageRow key={page.id} page={page} onClick={() => setSelectedPageId(page.id)} />
             ))}
           </div>
         </ScrollArea>

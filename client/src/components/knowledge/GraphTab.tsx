@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useGraph, useCreateGraphNode, useUpdateGraphNode, useDeleteGraphNode, useCreateGraphEdge, useDeleteGraphEdge } from "@/hooks";
+import {
+  useGraph,
+  useCreateGraphNode,
+  useUpdateGraphNode,
+  useDeleteGraphNode,
+  useCreateGraphEdge,
+  useDeleteGraphEdge,
+} from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -19,12 +21,12 @@ import { Plus, Trash2, Link2, Unlink, Network } from "lucide-react";
 import type { GraphNode, GraphEdge, GraphNodeType } from "@vibe-kanban/shared";
 
 const NODE_COLORS: Record<GraphNodeType, string> = {
-  concept: "#60a5fa",    // blue
-  system: "#a78bfa",     // purple
-  person: "#34d399",     // green
-  decision: "#fbbf24",   // amber
-  technology: "#22d3ee",  // cyan
-  risk: "#f87171",       // red
+  concept: "#60a5fa", // blue
+  system: "#a78bfa", // purple
+  person: "#34d399", // green
+  decision: "#fbbf24", // amber
+  technology: "#22d3ee", // cyan
+  risk: "#f87171", // red
 };
 
 const NODE_RADIUS = 24;
@@ -79,10 +81,18 @@ export default function GraphTab({ projectId }: GraphTabProps) {
   const offsetRef = useRef({ x: 0, y: 0 });
 
   // Keep refs in sync with state for values the render loop needs
-  useEffect(() => { draggingRef.current = dragging; }, [dragging]);
-  useEffect(() => { selectedNodeRef.current = selectedNode; }, [selectedNode]);
-  useEffect(() => { hoveredNodeRef.current = hoveredNode; }, [hoveredNode]);
-  useEffect(() => { linkingFromRef.current = linkingFrom; }, [linkingFrom]);
+  useEffect(() => {
+    draggingRef.current = dragging;
+  }, [dragging]);
+  useEffect(() => {
+    selectedNodeRef.current = selectedNode;
+  }, [selectedNode]);
+  useEffect(() => {
+    hoveredNodeRef.current = hoveredNode;
+  }, [hoveredNode]);
+  useEffect(() => {
+    linkingFromRef.current = linkingFrom;
+  }, [linkingFrom]);
 
   // Sync data from API
   useEffect(() => {
@@ -139,7 +149,8 @@ export default function GraphTab({ projectId }: GraphTabProps) {
       if (cooling > 0.01) {
         for (let i = 0; i < ns.length; i++) {
           if (ns[i].id === currentDragging) continue;
-          let fx = 0, fy = 0;
+          let fx = 0,
+            fy = 0;
 
           const ix = ns[i].x ?? 0;
           const iy = ns[i].y ?? 0;
@@ -205,8 +216,10 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         const target = ns.find((n) => n.id === edge.targetNodeId);
         if (!source || !target) continue;
 
-        const sx = source.x ?? 0, sy = source.y ?? 0;
-        const tx = target.x ?? 0, ty = target.y ?? 0;
+        const sx = source.x ?? 0,
+          sy = source.y ?? 0;
+        const tx = target.x ?? 0,
+          ty = target.y ?? 0;
 
         ctx.strokeStyle = edge.id === currentSelected ? "#fff" : "rgba(148, 163, 184, 0.3)";
         ctx.beginPath();
@@ -229,7 +242,8 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         const dy = ty - sy;
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len > 0) {
-          const ux = dx / len, uy = dy / len;
+          const ux = dx / len,
+            uy = dy / len;
           const ax = tx - ux * NODE_RADIUS;
           const ay = ty - uy * NODE_RADIUS;
           ctx.fillStyle = "rgba(148, 163, 184, 0.4)";
@@ -247,7 +261,8 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         const isHovered = currentHovered === node.id;
         const isLinking = currentLinking === node.id;
         const color = NODE_COLORS[node.type] || "#94a3b8";
-        const x = node.x ?? 0, y = node.y ?? 0;
+        const x = node.x ?? 0,
+          y = node.y ?? 0;
 
         // Glow for selected/hovered
         if (isSelected || isHovered) {
@@ -303,54 +318,60 @@ export default function GraphTab({ projectId }: GraphTabProps) {
     });
   }, []);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const node = findNode(x, y);
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const node = findNode(x, y);
 
-    if (linkingFromRef.current && node && node.id !== linkingFromRef.current) {
-      createEdge.mutate({ sourceNodeId: linkingFromRef.current, targetNodeId: node.id });
-      setLinkingFrom(null);
-      return;
-    }
-
-    if (node) {
-      setDragging(node.id);
-      setSelectedNode(node.id);
-      offsetRef.current = { x: x - (node.x ?? 0), y: y - (node.y ?? 0) };
-      coolingRef.current = 1.0; // Reset cooling on drag start
-    } else {
-      setSelectedNode(null);
-      setLinkingFrom(null);
-    }
-  }, [findNode, createEdge]);
-
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const hovered = findNode(x, y);
-    const hovId = hovered?.id ?? null;
-    if (hovId !== hoveredNodeRef.current) {
-      setHoveredNode(hovId);
-    }
-
-    const currentDragging = draggingRef.current;
-    if (currentDragging) {
-      // Update ref directly — no React state for position during drag
-      const node = nodesRef.current.find((n) => n.id === currentDragging);
-      if (node) {
-        node.x = x - offsetRef.current.x;
-        node.y = y - offsetRef.current.y;
-        node.vx = 0;
-        node.vy = 0;
+      if (linkingFromRef.current && node && node.id !== linkingFromRef.current) {
+        createEdge.mutate({ sourceNodeId: linkingFromRef.current, targetNodeId: node.id });
+        setLinkingFrom(null);
+        return;
       }
-    }
-  }, [findNode]);
+
+      if (node) {
+        setDragging(node.id);
+        setSelectedNode(node.id);
+        offsetRef.current = { x: x - (node.x ?? 0), y: y - (node.y ?? 0) };
+        coolingRef.current = 1.0; // Reset cooling on drag start
+      } else {
+        setSelectedNode(null);
+        setLinkingFrom(null);
+      }
+    },
+    [findNode, createEdge],
+  );
+
+  const onMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const hovered = findNode(x, y);
+      const hovId = hovered?.id ?? null;
+      if (hovId !== hoveredNodeRef.current) {
+        setHoveredNode(hovId);
+      }
+
+      const currentDragging = draggingRef.current;
+      if (currentDragging) {
+        // Update ref directly — no React state for position during drag
+        const node = nodesRef.current.find((n) => n.id === currentDragging);
+        if (node) {
+          node.x = x - offsetRef.current.x;
+          node.y = y - offsetRef.current.y;
+          node.vx = 0;
+          node.vy = 0;
+        }
+      }
+    },
+    [findNode],
+  );
 
   const onMouseUp = useCallback(() => {
     const currentDragging = draggingRef.current;
@@ -392,7 +413,10 @@ export default function GraphTab({ projectId }: GraphTabProps) {
               size="sm"
               variant="outline"
               className="h-8 gap-1.5 text-destructive"
-              onClick={() => { deleteNode.mutate(selectedNode); setSelectedNode(null); }}
+              onClick={() => {
+                deleteNode.mutate(selectedNode);
+                setSelectedNode(null);
+              }}
             >
               <Trash2 className="h-4 w-4" /> Delete
             </Button>
@@ -410,7 +434,10 @@ export default function GraphTab({ projectId }: GraphTabProps) {
       </div>
 
       {/* Canvas — always mounted so the animation loop can find it */}
-      <div ref={containerRef} className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-background/50 cursor-crosshair relative">
+      <div
+        ref={containerRef}
+        className="flex-1 min-h-0 border rounded-lg overflow-hidden bg-background/50 cursor-crosshair relative"
+      >
         <canvas
           ref={canvasRef}
           className="w-full h-full"
@@ -424,7 +451,9 @@ export default function GraphTab({ projectId }: GraphTabProps) {
             <div className="text-center">
               <Network className="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p className="text-sm">No nodes yet</p>
-              <p className="text-xs mt-1">Add concepts, systems, people, and decisions to build your knowledge graph</p>
+              <p className="text-xs mt-1">
+                Add concepts, systems, people, and decisions to build your knowledge graph
+              </p>
             </div>
           </div>
         )}
@@ -440,7 +469,10 @@ export default function GraphTab({ projectId }: GraphTabProps) {
           <span className="font-medium">{selectedNodeData.label}</span>
           <span className="text-muted-foreground capitalize">{selectedNodeData.type}</span>
           {selectedNodeData.description && (
-            <span className="text-muted-foreground truncate"> — {selectedNodeData.description}</span>
+            <span className="text-muted-foreground truncate">
+              {" "}
+              — {selectedNodeData.description}
+            </span>
           )}
           {/* Show connected edges */}
           {edges
@@ -518,7 +550,9 @@ function CreateNodeDialog({
             onChange={(e) => setDescription(e.target.value)}
           />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
             <Button
               disabled={!label.trim()}
               onClick={() => {

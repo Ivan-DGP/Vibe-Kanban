@@ -10,14 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import {
-  Plus,
-  Trash2,
-  CheckCircle2,
-  Circle,
-  Link2,
-  Sparkles,
-} from "lucide-react";
+import { Plus, Trash2, CheckCircle2, Circle, Link2, Sparkles } from "lucide-react";
 import type { Todo } from "@vibe-kanban/shared";
 
 export default function Todos() {
@@ -116,9 +109,7 @@ export default function Todos() {
             <Sparkles className="h-7 w-7 text-primary/60" />
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium text-foreground/70">
-              No todos yet
-            </p>
+            <p className="text-sm font-medium text-foreground/70">No todos yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
               Add your first todo above to get started
             </p>
@@ -131,7 +122,7 @@ export default function Todos() {
               key={todo.id}
               className={cn(
                 "group flex items-center gap-3 rounded-lg border border-border/40 bg-card/50 p-3 transition-all hover:border-border/60",
-                todo.completed && "opacity-60"
+                todo.completed && "opacity-60",
               )}
             >
               <Checkbox
@@ -143,8 +134,7 @@ export default function Todos() {
                 <span
                   className={cn(
                     "text-sm transition-all duration-200",
-                    todo.completed &&
-                      "text-muted-foreground line-through"
+                    todo.completed && "text-muted-foreground line-through",
                   )}
                 >
                   {todo.title}

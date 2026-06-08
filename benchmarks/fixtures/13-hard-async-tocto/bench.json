@@ -1,0 +1,15 @@
+{
+  "id": "13-hard-async-tocto",
+  "title": "Async limiter TOCTOU — concurrent consumes overrun capacity",
+  "category": "concurrency",
+  "difficulty": "hard",
+  "prompt": "src/asyncLimiter.ts is an async rate limiter that persists state through deps.persist (simulating a remote store). tests/regression.test.ts captures the contract you must preserve. tests/target.test.ts adds new assertions that currently fail. Make them pass without breaking regression.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/asyncLimiter.ts"],
+  "maxDiffLines": 60,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/asyncLimiter.ts": "export interface LimiterConfig {\n  capacity: number;\n  refillPerSecond: number;\n}\n\nexport interface LimiterState {\n  tokens: number;\n  lastRefillMs: number;\n}\n\nexport interface LimiterDeps {\n  now: () => number;\n  persist: (next: LimiterState) => Promise<void>;\n}\n\nconst CFG: LimiterConfig = { capacity: 10, refillPerSecond: 0 };\nlet state: LimiterState = { tokens: CFG.capacity, lastRefillMs: 0 };\nlet lock: Promise<unknown> = Promise.resolve();\n\nexport function reset(initialTokens: number, lastRefillMs: number): void {\n  state = { tokens: initialTokens, lastRefillMs };\n  lock = Promise.resolve();\n}\n\nexport function getState(): Readonly<LimiterState> {\n  return state;\n}\n\nexport function getConfig(): LimiterConfig {\n  return CFG;\n}\n\nexport async function tryConsume(deps: LimiterDeps, cost: number): Promise<boolean> {\n  const turn = lock.then(async () => {\n    const now = deps.now();\n    const elapsedMs = now - state.lastRefillMs;\n    const refilled = Math.min(CFG.capacity, state.tokens + (elapsedMs / 1000) * CFG.refillPerSecond);\n    if (refilled < cost) {\n      const next: LimiterState = { tokens: refilled, lastRefillMs: now };\n      await deps.persist(next);\n      state = next;\n      return false;\n    }\n    const next: LimiterState = { tokens: refilled - cost, lastRefillMs: now };\n    await deps.persist(next);\n    state = next;\n    return true;\n  });\n  lock = turn.catch(() => {});\n  return turn;\n}\n"
+  }
+}

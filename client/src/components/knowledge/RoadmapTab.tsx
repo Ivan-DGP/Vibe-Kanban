@@ -1,13 +1,13 @@
 import { useState, useMemo } from "react";
-import { useRoadmap, useCreateRoadmapItem, useUpdateRoadmapItem, useDeleteRoadmapItem } from "@/hooks";
+import {
+  useRoadmap,
+  useCreateRoadmapItem,
+  useUpdateRoadmapItem,
+  useDeleteRoadmapItem,
+} from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -67,10 +67,12 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
         totalDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
       };
     }
-    const allDates = datesWithValues.flatMap((i) => [
-      i.startDate ? new Date(i.startDate) : null,
-      i.endDate ? new Date(i.endDate) : null,
-    ]).filter(Boolean) as Date[];
+    const allDates = datesWithValues
+      .flatMap((i) => [
+        i.startDate ? new Date(i.startDate) : null,
+        i.endDate ? new Date(i.endDate) : null,
+      ])
+      .filter(Boolean) as Date[];
     const min = new Date(Math.min(...allDates.map((d) => d.getTime())));
     const max = new Date(Math.max(...allDates.map((d) => d.getTime())));
     // Add padding
@@ -86,7 +88,9 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
   const getBarStyle = (item: RoadmapItem) => {
     if (!item.startDate && !item.endDate) return { left: "5%", width: "20%" };
     const start = item.startDate ? new Date(item.startDate) : minDate;
-    const end = item.endDate ? new Date(item.endDate) : new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
+    const end = item.endDate
+      ? new Date(item.endDate)
+      : new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
     const startOffset = (start.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24);
     const duration = Math.max(1, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     return {
@@ -131,7 +135,9 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
         <div className="text-center py-12 text-muted-foreground">
           <Calendar className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No roadmap items</p>
-          <p className="text-xs mt-1">Add phases, milestones, and deliverables to visualize your project timeline</p>
+          <p className="text-xs mt-1">
+            Add phases, milestones, and deliverables to visualize your project timeline
+          </p>
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
@@ -179,7 +185,10 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
                   variant="ghost"
                   size="icon"
                   className="absolute right-1 top-2.5 h-7 w-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                  onClick={(e) => { e.stopPropagation(); deleteItem.mutate(item.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteItem.mutate(item.id);
+                  }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -193,7 +202,10 @@ export default function RoadmapTab({ projectId }: RoadmapTabProps) {
       <RoadmapItemDialog
         open={showCreate || !!editingItem}
         item={editingItem}
-        onClose={() => { setShowCreate(false); setEditingItem(null); }}
+        onClose={() => {
+          setShowCreate(false);
+          setEditingItem(null);
+        }}
         onSave={(data) => {
           if (editingItem) {
             updateItem.mutate({ id: editingItem.id, input: data });
@@ -241,11 +253,7 @@ function RoadmapItemDialog({
           <DialogTitle>{item ? "Edit Roadmap Item" : "New Roadmap Item"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <Input
-            placeholder="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+          <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <Textarea
             placeholder="Description (optional)"
             value={description}
@@ -258,39 +266,37 @@ function RoadmapItemDialog({
             </SelectTrigger>
             <SelectContent>
               {(Object.keys(STATUS_LABELS) as RoadmapItemStatus[]).map((s) => (
-                <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+                <SelectItem key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-muted-foreground">Start Date</label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div>
               <label className="text-xs text-muted-foreground">End Date</label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
             <Button
               disabled={!title.trim()}
-              onClick={() => onSave({
-                title: title.trim(),
-                description: description || undefined,
-                status,
-                startDate: startDate || undefined,
-                endDate: endDate || undefined,
-              })}
+              onClick={() =>
+                onSave({
+                  title: title.trim(),
+                  description: description || undefined,
+                  status,
+                  startDate: startDate || undefined,
+                  endDate: endDate || undefined,
+                })
+              }
             >
               {item ? "Update" : "Create"}
             </Button>

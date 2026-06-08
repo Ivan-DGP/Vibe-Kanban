@@ -59,20 +59,26 @@ export default function ApiClient() {
   };
 
   const handleCreateCollection = (name: string) => {
-    createCollection.mutate({ name }, {
-      onSuccess: (col) => {
-        setExpandedCollections((prev) => new Set(prev).add(col.id));
+    createCollection.mutate(
+      { name },
+      {
+        onSuccess: (col) => {
+          setExpandedCollections((prev) => new Set(prev).add(col.id));
+        },
       },
-    });
+    );
   };
 
   const handleCreateRequest = (collectionId: string) => {
-    createRequest.mutate({ collectionId, name: "New Request" }, {
-      onSuccess: (req) => {
-        setSelectedRequest(req);
-        setExpandedCollections((prev) => new Set(prev).add(collectionId));
+    createRequest.mutate(
+      { collectionId, name: "New Request" },
+      {
+        onSuccess: (req) => {
+          setSelectedRequest(req);
+          setExpandedCollections((prev) => new Set(prev).add(collectionId));
+        },
       },
-    });
+    );
   };
 
   const handleDeleteCollection = (id: string) => {
@@ -87,15 +93,26 @@ export default function ApiClient() {
     deleteRequest.mutate(id);
   };
 
-  const handleSave = useCallback((updates: Record<string, unknown>) => {
-    if (!selectedRequest) return;
-    updateRequest.mutate({ id: selectedRequest.id, input: updates as any });
-  }, [selectedRequest, updateRequest]);
+  const handleSave = useCallback(
+    (updates: Record<string, unknown>) => {
+      if (!selectedRequest) return;
+      updateRequest.mutate({ id: selectedRequest.id, input: updates as any });
+    },
+    [selectedRequest, updateRequest],
+  );
 
-  const handleExecute = useCallback(async (params: { method: HttpMethod; url: string; headers: Record<string, string>; body?: string }) => {
-    const result = await executeRequest.mutateAsync(params);
-    return result;
-  }, [executeRequest]);
+  const handleExecute = useCallback(
+    async (params: {
+      method: HttpMethod;
+      url: string;
+      headers: Record<string, string>;
+      body?: string;
+    }) => {
+      const result = await executeRequest.mutateAsync(params);
+      return result;
+    },
+    [executeRequest],
+  );
 
   return (
     <div className="flex flex-col h-full">

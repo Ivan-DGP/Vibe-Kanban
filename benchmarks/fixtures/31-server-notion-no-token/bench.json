@@ -1,0 +1,61 @@
+{
+  "id": "31-server-notion-no-token",
+  "title": "Server: notion endpoints without configured token",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Without a Notion token: status reports disconnected; search/databases/page/import all 400.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "status disconnected",
+      "method": "GET",
+      "url": "/api/notion/status",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "connected", "value": false },
+          { "path": "user", "value": null }
+        ]
+      }
+    },
+    {
+      "name": "search → 400",
+      "method": "POST",
+      "url": "/api/notion/search",
+      "payload": { "query": "x" },
+      "expect": {
+        "statusCode": 400,
+        "jsonPath": [{ "path": "error", "value": "Notion API key not configured" }]
+      }
+    },
+    {
+      "name": "databases → 400",
+      "method": "GET",
+      "url": "/api/notion/databases",
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "database pages → 400",
+      "method": "GET",
+      "url": "/api/notion/databases/abc/pages",
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "page content → 400",
+      "method": "GET",
+      "url": "/api/notion/pages/abc",
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "project import → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/notion/import",
+      "expect": { "statusCode": 400 }
+    }
+  ]
+}

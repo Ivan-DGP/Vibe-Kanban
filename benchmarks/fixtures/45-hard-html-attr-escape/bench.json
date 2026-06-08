@@ -1,0 +1,15 @@
+{
+  "id": "45-hard-html-attr-escape",
+  "title": "escapeAttr replaces & last — double-escapes &lt; &gt; &quot; &#39;",
+  "category": "subtle-correctness",
+  "difficulty": "hard",
+  "prompt": "src/escape.ts escapes a string for use in an HTML attribute. tests/regression.test.ts pins the trivial cases (no special chars; bare ampersands).\n\ntests/target.test.ts pins the contract that distinguishes a correct implementation from one that double-escapes:\n  - escapeAttr(\"<\") must be \"&lt;\" (NOT \"&amp;lt;\")\n  - escapeAttr(\"<a>\") must be \"&lt;a&gt;\"\n  - escapeAttr(\"<script>...</script>\") must escape each delimiter exactly once\n  - escapeAttr(\"&lt;\") must be \"&amp;lt;\" (the input has a literal & — that one ampersand is escaped; the rest is preserved)\n\nThe current chain is .replace(/</) → .replace(/>/) → .replace(/\"/) → .replace(/'/) → .replace(/&/), so the last step turns the & in &lt; into &amp;, producing &amp;lt;. The fix is to run the & replacement FIRST. Do not introduce a sanitizer dep — use String.prototype.replace.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/escape.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/escape.ts": "export function escapeAttr(s: string): string {\n  return s\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\")\n    .replace(/'/g, \"&#39;\");\n}\n"
+  }
+}

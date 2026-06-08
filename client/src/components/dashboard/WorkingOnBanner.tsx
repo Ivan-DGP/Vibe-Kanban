@@ -50,13 +50,17 @@ export default function WorkingOnBanner({ projectId, compact }: WorkingOnBannerP
   };
 
   return (
-    <div className={compact ? "mb-4" : "mb-6 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4"}>
+    <div
+      className={compact ? "mb-4" : "mb-6 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4"}
+    >
       <div className={`flex items-center gap-2 ${compact ? "mb-2" : "mb-3"}`}>
         <div className="h-6 w-6 rounded-full bg-blue-500/15 flex items-center justify-center">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400" />
         </div>
         <span className="text-sm font-medium">Working On</span>
-        <Badge variant="secondary" className="text-xs">{filteredTasks.length}</Badge>
+        <Badge variant="secondary" className="text-xs">
+          {filteredTasks.length}
+        </Badge>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {filteredTasks.map((task: Task & { projectName?: string }) => {
@@ -67,16 +71,14 @@ export default function WorkingOnBanner({ projectId, compact }: WorkingOnBannerP
               onClick={() => handleClick(task)}
               className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-sm hover:bg-card hover:border-primary/30 transition-all shrink-0 group"
             >
-              <span className={`h-2 w-2 rounded-full ${PRIORITY_COLORS[task.priority].split(" ")[0].replace("text-", "bg-")}`} />
+              <span
+                className={`h-2 w-2 rounded-full ${PRIORITY_COLORS[task.priority].split(" ")[0].replace("text-", "bg-")}`}
+              />
               <span className="max-w-[200px] truncate font-medium">{task.title}</span>
               {!projectId && task.projectName && (
-                <span className="text-xs text-muted-foreground">
-                  {task.projectName}
-                </span>
+                <span className="text-xs text-muted-foreground">{task.projectName}</span>
               )}
-              {hasSession && (
-                <Terminal className="h-3 w-3 text-blue-400" />
-              )}
+              {hasSession && <Terminal className="h-3 w-3 text-blue-400" />}
               <ArrowRight className="h-3 w-3 text-muted-foreground group-hover:text-foreground transition-colors" />
             </button>
           );

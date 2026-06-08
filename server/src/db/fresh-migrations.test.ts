@@ -23,9 +23,13 @@ function freshDb(name: string): DatabaseHandle {
 
 afterAll(() => {
   for (const db of openDbs) {
-    try { db.close(); } catch {}
+    try {
+      db.close();
+    } catch {}
   }
-  try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(tmpDir, { recursive: true, force: true });
+  } catch {}
 });
 
 // ---------------------------------------------------------------------------
@@ -35,7 +39,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 23 on a blank database", () => {
+  test("runs all migrations from version 1 to 27 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -46,9 +50,12 @@ describe("fresh database: real runMigrations", () => {
     // Call the REAL runMigrations from db/index.ts
     _runMigrations(db);
 
-    // Verify all 23 migrations recorded
-    const rows = db.prepare("SELECT version, name FROM _migrations ORDER BY version").all() as { version: number; name: string }[];
-    expect(rows.length).toBe(23);
+    // Verify all 24 migrations recorded
+    const rows = db.prepare("SELECT version, name FROM _migrations ORDER BY version").all() as {
+      version: number;
+      name: string;
+    }[];
+    expect(rows.length).toBe(27);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
@@ -61,11 +68,23 @@ describe("fresh database: real runMigrations", () => {
     const names = tables.map((t) => t.name);
 
     const expected = [
-      "_migrations", "projects", "tasks", "milestones", "settings",
-      "system_logs", "todos", "github_accounts", "project_github_mappings",
-      "task_ai_runs", "api_collections", "api_requests",
-      "project_artifacts", "project_graph_nodes", "project_graph_edges",
+      "_migrations",
+      "projects",
+      "tasks",
+      "milestones",
+      "settings",
+      "system_logs",
+      "todos",
+      "github_accounts",
+      "project_github_mappings",
+      "task_ai_runs",
+      "api_collections",
+      "api_requests",
+      "project_artifacts",
+      "project_graph_nodes",
+      "project_graph_edges",
       "roadmap_items",
+      "task_ai_findings",
     ];
     for (const t of expected) {
       expect(names).toContain(t);
@@ -77,10 +96,26 @@ describe("fresh database: real runMigrations", () => {
     const colNames = cols.map((c) => c.name);
 
     const expected = [
-      "id", "projectId", "milestoneId", "title", "description", "prompt",
-      "branch", "promptProfile", "status", "priority", "taskNumber", "sortOrder",
-      "inboxAt", "inProgressAt", "doneAt", "approvedAt", "archivedAt",
-      "parentTaskId", "createdAt", "updatedAt",
+      "id",
+      "projectId",
+      "milestoneId",
+      "title",
+      "description",
+      "prompt",
+      "branch",
+      "promptProfile",
+      "status",
+      "priority",
+      "taskNumber",
+      "sortOrder",
+      "inboxAt",
+      "inProgressAt",
+      "doneAt",
+      "approvedAt",
+      "archivedAt",
+      "parentTaskId",
+      "createdAt",
+      "updatedAt",
     ];
     for (const col of expected) {
       expect(colNames).toContain(col);
@@ -88,9 +123,9 @@ describe("fresh database: real runMigrations", () => {
   });
 
   test("tasks status CHECK constraint includes approved and archived", () => {
-    const tableSql = (db.prepare(
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
-    ).get() as any)?.sql || "";
+    const tableSql =
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)
+        ?.sql || "";
     expect(tableSql).toContain("'approved'");
     expect(tableSql).toContain("'archived'");
   });
@@ -136,13 +171,28 @@ describe("fresh database: real runMigrations", () => {
 
   test("can insert and query data through the migrated schema", () => {
     db.prepare("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run(
-      "test-proj-1", "Test Project", "/tmp/test"
+      "test-proj-1",
+      "Test Project",
+      "/tmp/test",
     );
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO tasks (id, projectId, title, taskNumber, branch, promptProfile, status, approvedAt, archivedAt, parentTaskId)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run("task-1", "test-proj-1", "Test Task", 1, "feature/test", "auto", "approved", "2024-01-01", null, null);
+    `,
+    ).run(
+      "task-1",
+      "test-proj-1",
+      "Test Task",
+      1,
+      "feature/test",
+      "auto",
+      "approved",
+      "2024-01-01",
+      null,
+      null,
+    );
 
     const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get("task-1") as any;
     expect(task.title).toBe("Test Task");
@@ -167,14 +217,18 @@ describe("runMigrations idempotency", () => {
 
     // First run
     _runMigrations(db);
-    const countAfterFirst = (db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }).c;
+    const countAfterFirst = (
+      db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
+    ).c;
 
     // Second run — should be a no-op
     _runMigrations(db);
-    const countAfterSecond = (db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }).c;
+    const countAfterSecond = (
+      db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
+    ).c;
 
-    expect(countAfterFirst).toBe(23);
-    expect(countAfterSecond).toBe(23);
+    expect(countAfterFirst).toBe(27);
+    expect(countAfterSecond).toBe(27);
   });
 });
 
@@ -190,15 +244,17 @@ describe("migration from completely empty database", () => {
     db.exec("PRAGMA busy_timeout = 5000");
 
     // Verify no tables exist
-    const tablesBefore = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-      .all() as { name: string }[];
+    const tablesBefore = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
+      name: string;
+    }[];
     expect(tablesBefore.length).toBe(0);
 
     _runMigrations(db);
 
-    const finalVersion = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(finalVersion).toBe(23);
+    const finalVersion = (
+      db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }
+    ).v;
+    expect(finalVersion).toBe(27);
   });
 });
 
@@ -218,19 +274,39 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
     db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(1, "initial-schema");
 
     // Insert test data with taskNumber = 0
-    db.prepare("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run("p1", "Proj1", "/tmp/p1");
-    db.prepare("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run("p2", "Proj2", "/tmp/p2");
+    db.prepare("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run(
+      "p1",
+      "Proj1",
+      "/tmp/p1",
+    );
+    db.prepare("INSERT INTO projects (id, name, path) VALUES (?, ?, ?)").run(
+      "p2",
+      "Proj2",
+      "/tmp/p2",
+    );
 
-    db.prepare("INSERT INTO tasks (id, projectId, title, taskNumber, createdAt) VALUES (?, ?, ?, 0, '2024-01-01')").run("t1", "p1", "Task A");
-    db.prepare("INSERT INTO tasks (id, projectId, title, taskNumber, createdAt) VALUES (?, ?, ?, 0, '2024-01-02')").run("t2", "p1", "Task B");
-    db.prepare("INSERT INTO tasks (id, projectId, title, taskNumber, createdAt) VALUES (?, ?, ?, 0, '2024-01-01')").run("t3", "p2", "Task C");
+    db.prepare(
+      "INSERT INTO tasks (id, projectId, title, taskNumber, createdAt) VALUES (?, ?, ?, 0, '2024-01-01')",
+    ).run("t1", "p1", "Task A");
+    db.prepare(
+      "INSERT INTO tasks (id, projectId, title, taskNumber, createdAt) VALUES (?, ?, ?, 0, '2024-01-02')",
+    ).run("t2", "p1", "Task B");
+    db.prepare(
+      "INSERT INTO tasks (id, projectId, title, taskNumber, createdAt) VALUES (?, ?, ?, 0, '2024-01-01')",
+    ).run("t3", "p2", "Task C");
 
     // Run remaining migrations (2+) via real code
     _runMigrations(db);
 
-    const t1 = db.prepare("SELECT taskNumber FROM tasks WHERE id = ?").get("t1") as { taskNumber: number };
-    const t2 = db.prepare("SELECT taskNumber FROM tasks WHERE id = ?").get("t2") as { taskNumber: number };
-    const t3 = db.prepare("SELECT taskNumber FROM tasks WHERE id = ?").get("t3") as { taskNumber: number };
+    const t1 = db.prepare("SELECT taskNumber FROM tasks WHERE id = ?").get("t1") as {
+      taskNumber: number;
+    };
+    const t2 = db.prepare("SELECT taskNumber FROM tasks WHERE id = ?").get("t2") as {
+      taskNumber: number;
+    };
+    const t3 = db.prepare("SELECT taskNumber FROM tasks WHERE id = ?").get("t3") as {
+      taskNumber: number;
+    };
 
     expect(t1.taskNumber).toBe(1);
     expect(t2.taskNumber).toBe(2);
@@ -238,7 +314,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(23);
+    expect(max).toBe(27);
   });
 });
 
@@ -263,7 +339,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(23);
+    expect(max).toBe(27);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -424,7 +500,9 @@ describe("migration 8 body: rebuild tasks constraint when 'approved' is absent",
     db.exec("PRAGMA foreign_keys = ON");
 
     // Confirm tasks table SQL does NOT yet include 'approved' status
-    const sqlBefore = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+    const sqlBefore =
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)
+        ?.sql || "";
     expect(sqlBefore).not.toContain("'approved'");
 
     // Confirm approvedAt column DOES exist (so hasApprovedAt branch = true)
@@ -435,7 +513,9 @@ describe("migration 8 body: rebuild tasks constraint when 'approved' is absent",
     _runMigrations(db);
 
     // After migration 8 runs, tasks table should have 'approved' in constraint
-    const sqlAfter = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+    const sqlAfter =
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)
+        ?.sql || "";
     expect(sqlAfter).toContain("'approved'");
 
     // Migration 8 should be recorded
@@ -510,13 +590,17 @@ describe("migration 8 body: rebuild tasks constraint when 'approved' is absent",
     // Confirm tasks has no approvedAt column and no 'approved' in SQL
     const colsBefore = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
     expect(colsBefore.some((c) => c.name === "approvedAt")).toBe(false);
-    const sqlBefore = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+    const sqlBefore =
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)
+        ?.sql || "";
     expect(sqlBefore).not.toContain("'approved'");
 
     _runMigrations(db);
 
     // After migration 8 the table should now include 'approved'
-    const sqlAfter = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+    const sqlAfter =
+      (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)
+        ?.sql || "";
     expect(sqlAfter).toContain("'approved'");
   });
 });
@@ -624,9 +708,15 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
 
     // Record migrations 1-9 as already applied
     const migNames = [
-      "initial-schema", "add-task-number", "add-notion-database-id",
-      "add-todos-table", "add-task-branch", "add-api-client-tables",
-      "add-approved-status", "rebuild-tasks-check-constraint", "add-prompt-profile",
+      "initial-schema",
+      "add-task-number",
+      "add-notion-database-id",
+      "add-todos-table",
+      "add-task-branch",
+      "add-api-client-tables",
+      "add-approved-status",
+      "rebuild-tasks-check-constraint",
+      "add-prompt-profile",
     ];
     for (let v = 1; v <= 9; v++) {
       db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(v, migNames[v - 1]);
@@ -638,7 +728,9 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(projCols.some((c) => c.name === "aiInstructions")).toBe(false);
     const msCols = db.prepare("PRAGMA table_info(milestones)").all() as { name: string }[];
     expect(msCols.some((c) => c.name === "aiInstructions")).toBe(false);
-    const aiRunsTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'").get();
+    const aiRunsTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'")
+      .get();
     expect(aiRunsTable).toBeNull();
 
     // Run migrations — should apply 10, 11, 12 and beyond
@@ -649,11 +741,13 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(projColsAfter.some((c) => c.name === "aiInstructions")).toBe(true);
     const msColsAfter = db.prepare("PRAGMA table_info(milestones)").all() as { name: string }[];
     expect(msColsAfter.some((c) => c.name === "aiInstructions")).toBe(true);
-    const aiRunsTableAfter = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'").get();
+    const aiRunsTableAfter = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'")
+      .get();
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(23);
+    expect(max).toBe(27);
   });
 });
 
@@ -714,7 +808,9 @@ describe("migration column-exists idempotency paths", () => {
     // currentVersion=3, migration 4 runs and sees todos table exists — skip
 
     expect(() => _runMigrations(db)).not.toThrow();
-    const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'").get();
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'")
+      .get();
     expect(table).toBeTruthy();
     const v4 = db.prepare("SELECT version FROM _migrations WHERE version = 4").get();
     expect(v4).toBeTruthy();
@@ -862,12 +958,16 @@ describe("migration ALTER TABLE exec when column is absent", () => {
       db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(v, `v${v}`);
     }
 
-    const todosTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'").get();
+    const todosTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'")
+      .get();
     expect(todosTable).toBeNull();
 
     _runMigrations(db);
 
-    const todosTableAfter = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'").get();
+    const todosTableAfter = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'")
+      .get();
     expect(todosTableAfter).toBeTruthy();
   });
 

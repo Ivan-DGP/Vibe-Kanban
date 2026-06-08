@@ -136,6 +136,11 @@ export interface TaskAiRun {
   durationMs: number | null;
   summary: string | null;
   createdAt: string;
+  // Durable lifecycle (added with the worktree/cancellable run engine).
+  status?: "running" | "succeeded" | "failed" | "canceled" | string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  totalCostUsd?: number | null;
 }
 
 export interface ProjectAiStats {
@@ -145,6 +150,8 @@ export interface ProjectAiStats {
   avgDurationMs: number | null;
   commonFailures: string[];
   profileBreakdown: Record<string, number>;
+  totalCostUsd?: number;
+  runningCount?: number;
 }
 
 export interface TaskFilters {
@@ -586,10 +593,7 @@ export interface KnowledgeGraphNodeHit {
   };
 }
 
-export type KnowledgeSearchHit =
-  | KnowledgeArtifactHit
-  | KnowledgeTaskHit
-  | KnowledgeGraphNodeHit;
+export type KnowledgeSearchHit = KnowledgeArtifactHit | KnowledgeTaskHit | KnowledgeGraphNodeHit;
 
 export interface KnowledgeSearchResponse {
   query: string;
@@ -619,7 +623,13 @@ export interface KnowledgeStats {
 // ============================================================
 
 export type GraphNodeType = "concept" | "system" | "person" | "decision" | "technology" | "risk";
-export type GraphEdgeType = "related" | "depends_on" | "implements" | "extends" | "conflicts" | "owned_by";
+export type GraphEdgeType =
+  | "related"
+  | "depends_on"
+  | "implements"
+  | "extends"
+  | "conflicts"
+  | "owned_by";
 
 export interface GraphNode {
   id: string;

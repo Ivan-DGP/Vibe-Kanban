@@ -1,0 +1,15 @@
+{
+  "id": "14-hard-toposort-cycles",
+  "title": "topoSort silently completes on cycles instead of throwing CycleError",
+  "category": "algorithm",
+  "difficulty": "hard",
+  "prompt": "src/topoSort.ts is a topological sort over nodes with declared deps. tests/regression.test.ts pins the contract on DAGs. tests/target.test.ts adds cycle-detection assertions that currently fail. Make them pass without breaking regression.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/topoSort.ts"],
+  "maxDiffLines": 60,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/topoSort.ts": "export interface TopoNode {\n  id: string;\n  deps: string[];\n}\n\nexport class CycleError extends Error {\n  readonly cycle: string[];\n  constructor(cycle: string[]) {\n    super(`cycle detected: ${cycle.join(\" -> \")}`);\n    this.name = \"CycleError\";\n    this.cycle = cycle;\n  }\n}\n\nexport function topoSort(nodes: TopoNode[]): string[] {\n  const byId = new Map(nodes.map((n) => [n.id, n]));\n  const status = new Map<string, \"visiting\" | \"done\">();\n  const result: string[] = [];\n  const stack: string[] = [];\n  const visit = (id: string): void => {\n    const s = status.get(id);\n    if (s === \"done\") return;\n    if (s === \"visiting\") {\n      const idx = stack.indexOf(id);\n      throw new CycleError(stack.slice(idx).concat(id));\n    }\n    status.set(id, \"visiting\");\n    stack.push(id);\n    const node = byId.get(id);\n    if (node) {\n      for (const dep of node.deps) visit(dep);\n    }\n    stack.pop();\n    status.set(id, \"done\");\n    result.push(id);\n  };\n  for (const node of nodes) visit(node.id);\n  return result;\n}\n"
+  }
+}

@@ -99,7 +99,7 @@ describe("getDateRange", () => {
     expect(toDate.getTime()).toBeGreaterThan(now.getTime());
   });
 
-  test('unknown period defaults to today range', () => {
+  test("unknown period defaults to today range", () => {
     const range = getDateRange("unknown-period");
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -224,7 +224,6 @@ beforeAll(async () => {
 afterAll(async () => {
   // Cleanup
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  
 });
 
 describe("Reports API", () => {

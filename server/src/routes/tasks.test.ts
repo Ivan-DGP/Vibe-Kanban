@@ -246,7 +246,14 @@ describe("applyTimestampCascade", () => {
   // ------------------------------------------------------------------
   describe("updatedAt", () => {
     test("always includes updatedAt regardless of status", () => {
-      const statuses: TaskStatus[] = ["backlog", "todo", "in_progress", "done", "approved", "archived"];
+      const statuses: TaskStatus[] = [
+        "backlog",
+        "todo",
+        "in_progress",
+        "done",
+        "approved",
+        "archived",
+      ];
       for (const status of statuses) {
         const result = applyTimestampCascade(makeTask(), status);
         expect(result).toHaveProperty("updatedAt");

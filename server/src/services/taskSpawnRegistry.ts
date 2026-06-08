@@ -18,6 +18,8 @@ export interface SpawnConfig {
   profile: string;
   /** Optional timeout override in ms. Falls back to the spawner default. */
   timeoutMs?: number;
+  /** Max run attempts on failure (1 = no retry). Falls back to the spawner default. */
+  maxAttempts?: number;
   /** Build the full prompt to hand to `claude -p`. */
   buildPrompt: (ctx: SpawnContext) => string;
 }

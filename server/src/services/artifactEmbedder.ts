@@ -36,7 +36,17 @@ export async function embedArtifact(input: EmbedArtifactInput): Promise<number> 
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM artifact_embeddings WHERE artifactId = ?").run(artifactId);
     for (const v of vectors) {
-      insert.run(crypto.randomUUID(), artifactId, projectId, v.idx, v.chunk, v.vector, EMBEDDING_MODEL, EMBEDDING_DIM, now);
+      insert.run(
+        crypto.randomUUID(),
+        artifactId,
+        projectId,
+        v.idx,
+        v.chunk,
+        v.vector,
+        EMBEDDING_MODEL,
+        EMBEDDING_DIM,
+        now,
+      );
     }
   });
   tx();

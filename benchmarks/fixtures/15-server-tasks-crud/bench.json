@@ -1,0 +1,82 @@
+{
+  "id": "15-server-tasks-crud",
+  "title": "Server: tasks CRUD round-trip",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Drive create→read→update→list→delete through the tasks REST API and verify each response shape.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create todo task",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/tasks",
+      "payload": {
+        "title": "bench task",
+        "status": "todo",
+        "priority": "high"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "title", "value": "bench task" },
+          { "path": "status", "value": "todo" },
+          { "path": "priority", "value": "high" },
+          { "path": "taskNumber", "value": 1 }
+        ],
+        "saveAs": "task"
+      }
+    },
+    {
+      "name": "fetch task by id",
+      "method": "GET",
+      "url": "/api/tasks/${task.id}",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "id", "value": "${task.id}" }]
+      }
+    },
+    {
+      "name": "patch task to in_progress",
+      "method": "PATCH",
+      "url": "/api/tasks/${task.id}",
+      "payload": { "status": "in_progress", "priority": "urgent" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "status", "value": "in_progress" },
+          { "path": "priority", "value": "urgent" }
+        ]
+      }
+    },
+    {
+      "name": "list tasks shows the task",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/tasks",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "total", "value": 1 },
+          { "path": "items[0].id", "value": "${task.id}" },
+          { "path": "items[0].status", "value": "in_progress" }
+        ]
+      }
+    },
+    {
+      "name": "delete task",
+      "method": "DELETE",
+      "url": "/api/tasks/${task.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "fetch deleted task → 404",
+      "method": "GET",
+      "url": "/api/tasks/${task.id}",
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

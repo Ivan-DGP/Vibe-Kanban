@@ -11,15 +11,22 @@ interface GitBranchSwitcherProps {
   subPath?: string;
 }
 
-export default function GitBranchSwitcher({ projectId, currentBranch, subPath }: GitBranchSwitcherProps) {
+export default function GitBranchSwitcher({
+  projectId,
+  currentBranch,
+  subPath,
+}: GitBranchSwitcherProps) {
   const { data: branches } = useGitBranches(projectId, subPath);
   const checkout = useCheckoutBranch();
   const [open, setOpen] = useState(false);
 
   const handleCheckout = (name: string) => {
-    checkout.mutate({ projectId, branch: name, subPath }, {
-      onSuccess: () => setOpen(false),
-    });
+    checkout.mutate(
+      { projectId, branch: name, subPath },
+      {
+        onSuccess: () => setOpen(false),
+      },
+    );
   };
 
   const localBranches = branches?.filter((b) => !b.remote) ?? [];

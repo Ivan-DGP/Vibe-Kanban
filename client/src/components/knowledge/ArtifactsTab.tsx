@@ -18,7 +18,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, FileText, Image, FlaskConical, FileCode, File, Trash2, Upload, Clipboard } from "lucide-react";
+import {
+  Plus,
+  Search,
+  FileText,
+  Image,
+  FlaskConical,
+  FileCode,
+  File,
+  Trash2,
+  Upload,
+  Clipboard,
+} from "lucide-react";
 import type { Artifact, ArtifactType } from "@vibe-kanban/shared";
 import ArtifactEditor from "./ArtifactEditor";
 
@@ -69,28 +80,31 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
     });
   };
 
-  const handlePaste = useCallback((e: ClipboardEvent) => {
-    // Don't intercept if user is typing in an input
-    const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      // Don't intercept if user is typing in an input
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
 
-    const items = e.clipboardData?.items;
-    if (!items) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
 
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const blob = item.getAsFile();
-        if (!blob) continue;
-        const ext = blob.type.split("/")[1] || "png";
-        const file = new File([blob], `screenshot-${Date.now()}.${ext}`, { type: blob.type });
-        uploadArtifact.mutate(file, {
-          onSuccess: (artifact) => setSelectedArtifact(artifact),
-        });
-        return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const blob = item.getAsFile();
+          if (!blob) continue;
+          const ext = blob.type.split("/")[1] || "png";
+          const file = new File([blob], `screenshot-${Date.now()}.${ext}`, { type: blob.type });
+          uploadArtifact.mutate(file, {
+            onSuccess: (artifact) => setSelectedArtifact(artifact),
+          });
+          return;
+        }
       }
-    }
-  }, [uploadArtifact]);
+    },
+    [uploadArtifact],
+  );
 
   useEffect(() => {
     document.addEventListener("paste", handlePaste);
@@ -126,9 +140,18 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
   return (
     <div
       className="space-y-4 relative"
-      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setIsDragging(false); }}
-      onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleUpload(e.dataTransfer.files); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        handleUpload(e.dataTransfer.files);
+      }}
     >
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 border-2 border-dashed border-primary rounded-lg">
@@ -187,21 +210,30 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
             <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
               <Upload className="h-4 w-4 mr-2" /> Upload File
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigator.clipboard.read().then((items) => {
-              for (const item of items) {
-                const imageType = item.types.find((t) => t.startsWith("image/"));
-                if (imageType) {
-                  item.getType(imageType).then((blob) => {
-                    const ext = imageType.split("/")[1] || "png";
-                    const file = new File([blob], `screenshot-${Date.now()}.${ext}`, { type: imageType });
-                    uploadArtifact.mutate(file, {
-                      onSuccess: (artifact) => setSelectedArtifact(artifact),
-                    });
-                  });
-                  return;
-                }
+            <DropdownMenuItem
+              onClick={() =>
+                navigator.clipboard
+                  .read()
+                  .then((items) => {
+                    for (const item of items) {
+                      const imageType = item.types.find((t) => t.startsWith("image/"));
+                      if (imageType) {
+                        item.getType(imageType).then((blob) => {
+                          const ext = imageType.split("/")[1] || "png";
+                          const file = new File([blob], `screenshot-${Date.now()}.${ext}`, {
+                            type: imageType,
+                          });
+                          uploadArtifact.mutate(file, {
+                            onSuccess: (artifact) => setSelectedArtifact(artifact),
+                          });
+                        });
+                        return;
+                      }
+                    }
+                  })
+                  .catch(() => {})
               }
-            }).catch(() => {})}>
+            >
               <Clipboard className="h-4 w-4 mr-2" /> Paste Screenshot
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -223,7 +255,9 @@ export default function ArtifactsTab({ projectId }: ArtifactsTabProps) {
         <div className="text-center py-12 text-muted-foreground">
           <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No artifacts yet</p>
-          <p className="text-xs mt-1">Create docs, upload files, drag & drop, or paste screenshots (Ctrl+V)</p>
+          <p className="text-xs mt-1">
+            Create docs, upload files, drag & drop, or paste screenshots (Ctrl+V)
+          </p>
         </div>
       ) : (
         <div className="grid gap-2">

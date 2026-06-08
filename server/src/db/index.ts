@@ -24,25 +24,20 @@ export function getDb(): DatabaseHandle {
 function runMigrations(db: DatabaseHandle): void {
   // Check if _migrations table exists
   const migrationTableExists = db
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'",
-    )
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'")
     .get();
 
   if (!migrationTableExists) {
     // First run - create all tables from base schema
     db.exec(SCHEMA_SQL);
-    db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
-      1,
-      "initial-schema",
-    );
+    db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(1, "initial-schema");
     // Fall through to run remaining migrations (2+)
   }
 
   // Check current version
-  const current = db
-    .prepare("SELECT MAX(version) as v FROM _migrations")
-    .get() as { v: number } | null;
+  const current = db.prepare("SELECT MAX(version) as v FROM _migrations").get() as {
+    v: number;
+  } | null;
   const currentVersion = current?.v ?? 0;
 
   // Run any pending migrations
@@ -62,9 +57,13 @@ function runMigrations(db: DatabaseHandle): void {
           db.exec("ALTER TABLE tasks ADD COLUMN taskNumber INTEGER NOT NULL DEFAULT 0");
         }
         // Backfill: assign numbers per project ordered by createdAt
-        const projects = db.prepare("SELECT DISTINCT projectId FROM tasks").all() as { projectId: string }[];
+        const projects = db.prepare("SELECT DISTINCT projectId FROM tasks").all() as {
+          projectId: string;
+        }[];
         for (const { projectId } of projects) {
-          const tasks = db.prepare("SELECT id FROM tasks WHERE projectId = ? ORDER BY createdAt ASC").all(projectId) as { id: string }[];
+          const tasks = db
+            .prepare("SELECT id FROM tasks WHERE projectId = ? ORDER BY createdAt ASC")
+            .all(projectId) as { id: string }[];
           for (let i = 0; i < tasks.length; i++) {
             db.prepare("UPDATE tasks SET taskNumber = ? WHERE id = ?").run(i + 1, tasks[i].id);
           }
@@ -212,7 +211,12 @@ function runMigrations(db: DatabaseHandle): void {
       noTransaction: true,
       up: () => {
         // Check if rebuild is needed (constraint might already include 'approved')
-        const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+        const tableSql =
+          (
+            db
+              .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+              .get() as any
+          )?.sql || "";
         if (tableSql.includes("'approved'")) return; // already rebuilt
 
         db.exec("PRAGMA foreign_keys = OFF");
@@ -260,7 +264,7 @@ function runMigrations(db: DatabaseHandle): void {
         const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
         if (!cols.some((c) => c.name === "promptProfile")) {
           db.exec(
-            "ALTER TABLE tasks ADD COLUMN promptProfile TEXT NOT NULL DEFAULT 'auto' CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs'))"
+            "ALTER TABLE tasks ADD COLUMN promptProfile TEXT NOT NULL DEFAULT 'auto' CHECK (promptProfile IN ('auto', 'quick-fix', 'feature', 'refactor', 'bug-fix', 'docs'))",
           );
         }
       },
@@ -330,7 +334,12 @@ function runMigrations(db: DatabaseHandle): void {
           db.exec("ALTER TABLE tasks ADD COLUMN archivedAt TEXT DEFAULT NULL");
         }
         // Rebuild table to update CHECK constraint to include 'archived'
-        const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as any)?.sql || "";
+        const tableSql =
+          (
+            db
+              .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+              .get() as any
+          )?.sql || "";
         if (tableSql.includes("'archived'")) return;
 
         db.exec("PRAGMA foreign_keys = OFF");
@@ -377,7 +386,9 @@ function runMigrations(db: DatabaseHandle): void {
       up: () => {
         const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
         if (!cols.some((c) => c.name === "parentTaskId")) {
-          db.exec("ALTER TABLE tasks ADD COLUMN parentTaskId TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL");
+          db.exec(
+            "ALTER TABLE tasks ADD COLUMN parentTaskId TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL",
+          );
           db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parentTaskId ON tasks (parentTaskId)");
         }
       },
@@ -415,7 +426,9 @@ function runMigrations(db: DatabaseHandle): void {
       name: "add-knowledge-graph",
       up: () => {
         const nodesExist = db
-          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='project_graph_nodes'")
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='project_graph_nodes'",
+          )
           .get();
         if (!nodesExist) {
           db.exec(`
@@ -491,7 +504,9 @@ function runMigrations(db: DatabaseHandle): void {
         if (!cols.some((c) => c.name === "notionPageId")) {
           db.exec("ALTER TABLE tasks ADD COLUMN notionPageId TEXT DEFAULT NULL");
         }
-        db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_notionPageId ON tasks (projectId, notionPageId)");
+        db.exec(
+          "CREATE INDEX IF NOT EXISTS idx_tasks_notionPageId ON tasks (projectId, notionPageId)",
+        );
       },
     },
     {
@@ -602,21 +617,113 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 24,
+      name: "add-bench-runs",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS bench_runs (
+            id            TEXT PRIMARY KEY,
+            started_at    TEXT NOT NULL,
+            finished_at   TEXT DEFAULT NULL,
+            fixtures_csv  TEXT NOT NULL,
+            mode          TEXT NOT NULL,
+            mock          INTEGER NOT NULL DEFAULT 0,
+            parallel      INTEGER NOT NULL DEFAULT 1,
+            result_file   TEXT DEFAULT NULL,
+            status        TEXT NOT NULL DEFAULT 'running'
+              CHECK (status IN ('running', 'succeeded', 'failed'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_bench_runs_started_at ON bench_runs (started_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_bench_runs_status ON bench_runs (status);
+        `);
+      },
+    },
+    {
+      version: 25,
+      name: "add-task-ai-findings",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS task_ai_findings (
+            id          TEXT PRIMARY KEY,
+            runId       TEXT NOT NULL,
+            taskId      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            kind        TEXT NOT NULL
+              CHECK (kind IN ('EXFIL', 'PROMPT-INJECTED', 'TAMPERED', 'SPRAWL', 'PREFLIGHT-RED')),
+            detail      TEXT DEFAULT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_runId ON task_ai_findings (runId);
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_taskId ON task_ai_findings (taskId);
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_projectId ON task_ai_findings (projectId);
+          CREATE INDEX IF NOT EXISTS idx_task_ai_findings_kind ON task_ai_findings (kind);
+        `);
+      },
+    },
+    {
+      version: 26,
+      name: "add-task-ai-run-lifecycle",
+      up: () => {
+        // Durable run lifecycle: a row is now inserted as 'running' up front and
+        // finalized on completion, so in-flight/interrupted runs are visible and
+        // recoverable (previously the row was written only after the run ended).
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        const has = (n: string) => cols.some((c) => c.name === n);
+        if (!has("status")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'succeeded'");
+          // Backfill historical rows from their success flag.
+          db.exec(
+            "UPDATE task_ai_runs SET status = CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END",
+          );
+        }
+        if (!has("startedAt"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN startedAt TEXT DEFAULT NULL");
+        if (!has("finishedAt"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN finishedAt TEXT DEFAULT NULL");
+        db.exec("CREATE INDEX IF NOT EXISTS idx_task_ai_runs_status ON task_ai_runs (status)");
+      },
+    },
+    {
+      version: 27,
+      name: "add-task-ai-run-cost",
+      up: () => {
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "totalCostUsd")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN totalCostUsd REAL DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {
     if (migration.version > currentVersion) {
       if (migration.noTransaction) {
-        migration.up();
-        db.prepare(
-          "INSERT INTO _migrations (version, name) VALUES (?, ?)",
-        ).run(migration.version, migration.name);
+        // These migrations rebuild the tasks table with FK enforcement off.
+        // PRAGMA foreign_keys can only be toggled OUTSIDE a transaction — but the
+        // rebuild itself (CREATE/INSERT/DROP/RENAME) and the _migrations ledger
+        // write CAN run inside one. Doing so makes the rebuild atomic: a crash
+        // between DROP TABLE tasks and the RENAME now rolls back (tasks survives)
+        // instead of destroying the table and leaving the ledger inconsistent.
+        db.exec("PRAGMA foreign_keys = OFF");
+        try {
+          db.transaction(() => {
+            migration.up();
+            db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
+              migration.version,
+              migration.name,
+            );
+          })();
+        } finally {
+          db.exec("PRAGMA foreign_keys = ON");
+        }
       } else {
         db.transaction(() => {
           migration.up();
-          db.prepare(
-            "INSERT INTO _migrations (version, name) VALUES (?, ?)",
-          ).run(migration.version, migration.name);
+          db.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(
+            migration.version,
+            migration.name,
+          );
         })();
       }
     }

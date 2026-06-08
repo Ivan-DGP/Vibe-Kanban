@@ -1,7 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useAppStore } from "@/stores/appStore";
-import { useTerminalSessions, useCreateTerminalSession, useKillTerminalSession } from "@/hooks/useTerminal";
+import {
+  useTerminalSessions,
+  useCreateTerminalSession,
+  useKillTerminalSession,
+} from "@/hooks/useTerminal";
 import { useProject } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Terminal, ChevronDown, ChevronUp } from "lucide-react";
@@ -116,9 +120,10 @@ export default function TerminalPanel() {
     killSession.mutate(id);
     setTabState((prev) => {
       const remaining = serverSessions.filter((s) => s.id !== id);
-      const newActive = prev.activeSessionId === id
-        ? remaining[remaining.length - 1]?.id ?? null
-        : prev.activeSessionId;
+      const newActive =
+        prev.activeSessionId === id
+          ? (remaining[remaining.length - 1]?.id ?? null)
+          : prev.activeSessionId;
       const newSplit = prev.splitSessionId === id ? null : prev.splitSessionId;
       return { activeSessionId: newActive, splitSessionId: newSplit };
     });
@@ -131,7 +136,12 @@ export default function TerminalPanel() {
   if (!terminalVisible) {
     return (
       <div className="flex items-center border-t border-border/50 px-3 py-2">
-        <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1.5 px-2 text-muted-foreground/60 hover:text-foreground" onClick={toggleTerminal}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-[11px] gap-1.5 px-2 text-muted-foreground/60 hover:text-foreground"
+          onClick={toggleTerminal}
+        >
           <Terminal className="h-3.5 w-3.5" />
           Terminal
           <ChevronUp className="h-3 w-3" />
@@ -143,7 +153,10 @@ export default function TerminalPanel() {
   const { activeSessionId, splitSessionId } = tabState;
 
   return (
-    <div className="flex flex-col border-t border-border/50 bg-background" style={{ height: `${terminalHeight}px` }}>
+    <div
+      className="flex flex-col border-t border-border/50 bg-background"
+      style={{ height: `${terminalHeight}px` }}
+    >
       {/* Drag handle to resize */}
       <div
         className="h-1 cursor-row-resize hover:bg-primary/30 transition-colors"
@@ -155,7 +168,10 @@ export default function TerminalPanel() {
             const newH = Math.max(150, Math.min(600, startH - (ev.clientY - startY)));
             setTerminalHeight(newH);
           };
-          const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+          };
           document.addEventListener("mousemove", onMove);
           document.addEventListener("mouseup", onUp);
         }}

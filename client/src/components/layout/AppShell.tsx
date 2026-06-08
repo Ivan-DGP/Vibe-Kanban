@@ -20,6 +20,7 @@ import {
   Star,
   CheckSquare,
   Send,
+  Beaker,
 } from "lucide-react";
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
   { to: "/todos", icon: CheckSquare, label: "Todo" },
   { to: "/api-client", icon: Send, label: "API Client" },
   { to: "/reports", icon: BarChart3, label: "Reports" },
+  { to: "/benchmarks", icon: Beaker, label: "Benchmarks" },
   { to: "/logs", icon: ScrollText, label: "Logs" },
   { to: "/settings", icon: Settings, label: "Settings" },
   { to: "/help", icon: HelpCircle, label: "Help" },
@@ -62,7 +64,11 @@ export default function AppShell() {
         const num = parseInt(e.key);
         if (num >= 1 && num <= navItems.length) {
           const target = navItems[num - 1];
-          if (target && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+          if (
+            target &&
+            !(e.target instanceof HTMLInputElement) &&
+            !(e.target instanceof HTMLTextAreaElement)
+          ) {
             window.location.href = target.to;
           }
         }
@@ -88,87 +94,93 @@ export default function AppShell() {
           sidebarCollapsed ? "w-14" : "w-56"
         }`}
       >
-          <div className="flex items-center gap-2 px-3 h-14 border-b border-sidebar-border/50">
-            {!sidebarCollapsed && (
-              <span className="font-bold text-sm tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-                Vibe Kanban
-              </span>
-            )}
-            <button
-              onClick={toggleSidebar}
-              className="ml-auto p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
-            >
-              {sidebarCollapsed ? (
-                <PanelLeft className="h-4 w-4" />
-              ) : (
-                <PanelLeftClose className="h-4 w-4" />
-              )}
-            </button>
-          </div>
-
-          {/* Projects list */}
-          {sortedProjects.length > 0 && (
-            <div className="border-b border-sidebar-border/50">
-              {!sidebarCollapsed && (
-                <div className="px-3 pt-3 pb-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Projects</span>
-                </div>
-              )}
-              <ScrollArea className={sidebarCollapsed ? "max-h-[200px]" : "max-h-[240px]"}>
-                <div className="px-2 py-1 space-y-0.5">
-                  {sortedProjects.map((project) => (
-                    <NavLink
-                      key={project.id}
-                      to={`/project/${project.id}`}
-                      className={({ isActive }) =>
-                        `flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150 ${
-                          isActive
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                            : "text-sidebar-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                        } ${sidebarCollapsed ? "justify-center px-0" : ""}`
-                      }
-                    >
-                      <FolderKanban className="h-3.5 w-3.5 shrink-0" />
-                      {!sidebarCollapsed && (
-                        <>
-                          <span className="truncate flex-1">{project.name}</span>
-                          {project.favorite && <Star className="h-3 w-3 shrink-0 fill-yellow-500/70 text-yellow-500/70" />}
-                        </>
-                      )}
-                    </NavLink>
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-
-          {/* Main nav */}
-          <nav className="flex-1 py-3 space-y-0.5 px-2">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-all duration-150 ${
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-sm"
-                      : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  } ${sidebarCollapsed ? "justify-center px-0" : ""}`
-                }
-              >
-                <item.icon className="h-4 w-4 shrink-0" />
-                {!sidebarCollapsed && <span>{item.label}</span>}
-              </NavLink>
-            ))}
-          </nav>
-
+        <div className="flex items-center gap-2 px-3 h-14 border-b border-sidebar-border/50">
           {!sidebarCollapsed && (
-            <div className="px-3 py-2.5 border-t border-sidebar-border/50 text-[11px] text-muted-foreground/60">
-              <kbd className="px-1.5 py-0.5 rounded bg-sidebar-accent/50 text-[10px] font-mono">Ctrl+K</kbd>
-              <span className="ml-1.5">Command Palette</span>
-            </div>
+            <span className="font-bold text-sm tracking-tight bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
+              Vibe Kanban
+            </span>
           )}
+          <button
+            onClick={toggleSidebar}
+            className="ml-auto p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+          >
+            {sidebarCollapsed ? (
+              <PanelLeft className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+
+        {/* Projects list */}
+        {sortedProjects.length > 0 && (
+          <div className="border-b border-sidebar-border/50">
+            {!sidebarCollapsed && (
+              <div className="px-3 pt-3 pb-1">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+                  Projects
+                </span>
+              </div>
+            )}
+            <ScrollArea className={sidebarCollapsed ? "max-h-[200px]" : "max-h-[240px]"}>
+              <div className="px-2 py-1 space-y-0.5">
+                {sortedProjects.map((project) => (
+                  <NavLink
+                    key={project.id}
+                    to={`/project/${project.id}`}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150 ${
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                          : "text-sidebar-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      } ${sidebarCollapsed ? "justify-center px-0" : ""}`
+                    }
+                  >
+                    <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+                    {!sidebarCollapsed && (
+                      <>
+                        <span className="truncate flex-1">{project.name}</span>
+                        {project.favorite && (
+                          <Star className="h-3 w-3 shrink-0 fill-yellow-500/70 text-yellow-500/70" />
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+
+        {/* Main nav */}
+        <nav className="flex-1 py-3 space-y-0.5 px-2">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-all duration-150 ${
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium shadow-sm"
+                    : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                } ${sidebarCollapsed ? "justify-center px-0" : ""}`
+              }
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!sidebarCollapsed && <span>{item.label}</span>}
+            </NavLink>
+          ))}
+        </nav>
+
+        {!sidebarCollapsed && (
+          <div className="px-3 py-2.5 border-t border-sidebar-border/50 text-[11px] text-muted-foreground/60">
+            <kbd className="px-1.5 py-0.5 rounded bg-sidebar-accent/50 text-[10px] font-mono">
+              Ctrl+K
+            </kbd>
+            <span className="ml-1.5">Command Palette</span>
+          </div>
+        )}
       </aside>
 
       {/* Main content + Terminal */}

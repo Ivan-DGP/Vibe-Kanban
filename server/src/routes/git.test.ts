@@ -61,7 +61,9 @@ describe("parseStatus", () => {
 
   test("parses renamed files (lines starting with '2 ')", () => {
     // "2 R. N... 100644 100644 100644 abc123 def456 R100\tnew.txt\told.txt"
-    const result = parseStatus("2 R. N... 100644 100644 100644 abc123 def456 R100\tnew.txt\told.txt\n");
+    const result = parseStatus(
+      "2 R. N... 100644 100644 100644 abc123 def456 R100\tnew.txt\told.txt\n",
+    );
     expect(result.staged).toHaveLength(1);
     expect(result.staged[0].status).toBe("R");
     // The path for renamed files: line.split("\t")[1]
@@ -175,7 +177,6 @@ describe("Git route integration", () => {
     // Clean up project and app
     if (app && projectId) {
       await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-      
     }
     // Remove temp directory
     if (tmpDir && fs.existsSync(tmpDir)) {
@@ -873,10 +874,14 @@ describe("Git route integration", () => {
     const mainName = mainBranchObj?.name ?? "main";
 
     // Stage everything so checkout --orphan doesn't warn about untracked files
-    try { execSync("git add -A", { cwd: tmpDir }); } catch {}
+    try {
+      execSync("git add -A", { cwd: tmpDir });
+    } catch {}
     execSync("git checkout --orphan orphan-no-commits", { cwd: tmpDir });
     // Remove the staged files from the index so HEAD remains truly unborn
-    try { execSync("git rm -rf --cached .", { cwd: tmpDir }); } catch {}
+    try {
+      execSync("git rm -rf --cached .", { cwd: tmpDir });
+    } catch {}
 
     try {
       const res = await app.inject({
@@ -894,7 +899,9 @@ describe("Git route integration", () => {
       // Return to main branch
       execSync(`git checkout -f ${mainName}`, { cwd: tmpDir });
       // Delete the orphan branch if it still exists
-      try { execSync("git branch -D orphan-no-commits", { cwd: tmpDir }); } catch {}
+      try {
+        execSync("git branch -D orphan-no-commits", { cwd: tmpDir });
+      } catch {}
     }
   });
 });

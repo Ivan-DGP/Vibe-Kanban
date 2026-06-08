@@ -1,24 +1,23 @@
 import type { FastifyPluginAsync } from "fastify";
 import { log } from "../lib/logger";
 import * as termService from "../services/terminalService";
+import { isAllowedOrigin } from "../lib/origin";
 
-const ALLOWED_ORIGINS = new Set([
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:3001",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
-  "http://127.0.0.1:3001",
-]);
+// Terminal dimensions must be positive bounded integers.
+function isValidDimension(n: unknown): n is number {
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 1000;
+}
 
 const terminalWsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get("/terminal/:sessionId", { websocket: true }, (socket, request) => {
     const { sessionId } = request.params as { sessionId: string };
 
-    // Origin check
+    // Origin check: reject when Origin is missing OR not an allowed app origin.
+    // Browsers always send Origin, so the legit client is unaffected; this
+    // blocks non-browser clients (which omit Origin) from attaching.
     const origin = request.headers.origin;
-    if (origin && !ALLOWED_ORIGINS.has(origin)) {
-      log("warn", "terminal", `Rejected WebSocket from origin: ${origin}`);
+    if (!isAllowedOrigin(origin)) {
+      log("warn", "terminal", `Rejected WebSocket from origin: ${origin ?? "<missing>"}`);
       socket.close(4003, "Forbidden origin");
       return;
     }
@@ -38,15 +37,18 @@ const terminalWsRoutes: FastifyPluginAsync = async (fastify) => {
         const msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
         switch (msg.type) {
           case "input":
-            termService.writeToSession(sessionId, msg.data);
+          case "binary":
+            // Only write string payloads to the PTY.
+            if (typeof msg.data === "string") {
+              termService.writeToSession(sessionId, msg.data);
+            }
             break;
 
           case "resize":
-            termService.resizeSession(sessionId, msg.cols, msg.rows);
-            break;
-
-          case "binary":
-            termService.writeToSession(sessionId, msg.data);
+            // Validate cols/rows are positive bounded integers before resizing.
+            if (isValidDimension(msg.cols) && isValidDimension(msg.rows)) {
+              termService.resizeSession(sessionId, msg.cols, msg.rows);
+            }
             break;
         }
       } catch (err: any) {

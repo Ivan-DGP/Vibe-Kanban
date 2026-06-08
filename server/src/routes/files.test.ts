@@ -40,7 +40,6 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up project from DB
   await app.inject({ method: "DELETE", url: `/api/projects/${projectId}` });
-  
 
   // Remove temp directory
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -62,15 +61,11 @@ describe("safePath", () => {
   });
 
   test("throws on path traversal with ../", () => {
-    expect(() => safePath("/project", "../../../etc/passwd")).toThrow(
-      "Path traversal detected",
-    );
+    expect(() => safePath("/project", "../../../etc/passwd")).toThrow("Path traversal detected");
   });
 
   test("throws on path traversal with absolute path outside base", () => {
-    expect(() => safePath("/project", "/etc/passwd")).toThrow(
-      "Path traversal detected",
-    );
+    expect(() => safePath("/project", "/etc/passwd")).toThrow("Path traversal detected");
   });
 
   test("allows a path that stays within the base", () => {
@@ -545,7 +540,7 @@ describe("Files API - Read image file (base64)", () => {
 
   test("GET /api/projects/:id/files/read — returns base64 for .jpg file", async () => {
     // Create a minimal file with .jpg extension
-    const fakeJpg = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+    const fakeJpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
     fs.writeFileSync(path.join(tmpDir, "photo.jpg"), fakeJpg);
 
     const res = await app.inject({
@@ -603,8 +598,8 @@ describe("Files API - Search", () => {
     // brace expansion in --include patterns
     const spy = spyOn(spawnModule, "spawn").mockResolvedValueOnce({
       stdout:
-        "./searchable.ts:1:const MAGIC_SEARCH_TERM = \"found_it\";\n" +
-        "./match-too.json:1:{\"key\": \"MAGIC_SEARCH_TERM\"}\n",
+        './searchable.ts:1:const MAGIC_SEARCH_TERM = "found_it";\n' +
+        './match-too.json:1:{"key": "MAGIC_SEARCH_TERM"}\n',
       stderr: "",
       exitCode: 0,
     });

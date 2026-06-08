@@ -14,15 +14,19 @@ interface SortableTaskCardProps {
   onDelete?: () => void;
 }
 
-export default function SortableTaskCard({ task, ciResult, onClick, onAIResolve, onAnalyze, onEdit, onClone, onDelete }: SortableTaskCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id });
+export default function SortableTaskCard({
+  task,
+  ciResult,
+  onClick,
+  onAIResolve,
+  onAnalyze,
+  onEdit,
+  onClone,
+  onDelete,
+}: SortableTaskCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),

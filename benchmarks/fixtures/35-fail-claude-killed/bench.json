@@ -1,0 +1,18 @@
+{
+  "id": "35-fail-claude-killed",
+  "title": "Failure injection — claude killed mid-run (SIGKILL/OOM)",
+  "category": "failure-injection",
+  "difficulty": "infra",
+  "prompt": "Fix sum() in src/sum.ts. (Process will be killed before this matters.)",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/sum.ts"],
+  "maxDiffLines": 10,
+  "timeoutMs": 60000,
+  "pipelineMode": "codebase",
+  "injection": {
+    "killAfterMs": 300,
+    "expectExitNonZero": true
+  },
+  "excludeFromCalibration": true
+}

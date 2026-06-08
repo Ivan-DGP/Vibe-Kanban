@@ -1,8 +1,5 @@
-import {
-  registerSpawnConfig,
-  _resetSpawnRegistry,
-} from "./taskSpawnRegistry";
-import { buildQaTestPrompt, buildDevFixPrompt } from "./spawnPrompts";
+import { registerSpawnConfig, _resetSpawnRegistry } from "./taskSpawnRegistry";
+import { buildQaTestPrompt, buildDevFixPrompt, buildBenchCodebasePrompt } from "./spawnPrompts";
 
 /**
  * Register the spawn configs the system knows how to dispatch.
@@ -25,5 +22,12 @@ export function registerSpawnConfigs(): void {
     mcpServers: ["vibe-kanban"],
     profile: "dev-fix",
     buildPrompt: buildDevFixPrompt,
+  });
+
+  registerSpawnConfig({
+    type: "bench-codebase",
+    mcpServers: ["vibe-kanban"],
+    profile: "bench-codebase",
+    buildPrompt: buildBenchCodebasePrompt,
   });
 }

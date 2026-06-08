@@ -2,7 +2,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { CreateArtifactInput, UpdateArtifactInput } from "@vibe-kanban/shared";
 
-export function useArtifacts(projectId: string | undefined, params?: { type?: string; search?: string }) {
+export function useArtifacts(
+  projectId: string | undefined,
+  params?: { type?: string; search?: string },
+) {
   return useQuery({
     queryKey: ["artifacts", projectId, params],
     queryFn: () => api.artifacts.list(projectId!, params),

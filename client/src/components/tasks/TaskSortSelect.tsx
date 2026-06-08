@@ -1,4 +1,10 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SORT_OPTIONS } from "@/lib/constants";
 
 interface TaskSortSelectProps {
@@ -14,7 +20,9 @@ export default function TaskSortSelect({ value, onChange }: TaskSortSelectProps)
       </SelectTrigger>
       <SelectContent>
         {SORT_OPTIONS.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+          <SelectItem key={opt.value} value={opt.value}>
+            {opt.label}
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>

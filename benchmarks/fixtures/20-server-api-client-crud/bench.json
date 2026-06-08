@@ -1,0 +1,150 @@
+{
+  "id": "20-server-api-client-crud",
+  "title": "Server: api-client collections + requests CRUD",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create an api-collection, add two requests to it, patch one, delete one, list by collection and by project.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create collection",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/api-collections",
+      "payload": { "name": "Smoke" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "name", "value": "Smoke" },
+          { "path": "sortOrder", "value": 1 }
+        ],
+        "saveAs": "coll"
+      }
+    },
+    {
+      "name": "list collections shows it",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/api-collections",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "[0].id", "value": "${coll.id}" }]
+      }
+    },
+    {
+      "name": "create request A",
+      "method": "POST",
+      "url": "/api/api-requests",
+      "payload": {
+        "collectionId": "${coll.id}",
+        "name": "ping",
+        "method": "GET",
+        "url": "https://example.com/ping"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "name", "value": "ping" },
+          { "path": "method", "value": "GET" },
+          { "path": "sortOrder", "value": 1 }
+        ],
+        "saveAs": "reqA"
+      }
+    },
+    {
+      "name": "create request B",
+      "method": "POST",
+      "url": "/api/api-requests",
+      "payload": {
+        "collectionId": "${coll.id}",
+        "name": "echo",
+        "method": "POST",
+        "url": "https://example.com/echo"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "sortOrder", "value": 2 }],
+        "saveAs": "reqB"
+      }
+    },
+    {
+      "name": "list requests in collection ordered by sortOrder",
+      "method": "GET",
+      "url": "/api/api-collections/${coll.id}/requests",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].id", "value": "${reqA.id}" },
+          { "path": "[1].id", "value": "${reqB.id}" }
+        ]
+      }
+    },
+    {
+      "name": "list requests by project joins through collection",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/api-requests",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].id", "value": "${reqA.id}" },
+          { "path": "[1].id", "value": "${reqB.id}" }
+        ]
+      }
+    },
+    {
+      "name": "patch request A url",
+      "method": "PATCH",
+      "url": "/api/api-requests/${reqA.id}",
+      "payload": { "url": "https://example.com/ping?v=2", "method": "PUT" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "url", "value": "https://example.com/ping?v=2" },
+          { "path": "method", "value": "PUT" }
+        ]
+      }
+    },
+    {
+      "name": "patch collection name",
+      "method": "PATCH",
+      "url": "/api/api-collections/${coll.id}",
+      "payload": { "name": "Smoke v2" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "name", "value": "Smoke v2" }]
+      }
+    },
+    {
+      "name": "delete request B",
+      "method": "DELETE",
+      "url": "/api/api-requests/${reqB.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "list now has only A",
+      "method": "GET",
+      "url": "/api/api-collections/${coll.id}/requests",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "[0].id", "value": "${reqA.id}" }]
+      }
+    },
+    {
+      "name": "patch missing request → 404",
+      "method": "PATCH",
+      "url": "/api/api-requests/${reqB.id}",
+      "payload": { "name": "ghost" },
+      "expect": { "statusCode": 404 }
+    },
+    {
+      "name": "patch missing collection → 404",
+      "method": "PATCH",
+      "url": "/api/api-collections/00000000-0000-0000-0000-000000000000",
+      "payload": { "name": "ghost" },
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

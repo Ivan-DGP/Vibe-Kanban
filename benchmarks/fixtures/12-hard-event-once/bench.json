@@ -1,0 +1,15 @@
+{
+  "id": "12-hard-event-once",
+  "title": "EventBus once() never auto-removes",
+  "category": "abstract-data-type",
+  "difficulty": "medium",
+  "prompt": "src/eventBus.ts is a typed pub/sub bus with on/off/once/emit/listenerCount. tests/regression.test.ts pins the existing contract; tests/target.test.ts adds assertions about `once()` that currently fail. Make them pass without breaking regression. Be careful with mutation-during-emit.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/eventBus.ts"],
+  "maxDiffLines": 25,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/eventBus.ts": "export type Listener<T> = (payload: T) => void;\n\nexport class EventBus<E extends Record<string, unknown>> {\n  private listeners = new Map<keyof E, Listener<unknown>[]>();\n\n  on<K extends keyof E>(event: K, fn: Listener<E[K]>): () => void {\n    const arr = this.listeners.get(event) ?? [];\n    arr.push(fn as Listener<unknown>);\n    this.listeners.set(event, arr);\n    return () => this.off(event, fn);\n  }\n\n  off<K extends keyof E>(event: K, fn: Listener<E[K]>): void {\n    const arr = this.listeners.get(event);\n    if (!arr) return;\n    const idx = arr.indexOf(fn as Listener<unknown>);\n    if (idx >= 0) arr.splice(idx, 1);\n  }\n\n  once<K extends keyof E>(event: K, fn: Listener<E[K]>): () => void {\n    const wrapped: Listener<E[K]> = (payload) => {\n      this.off(event, wrapped);\n      fn(payload);\n    };\n    return this.on(event, wrapped);\n  }\n\n  emit<K extends keyof E>(event: K, payload: E[K]): void {\n    const arr = this.listeners.get(event);\n    if (!arr) return;\n    for (const fn of [...arr]) {\n      fn(payload);\n    }\n  }\n\n  listenerCount<K extends keyof E>(event: K): number {\n    return this.listeners.get(event)?.length ?? 0;\n  }\n}\n"
+  }
+}

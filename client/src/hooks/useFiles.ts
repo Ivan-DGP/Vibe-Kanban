@@ -20,8 +20,15 @@ export function useFileContent(projectId: string | undefined, filePath: string |
 export function useWriteFile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, filePath, content }: { projectId: string; filePath: string; content: string }) =>
-      api.files.write(projectId, filePath, content),
+    mutationFn: ({
+      projectId,
+      filePath,
+      content,
+    }: {
+      projectId: string;
+      filePath: string;
+      content: string;
+    }) => api.files.write(projectId, filePath, content),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["file-content", vars.projectId, vars.filePath] });
     },
@@ -31,8 +38,15 @@ export function useWriteFile() {
 export function useCreateFile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, filePath, type }: { projectId: string; filePath: string; type: "file" | "directory" }) =>
-      api.files.create(projectId, filePath, type),
+    mutationFn: ({
+      projectId,
+      filePath,
+      type,
+    }: {
+      projectId: string;
+      filePath: string;
+      type: "file" | "directory";
+    }) => api.files.create(projectId, filePath, type),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["files", vars.projectId] });
     },
@@ -42,8 +56,15 @@ export function useCreateFile() {
 export function useRenameFile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, oldPath, newPath }: { projectId: string; oldPath: string; newPath: string }) =>
-      api.files.rename(projectId, oldPath, newPath),
+    mutationFn: ({
+      projectId,
+      oldPath,
+      newPath,
+    }: {
+      projectId: string;
+      oldPath: string;
+      newPath: string;
+    }) => api.files.rename(projectId, oldPath, newPath),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["files", vars.projectId] });
       qc.invalidateQueries({ queryKey: ["file-content", vars.projectId] });

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import { getDataDir } from "../lib/data-dir";
 import type { Project } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +32,7 @@ export function detectTechStack(projectPath: string): string[] {
         "react-dom": "React",
         vue: "Vue",
         svelte: "Svelte",
-        "next": "Next.js",
+        next: "Next.js",
         nuxt: "Nuxt",
         fastify: "Fastify",
         express: "Express",
@@ -73,14 +74,16 @@ const PROJECT_MARKERS = [
   "pyproject.toml",
 ];
 
-export function scanDirectory(dir: string, depth = 0, maxDepth = 3): { name: string; path: string; techStack: string[] }[] {
+export function scanDirectory(
+  dir: string,
+  depth = 0,
+  maxDepth = 3,
+): { name: string; path: string; techStack: string[] }[] {
   const results: { name: string; path: string; techStack: string[] }[] = [];
   if (depth > maxDepth) return results;
 
   try {
-    const hasMarker = PROJECT_MARKERS.some((m) =>
-      fs.existsSync(path.join(dir, m)),
-    );
+    const hasMarker = PROJECT_MARKERS.some((m) => fs.existsSync(path.join(dir, m)));
 
     if (hasMarker) {
       results.push({
@@ -112,7 +115,43 @@ function rowToProject(row: any): Project {
   };
 }
 
-const PROJECT_MARKERS_SET = new Set(["package.json", "Cargo.toml", "go.mod", "pyproject.toml", "pom.xml", "build.gradle", ".git"]);
+const PROJECT_MARKERS_SET = new Set([
+  "package.json",
+  "Cargo.toml",
+  "go.mod",
+  "pyproject.toml",
+  "pom.xml",
+  "build.gradle",
+  ".git",
+]);
+
+// Roots the filesystem browser/scanner may touch: the user's home, any
+// already-registered project paths, and an optional VK_BROWSE_ROOTS override.
+// Prevents enumerating sensitive system dirs (/etc, /root, other users' homes).
+function browseRoots(db: ReturnType<typeof getDb>): string[] {
+  const roots: string[] = [];
+  const add = (p?: string | null) => {
+    if (p && p.trim()) roots.push(path.resolve(p.trim()));
+  };
+  add(process.env.HOME);
+  add(process.env.USERPROFILE);
+  for (const r of (process.env.VK_BROWSE_ROOTS ?? "").split(path.delimiter)) add(r);
+  for (const row of db.prepare("SELECT path FROM projects").all() as { path: string }[]) {
+    add(row.path);
+  }
+  return roots;
+}
+
+function isAllowedBrowsePath(target: string, roots: string[]): boolean {
+  const resolved = path.resolve(target);
+  return roots.some((root) => {
+    if (resolved === root) return true;
+    const rel = path.relative(root, resolved);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
+}
+
+const MAX_SCAN_RESULTS = 1000;
 
 const projectRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
@@ -120,7 +159,16 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
   // Browse filesystem directories
   fastify.get("/browse", async (request) => {
     const { dir } = request.query as { dir?: string };
-    const targetDir = dir || (process.env.HOME || process.env.USERPROFILE || "C:/Users");
+    const targetDir = dir || process.env.HOME || process.env.USERPROFILE || "C:/Users";
+
+    if (!isAllowedBrowsePath(targetDir, browseRoots(db))) {
+      return {
+        current: targetDir,
+        parent: path.dirname(targetDir),
+        folders: [],
+        error: "Directory is outside the allowed roots",
+      };
+    }
 
     try {
       const entries = fs.readdirSync(targetDir, { withFileTypes: true });
@@ -128,7 +176,12 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "__pycache__") continue;
+        if (
+          entry.name.startsWith(".") ||
+          entry.name === "node_modules" ||
+          entry.name === "__pycache__"
+        )
+          continue;
         const fullPath = path.join(targetDir, entry.name);
         // Check if it looks like a project
         let isProject = false;
@@ -221,7 +274,18 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
       } else if (key === "autoSpawnEnabled") {
         fields.push("autoSpawnEnabled = ?");
         values.push(value ? 1 : 0);
-      } else if (["name", "category", "aiCommitMode", "notionDatabaseId", "treeDepth", "aiInstructions", "qaAgentPath", "qaAgentPython"].includes(key)) {
+      } else if (
+        [
+          "name",
+          "category",
+          "aiCommitMode",
+          "notionDatabaseId",
+          "treeDepth",
+          "aiInstructions",
+          "qaAgentPath",
+          "qaAgentPython",
+        ].includes(key)
+      ) {
         fields.push(`${key} = ?`);
         values.push(value);
       }
@@ -233,9 +297,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     values.push(now());
     values.push(id);
 
-    db.prepare(`UPDATE projects SET ${fields.join(", ")} WHERE id = ?`).run(
-      ...values,
-    );
+    db.prepare(`UPDATE projects SET ${fields.join(", ")} WHERE id = ?`).run(...values);
 
     const row = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
     return rowToProject(row);
@@ -248,6 +310,13 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.code(404).send({ error: "Project not found" });
 
     db.prepare("DELETE FROM projects WHERE id = ?").run(id);
+
+    const dataDir = getDataDir();
+    const artifactsDir = path.join(dataDir, "projects", id);
+    const snapshotFile = path.join(dataDir, "tasks", `${id}.json`);
+    fs.rmSync(artifactsDir, { recursive: true, force: true });
+    fs.rmSync(snapshotFile, { force: true });
+
     log("info", "server", `Project deleted: ${(existing as any).name}`);
     return reply.code(204).send();
   });
@@ -256,11 +325,15 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/projects/scan", async (request) => {
     const { directories } = request.body as { directories: string[] };
     const results: { name: string; path: string; techStack: string[] }[] = [];
+    const roots = browseRoots(db);
 
-    for (const dir of directories) {
+    for (const dir of Array.isArray(directories) ? directories : []) {
+      if (typeof dir !== "string") continue;
+      if (!isAllowedBrowsePath(dir, roots)) continue; // skip dirs outside allowed roots
       if (fs.existsSync(dir)) {
         results.push(...scanDirectory(dir));
       }
+      if (results.length >= MAX_SCAN_RESULTS) break; // bound enumeration
     }
 
     // Filter out already-added projects

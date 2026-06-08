@@ -1,0 +1,69 @@
+{
+  "id": "28-server-knowledge-stats",
+  "title": "Server: knowledge stats + search-validation",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Empty project → all knowledge counts zero. Search without query → 400.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "stats for empty project",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/knowledge/stats",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "artifactCount", "value": 0 },
+          { "path": "embeddedArtifacts", "value": 0 },
+          { "path": "chunkCount", "value": 0 },
+          { "path": "pending", "value": 0 },
+          { "path": "taskCount", "value": 0 },
+          { "path": "embeddedTasks", "value": 0 },
+          { "path": "graphNodeCount", "value": 0 },
+          { "path": "embeddedGraphNodes", "value": 0 }
+        ]
+      }
+    },
+    {
+      "name": "search without query → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/knowledge/search",
+      "payload": {},
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "search with empty query → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/knowledge/search",
+      "payload": { "query": "" },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "search with whitespace query → 400",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/knowledge/search",
+      "payload": { "query": "   " },
+      "expect": { "statusCode": 400 }
+    },
+    {
+      "name": "backfill on empty project → totals zero",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/knowledge/backfill",
+      "payload": { "force": false },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "embedded", "value": 0 },
+          { "path": "skipped", "value": 0 },
+          { "path": "errors", "value": 0 },
+          { "path": "total", "value": 0 }
+        ]
+      }
+    }
+  ]
+}

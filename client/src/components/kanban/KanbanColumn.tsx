@@ -84,9 +84,7 @@ export default function KanbanColumn({
       {/* Drop zone */}
       <div
         ref={setNodeRef}
-        className={`flex-1 p-2 transition-colors ${
-          isOver ? "bg-primary/5" : ""
-        }`}
+        className={`flex-1 p-2 transition-colors ${isOver ? "bg-primary/5" : ""}`}
       >
         <ScrollArea className="h-[calc(100vh-280px)]">
           <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>

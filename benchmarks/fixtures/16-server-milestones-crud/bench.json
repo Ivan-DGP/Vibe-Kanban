@@ -1,0 +1,85 @@
+{
+  "id": "16-server-milestones-crud",
+  "title": "Server: milestones CRUD + task linkage",
+  "category": "server-coverage",
+  "difficulty": "easy",
+  "prompt": "Create a milestone, attach a task, rename it, then delete it and confirm the task falls back to the General (null) milestone.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "maxDiffLines": 0,
+  "timeoutMs": 30000,
+  "pipelineMode": "server-integration",
+  "excludeFromCalibration": true,
+  "httpScript": [
+    {
+      "name": "create milestone",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/milestones",
+      "payload": { "name": "Sprint 1" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "name", "value": "Sprint 1" }],
+        "saveAs": "milestone"
+      }
+    },
+    {
+      "name": "list milestones",
+      "method": "GET",
+      "url": "/api/projects/${projectId}/milestones",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [
+          { "path": "[0].id", "value": "${milestone.id}" },
+          { "path": "[0].name", "value": "Sprint 1" }
+        ]
+      }
+    },
+    {
+      "name": "rename milestone",
+      "method": "PATCH",
+      "url": "/api/milestones/${milestone.id}",
+      "payload": { "name": "Sprint 1 (renamed)" },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "name", "value": "Sprint 1 (renamed)" }]
+      }
+    },
+    {
+      "name": "create task tied to milestone",
+      "method": "POST",
+      "url": "/api/projects/${projectId}/tasks",
+      "payload": {
+        "title": "milestone-bound task",
+        "status": "todo",
+        "milestoneId": "${milestone.id}"
+      },
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "milestoneId", "value": "${milestone.id}" }],
+        "saveAs": "task"
+      }
+    },
+    {
+      "name": "delete milestone (cascades to null on task)",
+      "method": "DELETE",
+      "url": "/api/milestones/${milestone.id}",
+      "expect": { "statusCode": 204 }
+    },
+    {
+      "name": "task milestoneId is null after milestone delete",
+      "method": "GET",
+      "url": "/api/tasks/${task.id}",
+      "expect": {
+        "statusCode": 200,
+        "jsonPath": [{ "path": "milestoneId", "value": null }]
+      }
+    },
+    {
+      "name": "patching deleted milestone → 404",
+      "method": "PATCH",
+      "url": "/api/milestones/${milestone.id}",
+      "payload": { "name": "ghost" },
+      "expect": { "statusCode": 404 }
+    }
+  ]
+}

@@ -4,7 +4,9 @@ import { encrypt, decrypt } from "../lib/crypto";
 import { spawn } from "../lib/spawn";
 import type { CIStatus, CICheckResult } from "@vibe-kanban/shared";
 
-async function fetchGitHubIdentity(token: string): Promise<{ username: string; email: string } | null> {
+async function fetchGitHubIdentity(
+  token: string,
+): Promise<{ username: string; email: string } | null> {
   try {
     const res = await fetch("https://api.github.com/user", {
       headers: {
@@ -15,7 +17,7 @@ async function fetchGitHubIdentity(token: string): Promise<{ username: string; e
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return null;
-    const data = await res.json() as { id: number; login: string; email: string | null };
+    const data = (await res.json()) as { id: number; login: string; email: string | null };
     return {
       username: data.login,
       email: data.email ?? `${data.id}+${data.login}@users.noreply.github.com`,
@@ -24,6 +26,8 @@ async function fetchGitHubIdentity(token: string): Promise<{ username: string; e
     return null;
   }
 }
+
+const isNonEmptyString = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 
 const githubRoutes: FastifyPluginAsync = async (fastify) => {
   const db = getDb();
@@ -40,8 +44,11 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
     }));
   });
 
-  fastify.post("/github-accounts", async (request) => {
-    const { name, token } = request.body as any;
+  fastify.post("/github-accounts", async (request, reply) => {
+    const { name, token } = (request.body ?? {}) as { name?: unknown; token?: unknown };
+    if (!isNonEmptyString(name) || !isNonEmptyString(token)) {
+      return reply.code(400).send({ error: "name and token are required non-empty strings" });
+    }
     const id = crypto.randomUUID();
     const encryptedToken = encrypt(token);
     const ts = new Date().toISOString();
@@ -51,12 +58,26 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
       "INSERT INTO github_accounts (id, name, token, username, email, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
     ).run(id, name, encryptedToken, identity?.username ?? null, identity?.email ?? null, ts);
 
-    return { id, name, hasToken: true, username: identity?.username ?? null, email: identity?.email ?? null, createdAt: ts };
+    return {
+      id,
+      name,
+      hasToken: true,
+      username: identity?.username ?? null,
+      email: identity?.email ?? null,
+      createdAt: ts,
+    };
   });
 
   fastify.patch("/github-accounts/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const { name, token } = request.body as any;
+    const { name, token } = (request.body ?? {}) as { name?: unknown; token?: unknown };
+
+    if (name !== undefined && !isNonEmptyString(name)) {
+      return reply.code(400).send({ error: "name must be a non-empty string" });
+    }
+    if (token !== undefined && !isNonEmptyString(token)) {
+      return reply.code(400).send({ error: "token must be a non-empty string" });
+    }
 
     const existing = db.prepare("SELECT * FROM github_accounts WHERE id = ?").get(id) as any;
     if (!existing) return reply.code(404).send({ error: "Account not found" });
@@ -64,12 +85,18 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
     const fields: string[] = [];
     const values: any[] = [];
 
-    if (name) { fields.push("name = ?"); values.push(name); }
+    if (name) {
+      fields.push("name = ?");
+      values.push(name);
+    }
     if (token) {
-      fields.push("token = ?"); values.push(encrypt(token));
+      fields.push("token = ?");
+      values.push(encrypt(token));
       const identity = await fetchGitHubIdentity(token);
-      fields.push("username = ?"); values.push(identity?.username ?? null);
-      fields.push("email = ?"); values.push(identity?.email ?? null);
+      fields.push("username = ?");
+      values.push(identity?.username ?? null);
+      fields.push("email = ?");
+      values.push(identity?.email ?? null);
     }
 
     if (fields.length) {
@@ -97,9 +124,11 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
   // Per-project GitHub account mappings
   fastify.get("/projects/:projectId/github-mapping", async (request) => {
     const { projectId } = request.params as any;
-    const rows = db.prepare(
-      "SELECT m.*, a.name as accountName FROM project_github_mappings m JOIN github_accounts a ON m.githubAccountId = a.id WHERE m.projectId = ?",
-    ).all(projectId) as any[];
+    const rows = db
+      .prepare(
+        "SELECT m.*, a.name as accountName FROM project_github_mappings m JOIN github_accounts a ON m.githubAccountId = a.id WHERE m.projectId = ?",
+      )
+      .all(projectId) as any[];
     return rows;
   });
 
@@ -116,7 +145,10 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete("/projects/:projectId/github-mapping", async (request) => {
     const { projectId } = request.params as any;
     const { subPath } = (request.query as any) ?? {};
-    db.prepare("DELETE FROM project_github_mappings WHERE projectId = ? AND subPath = ?").run(projectId, subPath || "");
+    db.prepare("DELETE FROM project_github_mappings WHERE projectId = ? AND subPath = ?").run(
+      projectId,
+      subPath || "",
+    );
     return { ok: true };
   });
 
@@ -128,9 +160,11 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Find the GitHub account mapped to this project
     const sub = subPath || "";
-    const mapping = db.prepare(
-      "SELECT m.githubAccountId, a.token FROM project_github_mappings m JOIN github_accounts a ON m.githubAccountId = a.id WHERE m.projectId = ? AND m.subPath = ?",
-    ).get(projectId, sub) as { githubAccountId: string; token: string } | undefined;
+    const mapping = db
+      .prepare(
+        "SELECT m.githubAccountId, a.token FROM project_github_mappings m JOIN github_accounts a ON m.githubAccountId = a.id WHERE m.projectId = ? AND m.subPath = ?",
+      )
+      .get(projectId, sub) as { githubAccountId: string; token: string } | undefined;
 
     if (!mapping) {
       return reply.code(404).send({ error: "No GitHub account mapped for this project" });
@@ -139,7 +173,9 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
     const token = decrypt(mapping.token);
 
     // Detect owner/repo from the project's git remote
-    const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as { path: string } | undefined;
+    const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as
+      | { path: string }
+      | undefined;
     if (!project) return reply.code(404).send({ error: "Project not found" });
 
     let repoFullName: string | null = null;
@@ -178,7 +214,7 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(res.status).send({ error: "GitHub API error" });
       }
 
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       const runs = data.workflow_runs || [];
 
       if (runs.length === 0) {
@@ -225,9 +261,11 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const sub = subPath || "";
-    const mapping = db.prepare(
-      "SELECT m.githubAccountId, a.token FROM project_github_mappings m JOIN github_accounts a ON m.githubAccountId = a.id WHERE m.projectId = ? AND m.subPath = ?",
-    ).get(projectId, sub) as { githubAccountId: string; token: string } | undefined;
+    const mapping = db
+      .prepare(
+        "SELECT m.githubAccountId, a.token FROM project_github_mappings m JOIN github_accounts a ON m.githubAccountId = a.id WHERE m.projectId = ? AND m.subPath = ?",
+      )
+      .get(projectId, sub) as { githubAccountId: string; token: string } | undefined;
 
     if (!mapping) {
       return reply.code(404).send({ error: "No GitHub account mapped" });
@@ -235,7 +273,9 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
 
     const token = decrypt(mapping.token);
 
-    const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as { path: string } | undefined;
+    const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as
+      | { path: string }
+      | undefined;
     if (!project) return reply.code(404).send({ error: "Project not found" });
 
     let repoFullName: string | null = null;
@@ -270,21 +310,51 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
             },
           );
           if (!res.ok) {
-            return { branch, status: "unknown" as CIStatus, conclusion: null, workflowName: null, runUrl: null, updatedAt: null };
+            return {
+              branch,
+              status: "unknown" as CIStatus,
+              conclusion: null,
+              workflowName: null,
+              runUrl: null,
+              updatedAt: null,
+            };
           }
-          const data = await res.json() as any;
+          const data = (await res.json()) as any;
           const runs = data.workflow_runs || [];
           if (runs.length === 0) {
-            return { branch, status: "unknown" as CIStatus, conclusion: null, workflowName: null, runUrl: null, updatedAt: null };
+            return {
+              branch,
+              status: "unknown" as CIStatus,
+              conclusion: null,
+              workflowName: null,
+              runUrl: null,
+              updatedAt: null,
+            };
           }
           const run = runs[0];
           let status: CIStatus = "unknown";
-          if (run.status === "queued" || run.status === "waiting" || run.status === "pending") status = "pending";
+          if (run.status === "queued" || run.status === "waiting" || run.status === "pending")
+            status = "pending";
           else if (run.status === "in_progress") status = "running";
-          else if (run.status === "completed") status = run.conclusion === "success" ? "success" : "failure";
-          return { branch, status, conclusion: run.conclusion, workflowName: run.name, runUrl: run.html_url, updatedAt: run.updated_at };
+          else if (run.status === "completed")
+            status = run.conclusion === "success" ? "success" : "failure";
+          return {
+            branch,
+            status,
+            conclusion: run.conclusion,
+            workflowName: run.name,
+            runUrl: run.html_url,
+            updatedAt: run.updated_at,
+          };
         } catch {
-          return { branch, status: "unknown" as CIStatus, conclusion: null, workflowName: null, runUrl: null, updatedAt: null };
+          return {
+            branch,
+            status: "unknown" as CIStatus,
+            conclusion: null,
+            workflowName: null,
+            runUrl: null,
+            updatedAt: null,
+          };
         }
       }),
     );

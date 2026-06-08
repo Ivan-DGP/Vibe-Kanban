@@ -1,0 +1,200 @@
+name: Bench
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "benchmarks/**"
+      - "server/src/**"
+      - "shared/**"
+      - ".github/workflows/bench.yml"
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "harness | nightly"
+        required: false
+        default: "harness"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: bench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pr-gate:
+    name: PR Gate (mock harness)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+
+      - name: Download main branch baseline aggregate
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bench-baseline
+          BASELINE_FILE=""
+          ARTIFACT_NAME="bench-main-aggregate"
+          if gh run list --branch main --workflow bench.yml --limit 20 --json databaseId,status,conclusion --jq '.[] | select(.conclusion=="success") | .databaseId' > /tmp/runs.txt 2>/dev/null; then
+            while read -r RUN_ID; do
+              if [ -z "$RUN_ID" ]; then continue; fi
+              if gh run download "$RUN_ID" --name "$ARTIFACT_NAME" --dir /tmp/bench-baseline 2>/dev/null; then
+                BASELINE_FILE=$(find /tmp/bench-baseline -name 'aggregate-*.json' | head -1 || true)
+                if [ -n "$BASELINE_FILE" ]; then
+                  echo "baseline-from-run=$RUN_ID" >> "$GITHUB_OUTPUT"
+                  break
+                fi
+              fi
+            done < /tmp/runs.txt
+          fi
+          if [ -z "$BASELINE_FILE" ]; then
+            echo "no main aggregate artifact found - falling back to in-tree latest"
+            BASELINE_FILE=$(ls -t benchmarks/results/aggregate-*.json 2>/dev/null | head -1 || true)
+          fi
+          if [ -z "$BASELINE_FILE" ]; then
+            # Bootstrap: no main artifact yet (main hasn't run bench.yml) and no
+            # in-tree aggregate (benchmarks/results is gitignored). Run the PR
+            # gate without a baseline — the harness falls back to a solved-count
+            # gate. Once main uploads bench-main-aggregate, PRs get real deltas.
+            echo "no baseline available - running PR gate without a baseline (solved-count gate)"
+          fi
+          echo "baseline-path=$BASELINE_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using baseline: ${BASELINE_FILE:-<none>}"
+
+      - name: Preflight fixture baselines
+        run: |
+          bun benchmarks/harness/run.ts preflight
+
+      - name: Run bench (mock harness)
+        run: |
+          set -euo pipefail
+          ARGS=(--mode=harness --mock --ci --comment-out=/tmp/bench-comment.md)
+          BASELINE="${{ steps.baseline.outputs.baseline-path }}"
+          if [ -n "$BASELINE" ]; then
+            ARGS+=(--baseline="$BASELINE")
+          fi
+          bun run bench "${ARGS[@]}"
+
+      - name: Render comment header
+        if: always()
+        run: |
+          {
+            echo "<!-- vk-bench-delta -->"
+            echo "### Benchmark gate"
+            echo ""
+            if [ -f /tmp/bench-comment.md ]; then
+              cat /tmp/bench-comment.md
+            else
+              echo "_no delta available_"
+            fi
+            echo ""
+            echo "<sub>baseline: \`${{ steps.baseline.outputs.baseline-path }}\` · PR head ${{ github.event.pull_request.head.sha }}</sub>"
+          } > /tmp/bench-comment-final.md
+
+      - name: Post or update PR comment
+        if: always() && github.event.pull_request.number
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: /tmp/bench-comment-final.md
+          edit-mode: replace
+          comment-tag: vk-bench-delta
+
+      - name: Upload PR run results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-pr-results
+          path: |
+            benchmarks/results/*.json
+            benchmarks/results/*.md
+            /tmp/bench-comment-final.md
+          retention-days: 14
+
+  main-baseline:
+    name: Main baseline (mock harness)
+    if: github.event_name == 'push' || (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: ./.github/actions/setup
+
+      - name: Run bench mock harness
+        run: bun run bench --mode=harness --mock
+
+      - name: Aggregate results
+        run: bun run bench aggregate
+
+      - name: Upload aggregate as baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-main-aggregate
+          path: benchmarks/results/aggregate-*.json
+          retention-days: 90
+
+  nightly:
+    name: Nightly (real claude · capped subset)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VK_BENCH_MAX_COST_USD: "5.00"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+
+      - name: Skip if no API key
+        if: env.ANTHROPIC_API_KEY == ''
+        run: |
+          echo "ANTHROPIC_API_KEY not set; skipping real-claude nightly"
+          exit 0
+
+      - name: Run real claude on capped subset
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          bun run bench --mode=harness \
+            --fixture=01-bug-fix-arithmetic \
+            --fixture=02-feature-add-validator \
+            --fixture=03-regression-trap \
+            --fixture=11-hard-token-bucket
+
+      - name: Aggregate
+        if: env.ANTHROPIC_API_KEY != ''
+        run: bun run bench aggregate
+
+      - name: Week-over-week compare
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          set -euo pipefail
+          AGGS=( $(ls -t benchmarks/results/aggregate-*.json 2>/dev/null) )
+          if [ "${#AGGS[@]}" -ge 2 ]; then
+            bun run bench compare "${AGGS[1]}" "${AGGS[0]}" || true
+          else
+            echo "only one aggregate; skipping w-o-w compare"
+          fi
+
+      - name: Upload nightly results
+        if: always() && env.ANTHROPIC_API_KEY != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-nightly-${{ github.run_id }}
+          path: |
+            benchmarks/results/*.json
+            benchmarks/results/*.md
+          retention-days: 30

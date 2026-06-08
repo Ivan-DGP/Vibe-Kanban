@@ -11,16 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import {
-  Plus,
-  Trash2,
-  X,
-  CheckCircle2,
-  Circle,
-  ListTodo,
-  Link2,
-  Sparkles,
-} from "lucide-react";
+import { Plus, Trash2, X, CheckCircle2, Circle, ListTodo, Link2, Sparkles } from "lucide-react";
 import type { Todo } from "@vibe-kanban/shared";
 
 interface TodoSidebarProps {
@@ -128,9 +119,7 @@ export default function TodoSidebar({ onClose }: TodoSidebarProps) {
                 <Sparkles className="h-6 w-6 text-primary/60" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium text-foreground/70">
-                  No todos yet
-                </p>
+                <p className="text-sm font-medium text-foreground/70">No todos yet</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Add your first todo above to get started
                 </p>
@@ -142,7 +131,7 @@ export default function TodoSidebar({ onClose }: TodoSidebarProps) {
                 key={todo.id}
                 className={cn(
                   "group flex items-center gap-2.5 rounded-lg border border-border/40 bg-card/50 p-2.5 transition-all",
-                  todo.completed && "opacity-60"
+                  todo.completed && "opacity-60",
                 )}
               >
                 <Checkbox
@@ -154,8 +143,7 @@ export default function TodoSidebar({ onClose }: TodoSidebarProps) {
                   <span
                     className={cn(
                       "truncate text-sm transition-all duration-200",
-                      todo.completed &&
-                        "text-muted-foreground line-through"
+                      todo.completed && "text-muted-foreground line-through",
                     )}
                   >
                     {todo.title}

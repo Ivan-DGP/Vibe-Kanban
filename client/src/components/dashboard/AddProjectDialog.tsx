@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +13,15 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, FolderSearch, Loader2, Folder, ArrowUp, ChevronRight, FolderKanban } from "lucide-react";
+import {
+  Plus,
+  FolderSearch,
+  Loader2,
+  Folder,
+  ArrowUp,
+  ChevronRight,
+  FolderKanban,
+} from "lucide-react";
 import { useCreateProject, useScanProjects } from "@/hooks";
 import { api, type BrowseResult } from "@/lib/api";
 import type { ScannedProject } from "@vibe-kanban/shared";
@@ -45,7 +59,9 @@ export default function AddProjectDialog() {
       // ignore
     }
     setBrowseLoading(false);
-    setTimeout(() => { navCooldownRef.current = false; }, 400);
+    setTimeout(() => {
+      navCooldownRef.current = false;
+    }, 400);
   };
 
   // Auto-browse to user home when dialog opens
@@ -106,7 +122,10 @@ export default function AddProjectDialog() {
 
   // Scan tab
   const handleScan = () => {
-    const dirs = scanDirs.split("\n").map((d) => d.trim()).filter(Boolean);
+    const dirs = scanDirs
+      .split("\n")
+      .map((d) => d.trim())
+      .filter(Boolean);
     if (dirs.length === 0) return;
     scanProjects.mutate(dirs, {
       onSuccess: (results) => {
@@ -150,8 +169,12 @@ export default function AddProjectDialog() {
         </DialogHeader>
         <Tabs defaultValue="browse">
           <TabsList className="w-full">
-            <TabsTrigger value="browse" className="flex-1" onClick={handleBrowseTabOpen}>Browse</TabsTrigger>
-            <TabsTrigger value="scan" className="flex-1">Scan</TabsTrigger>
+            <TabsTrigger value="browse" className="flex-1" onClick={handleBrowseTabOpen}>
+              Browse
+            </TabsTrigger>
+            <TabsTrigger value="scan" className="flex-1">
+              Scan
+            </TabsTrigger>
           </TabsList>
 
           {/* Browse tab - path input + folder browser */}
@@ -193,8 +216,12 @@ export default function AddProjectDialog() {
                   >
                     <ArrowUp className="h-3.5 w-3.5" />
                   </Button>
-                  <span className="text-[11px] font-mono text-muted-foreground truncate flex-1">{browseData.current}</span>
-                  {browseLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />}
+                  <span className="text-[11px] font-mono text-muted-foreground truncate flex-1">
+                    {browseData.current}
+                  </span>
+                  {browseLoading && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+                  )}
                 </div>
 
                 {/* Folder list */}
@@ -210,7 +237,9 @@ export default function AddProjectDialog() {
                         <div
                           key={folder.path}
                           className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
-                            selectedFolders.has(folder.path) ? "bg-primary/10" : "hover:bg-accent/50"
+                            selectedFolders.has(folder.path)
+                              ? "bg-primary/10"
+                              : "hover:bg-accent/50"
                           }`}
                         >
                           <Checkbox
@@ -230,7 +259,10 @@ export default function AddProjectDialog() {
                             )}
                             <span className="truncate">{folder.name}</span>
                             {folder.isProject && (
-                              <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0 text-primary border-primary/30">
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-1 py-0 shrink-0 text-primary border-primary/30"
+                              >
                                 project
                               </Badge>
                             )}
@@ -306,8 +338,17 @@ export default function AddProjectDialog() {
                 rows={3}
               />
             </div>
-            <Button onClick={handleScan} disabled={scanProjects.isPending} variant="outline" className="w-full">
-              {scanProjects.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FolderSearch className="h-4 w-4 mr-1" />}
+            <Button
+              onClick={handleScan}
+              disabled={scanProjects.isPending}
+              variant="outline"
+              className="w-full"
+            >
+              {scanProjects.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <FolderSearch className="h-4 w-4 mr-1" />
+              )}
               Scan Directories
             </Button>
 
@@ -330,7 +371,9 @@ export default function AddProjectDialog() {
                           <div className="text-xs text-muted-foreground truncate">{p.path}</div>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {p.techStack.map((t) => (
-                              <Badge key={t} variant="outline" className="text-[10px] px-1 py-0">{t}</Badge>
+                              <Badge key={t} variant="outline" className="text-[10px] px-1 py-0">
+                                {t}
+                              </Badge>
                             ))}
                           </div>
                         </div>
@@ -338,7 +381,11 @@ export default function AddProjectDialog() {
                     ))}
                   </div>
                 </ScrollArea>
-                <Button onClick={handleBulkAdd} disabled={selected.size === 0 || createProject.isPending} className="w-full">
+                <Button
+                  onClick={handleBulkAdd}
+                  disabled={selected.size === 0 || createProject.isPending}
+                  className="w-full"
+                >
                   {createProject.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                   Add {selected.size} Project{selected.size !== 1 ? "s" : ""}
                 </Button>

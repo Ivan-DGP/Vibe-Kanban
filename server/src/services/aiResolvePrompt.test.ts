@@ -2,7 +2,14 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { parseGitignore, shouldSkip, buildTree, rowToProject, classifyTaskProfile, estimateComplexity } from "./aiResolvePrompt";
+import {
+  parseGitignore,
+  shouldSkip,
+  buildTree,
+  rowToProject,
+  classifyTaskProfile,
+  estimateComplexity,
+} from "./aiResolvePrompt";
 
 // Create a temp directory for filesystem-based tests
 let tmpDir: string;
@@ -19,7 +26,10 @@ describe("parseGitignore", () => {
   test("parses a standard .gitignore file", () => {
     const dir = path.join(tmpDir, "gitignore-test");
     fs.mkdirSync(dir);
-    fs.writeFileSync(path.join(dir, ".gitignore"), "node_modules\ndist\n*.log\n# comment\n\n.env\n");
+    fs.writeFileSync(
+      path.join(dir, ".gitignore"),
+      "node_modules\ndist\n*.log\n# comment\n\n.env\n",
+    );
     const patterns = parseGitignore(dir);
     expect(patterns).toEqual(["node_modules", "dist", "*.log", ".env"]);
   });
@@ -178,7 +188,7 @@ describe("rowToProject", () => {
       path: "/home/user/test",
       favorite: 1,
       techStack: '["TypeScript","React"]',
-      externalLinks: '[]',
+      externalLinks: "[]",
       category: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
@@ -239,18 +249,30 @@ describe("classifyTaskProfile - AI test context", () => {
   // correctly classified for the downstream test prompt.
 
   test("classifies test-related task as feature by default", () => {
-    const task = { title: "test if the ai test session is working", description: null, prompt: null };
+    const task = {
+      title: "test if the ai test session is working",
+      description: null,
+      prompt: null,
+    };
     // A task about testing but not about docs/bug/refactor should default to "feature"
     expect(classifyTaskProfile(task)).toBe("feature");
   });
 
   test("classifies bug fix tasks correctly", () => {
-    const task = { title: "Fix crash when ai-test session has no prompt", description: "The session crashes", prompt: null };
+    const task = {
+      title: "Fix crash when ai-test session has no prompt",
+      description: "The session crashes",
+      prompt: null,
+    };
     expect(classifyTaskProfile(task)).toBe("bug-fix");
   });
 
   test("classifies refactor tasks correctly", () => {
-    const task = { title: "Refactor terminal service to extract AI chain logic", description: null, prompt: null };
+    const task = {
+      title: "Refactor terminal service to extract AI chain logic",
+      description: null,
+      prompt: null,
+    };
     expect(classifyTaskProfile(task)).toBe("refactor");
   });
 });
@@ -262,15 +284,22 @@ describe("estimateComplexity - for AI test prompt depth", () => {
   });
 
   test("medium task gets standard context", () => {
-    const task = { title: "Add ai-test icon to terminal tabs component", description: "The terminal tabs component needs an icon for ai-test sessions. Currently the SESSION_ICONS record is missing the ai-test entry.", prompt: null };
+    const task = {
+      title: "Add ai-test icon to terminal tabs component",
+      description:
+        "The terminal tabs component needs an icon for ai-test sessions. Currently the SESSION_ICONS record is missing the ai-test entry.",
+      prompt: null,
+    };
     expect(estimateComplexity(task)).toBe("medium");
   });
 
   test("large task gets full context", () => {
     const task = {
       title: "Implement full AI test chain",
-      description: "The AI test session should auto-chain after resolve. This includes building the test prompt with git diff, project context, and previous run summary.",
-      prompt: "Modify terminalService.ts to add chainAiTest function. Add buildAiTestPrompt to aiResolvePrompt.ts. The prompt should include git diff output limited to 500 lines, the task description, and any previous AI run summary from the task_ai_runs table.",
+      description:
+        "The AI test session should auto-chain after resolve. This includes building the test prompt with git diff, project context, and previous run summary.",
+      prompt:
+        "Modify terminalService.ts to add chainAiTest function. Add buildAiTestPrompt to aiResolvePrompt.ts. The prompt should include git diff output limited to 500 lines, the task description, and any previous AI run summary from the task_ai_runs table.",
     };
     expect(estimateComplexity(task)).toBe("large");
   });

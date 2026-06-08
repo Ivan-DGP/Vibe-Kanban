@@ -18,9 +18,12 @@ const milestoneRoutes: FastifyPluginAsync = async (fastify) => {
     const id = crypto.randomUUID();
     const ts = new Date().toISOString();
 
-    db.prepare(
-      "INSERT INTO milestones (id, projectId, name, createdAt) VALUES (?, ?, ?, ?)",
-    ).run(id, projectId, name, ts);
+    db.prepare("INSERT INTO milestones (id, projectId, name, createdAt) VALUES (?, ?, ?, ?)").run(
+      id,
+      projectId,
+      name,
+      ts,
+    );
 
     return db.prepare("SELECT * FROM milestones WHERE id = ?").get(id);
   });
@@ -35,9 +38,18 @@ const milestoneRoutes: FastifyPluginAsync = async (fastify) => {
     const fields: string[] = [];
     const values: any[] = [];
 
-    if (name !== undefined) { fields.push("name = ?"); values.push(name); }
-    if (status !== undefined) { fields.push("status = ?"); values.push(status); }
-    if (aiInstructions !== undefined) { fields.push("aiInstructions = ?"); values.push(aiInstructions); }
+    if (name !== undefined) {
+      fields.push("name = ?");
+      values.push(name);
+    }
+    if (status !== undefined) {
+      fields.push("status = ?");
+      values.push(status);
+    }
+    if (aiInstructions !== undefined) {
+      fields.push("aiInstructions = ?");
+      values.push(aiInstructions);
+    }
 
     if (fields.length) {
       values.push(id);

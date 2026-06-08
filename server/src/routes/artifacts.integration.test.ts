@@ -252,7 +252,7 @@ describe("Artifacts API", () => {
     const db = getDb();
     const now = new Date().toISOString();
     db.prepare(
-      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(fakeId, projectId, "ghost.md", "document", "[]", 0, "text/markdown", now, now);
 
     const res = await app.inject({
@@ -349,11 +349,13 @@ describe("Artifacts API", () => {
     // Minimal PNG: 1x1 transparent pixel
     const pngBytes = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==",
-      "base64"
+      "base64",
     );
 
     const bodyParts = Buffer.concat([
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`),
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`,
+      ),
       pngBytes,
       Buffer.from(`\r\n--${boundary}--`),
     ]);

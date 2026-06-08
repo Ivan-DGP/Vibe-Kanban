@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseClaudeOutput, getHeadlessClaudeStats } from "./headlessClaude";
+import { parseClaudeOutput, parseClaudeCost, getHeadlessClaudeStats } from "./headlessClaude";
 
 describe("parseClaudeOutput", () => {
   test("returns nulls for empty input", () => {
@@ -48,6 +48,31 @@ describe("parseClaudeOutput", () => {
     expect(parsed.sessionId).toBeNull();
     expect(parsed.summary).toBeTruthy();
     expect(parsed.summary!.length).toBeLessThanOrEqual(1000);
+  });
+});
+
+describe("parseClaudeCost", () => {
+  test("extracts total_cost_usd from a full JSON object", () => {
+    expect(parseClaudeCost(JSON.stringify({ result: "ok", total_cost_usd: 0.0234 }))).toBe(0.0234);
+  });
+
+  test("accepts cost_usd / camelCase fallbacks", () => {
+    expect(parseClaudeCost(JSON.stringify({ cost_usd: 0.01 }))).toBe(0.01);
+    expect(parseClaudeCost(JSON.stringify({ totalCostUsd: 0.5 }))).toBe(0.5);
+  });
+
+  test("scans newline-delimited JSON for the last object carrying cost", () => {
+    const lines = [
+      JSON.stringify({ type: "system" }),
+      JSON.stringify({ result: "done", total_cost_usd: 0.07 }),
+    ].join("\n");
+    expect(parseClaudeCost(lines)).toBe(0.07);
+  });
+
+  test("returns null when no cost present or input is empty", () => {
+    expect(parseClaudeCost("")).toBeNull();
+    expect(parseClaudeCost(JSON.stringify({ result: "no cost here" }))).toBeNull();
+    expect(parseClaudeCost("not json")).toBeNull();
   });
 });
 

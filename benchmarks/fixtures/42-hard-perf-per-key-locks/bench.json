@@ -1,0 +1,15 @@
+{
+  "id": "42-hard-perf-per-key-locks",
+  "title": "memo serializes unrelated keys — global in-flight lock instead of per-key",
+  "category": "performance",
+  "difficulty": "hard",
+  "prompt": "src/memo.ts implements an async memoizer. tests/regression.test.ts pins the contract: same-key concurrent calls must dedupe (the loader runs exactly once), and cached values are returned without re-invoking the loader.\n\ntests/target.test.ts adds a stronger constraint: concurrent calls for *different* keys must not block each other. The current implementation uses a single `inFlight: Promise<V> | null` shared across keys, so a slow loader for key A stalls every other key until A resolves.\n\nDesign hint: the dedupe contract on same-key calls still has to hold — your fix needs per-key in-flight tracking, not just removing the lock. The tests use deferred promises (no timing thresholds) so a correct implementation passes deterministically.\n\nDo not modify the tests. Do not add files.",
+  "targetTestPath": "tests/target.test.ts",
+  "regressionTestPath": "tests/regression.test.ts",
+  "expectedFilesChanged": ["src/memo.ts"],
+  "maxDiffLines": 40,
+  "timeoutMs": 300000,
+  "mockFix": {
+    "src/memo.ts": "type Loader<V> = () => Promise<V>;\n\nexport interface MemoOpts {\n  ttlMs?: number;\n}\n\nexport interface Memo<V> {\n  get(key: string, loader: Loader<V>): Promise<V>;\n  clear(): void;\n  size(): number;\n}\n\nexport function createMemo<V>(opts: MemoOpts = {}): Memo<V> {\n  const cache = new Map<string, { value: V; expiresAt: number }>();\n  const inFlight = new Map<string, Promise<V>>();\n\n  return {\n    async get(key: string, loader: Loader<V>): Promise<V> {\n      const now = Date.now();\n      const entry = cache.get(key);\n      if (entry && entry.expiresAt > now) return entry.value;\n\n      const existing = inFlight.get(key);\n      if (existing) return existing;\n\n      const p = (async () => {\n        try {\n          const value = await loader();\n          cache.set(key, {\n            value,\n            expiresAt: opts.ttlMs ? Date.now() + opts.ttlMs : Number.POSITIVE_INFINITY,\n          });\n          return value;\n        } finally {\n          inFlight.delete(key);\n        }\n      })();\n      inFlight.set(key, p);\n      return p;\n    },\n\n    clear(): void {\n      cache.clear();\n    },\n\n    size(): number {\n      return cache.size;\n    },\n  };\n}\n"
+  }
+}

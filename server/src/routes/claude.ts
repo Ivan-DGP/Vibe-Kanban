@@ -2,8 +2,14 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { spawnStreaming } from "../lib/runtime";
+import { tryDecrypt } from "../lib/crypto";
 import { log } from "../lib/logger";
 import { buildAnalyzePrompt, buildGatherContextPrompt } from "../services/aiResolvePrompt";
+import {
+  getHeadlessClaudeStats,
+  listActiveRuns,
+  cancelHeadlessRun,
+} from "../services/headlessClaude";
 import type { Task } from "@vibe-kanban/shared";
 
 let cliAvailableCache: boolean | null = null;
@@ -34,11 +40,15 @@ export function getApiKey(): string | null {
   const db = getDb();
   const row = db.prepare("SELECT value FROM settings WHERE key = 'claudeApiKey'").get() as any;
   if (!row) return null;
+  let value: string;
   try {
-    return JSON.parse(row.value);
+    value = JSON.parse(row.value);
   } catch {
-    return row.value;
+    value = row.value;
   }
+  if (typeof value !== "string" || !value) return null;
+  // Stored encrypted at rest; legacy plaintext (undecryptable) falls back as-is.
+  return tryDecrypt(value) ?? value;
 }
 
 const claudeRoutes: FastifyPluginAsync = async (fastify) => {
@@ -48,6 +58,56 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
       cliAvailable: await isCliAvailable(),
       apiKeyConfigured: !!getApiKey(),
     };
+  });
+
+  // Headless run queue/in-flight visibility
+  fastify.get("/claude/runs/active", async () => {
+    return { stats: getHeadlessClaudeStats(), runs: listActiveRuns() };
+  });
+
+  // Cancel an in-flight headless run
+  fastify.post("/claude/runs/:runId/cancel", async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    if (!cancelHeadlessRun(runId)) {
+      return reply.code(404).send({ error: "No active run with that id" });
+    }
+    return { ok: true, runId };
+  });
+
+  // Run history (durable task_ai_runs), filterable by task/project.
+  const RUN_COLUMNS =
+    "id, taskId, projectId, sessionId, profile, status, exitCode, success, durationMs, totalCostUsd, summary, startedAt, finishedAt, createdAt";
+
+  fastify.get("/claude/runs", async (request) => {
+    const { taskId, projectId, limit } = request.query as {
+      taskId?: string;
+      projectId?: string;
+      limit?: string;
+    };
+    const db = getDb();
+    const lim = Math.min(Math.max(parseInt(limit ?? "50") || 50, 1), 200);
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (taskId) {
+      where.push("taskId = ?");
+      params.push(taskId);
+    }
+    if (projectId) {
+      where.push("projectId = ?");
+      params.push(projectId);
+    }
+    let sql = `SELECT ${RUN_COLUMNS} FROM task_ai_runs`;
+    if (where.length) sql += " WHERE " + where.join(" AND ");
+    sql += " ORDER BY createdAt DESC LIMIT ?";
+    params.push(lim);
+    return { runs: db.prepare(sql).all(...(params as [unknown, ...unknown[]])) };
+  });
+
+  fastify.get("/claude/runs/:runId", async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const row = getDb().prepare(`SELECT ${RUN_COLUMNS} FROM task_ai_runs WHERE id = ?`).get(runId);
+    if (!row) return reply.code(404).send({ error: "Run not found" });
+    return row;
   });
 
   // SSE streaming chat
@@ -66,7 +126,9 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
       const db = getDb();
       const project = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as any;
       if (project) {
-        const tasks = db.prepare("SELECT title, status, priority FROM tasks WHERE projectId = ? LIMIT 50").all(projectId);
+        const tasks = db
+          .prepare("SELECT title, status, priority FROM tasks WHERE projectId = ? LIMIT 50")
+          .all(projectId);
         context = `Project: ${project.name}\nPath: ${project.path}\nTech: ${project.techStack}\nTasks:\n${(tasks as any[]).map((t) => `- [${t.status}] ${t.title} (${t.priority})`).join("\n")}\n\n`;
       }
     }
@@ -80,6 +142,16 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Kill process after 30s to prevent hangs
         const timeout = setTimeout(() => proc.kill(), 30_000);
+        // Kill the child if the client disconnects, so it doesn't orphan.
+        const onClose = () => {
+          clearTimeout(timeout);
+          try {
+            proc.kill();
+          } catch {
+            /* already gone */
+          }
+        };
+        reply.raw.on("close", onClose);
 
         let deltaCount = 0;
         let stderrBuf = "";
@@ -87,14 +159,17 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
           deltaCount++;
           reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
         });
-        proc.onStderr((chunk) => { stderrBuf += chunk; });
+        proc.onStderr((chunk) => {
+          stderrBuf += chunk;
+        });
 
         const exitCode = await proc.exited;
         clearTimeout(timeout);
 
         if (deltaCount === 0) {
-          const detail = stderrBuf.trim()
-            || `Claude CLI exited (code ${exitCode}) with no output. Verify the CLI works by running \`claude\` in your terminal — it may require login or hit a rate limit.`;
+          const detail =
+            stderrBuf.trim() ||
+            `Claude CLI exited (code ${exitCode}) with no output. Verify the CLI works by running \`claude\` in your terminal — it may require login or hit a rate limit.`;
           log("error", "claude", "CLI produced no output", { exitCode, stderr: stderrBuf });
           reply.raw.write(`data: ${JSON.stringify({ type: "error", message: detail })}\n\n`);
           reply.raw.end();
@@ -104,7 +179,9 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
         // Fall back to API
         const apiKey = getApiKey();
         if (!apiKey) {
-          reply.raw.write(`data: ${JSON.stringify({ type: "error", message: "No Claude CLI or API key configured" })}\n\n`);
+          reply.raw.write(
+            `data: ${JSON.stringify({ type: "error", message: "No Claude CLI or API key configured" })}\n\n`,
+          );
           reply.raw.end();
           return;
         }
@@ -143,7 +220,9 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                  reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: parsed.delta.text })}\n\n`);
+                  reply.raw.write(
+                    `data: ${JSON.stringify({ type: "delta", text: parsed.delta.text })}\n\n`,
+                  );
                 }
               } catch {}
             }
@@ -173,6 +252,15 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
       if (await isCliAvailable()) {
         const proc = spawnStreaming(["claude", "-p"], { stdinData: prompt });
         const timeout = setTimeout(() => proc.kill(), 60_000);
+        const onClose = () => {
+          clearTimeout(timeout);
+          try {
+            proc.kill();
+          } catch {
+            /* already gone */
+          }
+        };
+        reply.raw.on("close", onClose);
 
         let deltaCount = 0;
         let stderrBuf = "";
@@ -180,14 +268,17 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
           deltaCount++;
           reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: chunk })}\n\n`);
         });
-        proc.onStderr((chunk) => { stderrBuf += chunk; });
+        proc.onStderr((chunk) => {
+          stderrBuf += chunk;
+        });
 
         const exitCode = await proc.exited;
         clearTimeout(timeout);
 
         if (deltaCount === 0) {
-          const detail = stderrBuf.trim()
-            || `Claude CLI exited (code ${exitCode}) with no output. Verify the CLI works by running \`claude\` in your terminal — it may require login or hit a rate limit.`;
+          const detail =
+            stderrBuf.trim() ||
+            `Claude CLI exited (code ${exitCode}) with no output. Verify the CLI works by running \`claude\` in your terminal — it may require login or hit a rate limit.`;
           log("error", "claude", "CLI produced no output", { exitCode, stderr: stderrBuf });
           reply.raw.write(`data: ${JSON.stringify({ type: "error", message: detail })}\n\n`);
           reply.raw.end();
@@ -196,7 +287,9 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
       } else {
         const apiKey = getApiKey();
         if (!apiKey) {
-          reply.raw.write(`data: ${JSON.stringify({ type: "error", message: "No Claude CLI or API key configured" })}\n\n`);
+          reply.raw.write(
+            `data: ${JSON.stringify({ type: "error", message: "No Claude CLI or API key configured" })}\n\n`,
+          );
           reply.raw.end();
           return;
         }
@@ -235,7 +328,9 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                  reply.raw.write(`data: ${JSON.stringify({ type: "delta", text: parsed.delta.text })}\n\n`);
+                  reply.raw.write(
+                    `data: ${JSON.stringify({ type: "delta", text: parsed.delta.text })}\n\n`,
+                  );
                 }
               } catch {}
             }
@@ -257,7 +352,9 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
     const { projectId, taskId } = request.body as any;
     const db = getDb();
 
-    const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND projectId = ?").get(taskId, projectId) as Task | undefined;
+    const task = db
+      .prepare("SELECT * FROM tasks WHERE id = ? AND projectId = ?")
+      .get(taskId, projectId) as Task | undefined;
     if (!task) {
       reply.code(404);
       return { error: "Task not found" };
@@ -312,7 +409,7 @@ ${text}`;
         }),
       });
 
-      const data = await response.json() as any;
+      const data = (await response.json()) as any;
       responseText = data.content?.[0]?.text || "[]";
     }
 

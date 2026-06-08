@@ -1,0 +1,6 @@
+{
+  "name": "bench-fixture-12-hard-event-once",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

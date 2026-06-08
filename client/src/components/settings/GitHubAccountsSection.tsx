@@ -17,9 +17,15 @@ export default function GitHubAccountsSection() {
 
   const handleAdd = () => {
     if (!name.trim() || !token.trim()) return;
-    create.mutate({ name: name.trim(), token: token.trim() }, {
-      onSuccess: () => { setName(""); setToken(""); },
-    });
+    create.mutate(
+      { name: name.trim(), token: token.trim() },
+      {
+        onSuccess: () => {
+          setName("");
+          setToken("");
+        },
+      },
+    );
   };
 
   return (
@@ -32,16 +38,24 @@ export default function GitHubAccountsSection() {
             <div className="text-sm font-medium truncate">{acct.name}</div>
             {acct.username && (
               <div className="text-[11px] text-muted-foreground truncate">
-                @{acct.username}{acct.email ? ` · ${acct.email}` : ""}
+                @{acct.username}
+                {acct.email ? ` · ${acct.email}` : ""}
               </div>
             )}
           </div>
-          {acct.hasToken && <Badge variant="outline" className="text-[10px] shrink-0">Token configured</Badge>}
+          {acct.hasToken && (
+            <Badge variant="outline" className="text-[10px] shrink-0">
+              Token configured
+            </Badge>
+          )}
           <Button
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-destructive shrink-0"
-            onClick={async () => { if (await confirm({ title: "Delete Account", description: "Delete this account?" })) deleteAccount.mutate(acct.id); }}
+            onClick={async () => {
+              if (await confirm({ title: "Delete Account", description: "Delete this account?" }))
+                deleteAccount.mutate(acct.id);
+            }}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
@@ -49,10 +63,29 @@ export default function GitHubAccountsSection() {
       ))}
 
       <div className="flex gap-2">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Account name" className="flex-1" />
-        <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="GitHub token" className="flex-1" />
-        <Button size="sm" onClick={handleAdd} disabled={!name.trim() || !token.trim() || create.isPending}>
-          {create.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Account name"
+          className="flex-1"
+        />
+        <Input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="GitHub token"
+          className="flex-1"
+        />
+        <Button
+          size="sm"
+          onClick={handleAdd}
+          disabled={!name.trim() || !token.trim() || create.isPending}
+        >
+          {create.isPending ? (
+            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+          ) : (
+            <Plus className="h-4 w-4 mr-1" />
+          )}
           Add
         </Button>
       </div>
