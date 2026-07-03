@@ -54,3 +54,28 @@ export function useDeleteGraphEdge(projectId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["graph", projectId] }),
   });
 }
+
+export function useConfirmGraphNode(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.graph.confirmNode(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["graph", projectId] }),
+  });
+}
+
+export function useConfirmGraphEdge(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.graph.confirmEdge(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["graph", projectId] }),
+  });
+}
+
+export function useConfirmGraphSuggestions(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { nodeIds?: string[]; edgeIds?: string[] }) =>
+      api.graph.confirmSuggestions(projectId, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["graph", projectId] }),
+  });
+}

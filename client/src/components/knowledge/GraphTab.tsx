@@ -6,6 +6,9 @@ import {
   useDeleteGraphNode,
   useCreateGraphEdge,
   useDeleteGraphEdge,
+  useConfirmGraphNode,
+  useConfirmGraphEdge,
+  useConfirmGraphSuggestions,
 } from "@/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Link2, Unlink, Network } from "lucide-react";
+import { Plus, Trash2, Link2, Unlink, Network, Check, CheckCheck, X } from "lucide-react";
 import type { GraphNode, GraphEdge, GraphNodeType } from "@vibe-kanban/shared";
 
 const NODE_COLORS: Record<GraphNodeType, string> = {
@@ -55,6 +58,9 @@ export default function GraphTab({ projectId }: GraphTabProps) {
   const deleteNode = useDeleteGraphNode(projectId);
   const createEdge = useCreateGraphEdge(projectId);
   const deleteEdge = useDeleteGraphEdge(projectId);
+  const confirmNode = useConfirmGraphNode(projectId);
+  const confirmEdge = useConfirmGraphEdge(projectId);
+  const confirmSuggestions = useConfirmGraphSuggestions(projectId);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -222,13 +228,16 @@ export default function GraphTab({ projectId }: GraphTabProps) {
           ty = target.y ?? 0;
 
         const isWikilink = edge.type === "wikilink";
+        const isSuggested = edge.status === "suggested";
         ctx.strokeStyle =
           edge.id === currentSelected
             ? "#fff"
-            : isWikilink
-              ? "rgba(96, 165, 250, 0.55)" // blue dashed for [[wikilinks]]
-              : "rgba(148, 163, 184, 0.3)";
-        ctx.setLineDash(isWikilink ? [4, 3] : []);
+            : isSuggested
+              ? "rgba(251, 191, 36, 0.7)" // amber dashed for suggested
+              : isWikilink
+                ? "rgba(96, 165, 250, 0.55)" // blue dashed for [[wikilinks]]
+                : "rgba(148, 163, 184, 0.3)";
+        ctx.setLineDash(isSuggested ? [5, 4] : isWikilink ? [4, 3] : []);
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(tx, ty);
@@ -268,6 +277,7 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         const isSelected = currentSelected === node.id;
         const isHovered = currentHovered === node.id;
         const isLinking = currentLinking === node.id;
+        const isSuggested = node.status === "suggested";
         const color = NODE_COLORS[node.type] || "#94a3b8";
         const x = node.x ?? 0,
           y = node.y ?? 0;
@@ -278,14 +288,25 @@ export default function GraphTab({ projectId }: GraphTabProps) {
           ctx.shadowBlur = 12;
         }
 
-        // Circle
+        // Circle — suggested nodes are dimmed until confirmed
         ctx.fillStyle = isLinking ? "#fff" : color;
-        ctx.globalAlpha = isSelected ? 1 : 0.85;
+        ctx.globalAlpha = isSelected ? 1 : isSuggested ? 0.4 : 0.85;
         ctx.beginPath();
         ctx.arc(x, y, NODE_RADIUS, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.shadowBlur = 0;
+
+        // Suggested nodes get a dashed ring in their type color
+        if (isSuggested) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.arc(x, y, NODE_RADIUS + 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
 
         // Border
         if (isSelected) {
@@ -397,6 +418,23 @@ export default function GraphTab({ projectId }: GraphTabProps) {
 
   const selectedNodeData = nodes.find((n) => n.id === selectedNode);
 
+  const suggestedNodes = nodes.filter((n) => n.status === "suggested");
+  const suggestedEdges = edges.filter((e) => e.status === "suggested");
+  const suggestedCount = suggestedNodes.length + suggestedEdges.length;
+
+  const confirmAll = () =>
+    confirmSuggestions.mutate({
+      nodeIds: suggestedNodes.map((n) => n.id),
+      edgeIds: suggestedEdges.map((e) => e.id),
+    });
+
+  const dismissAll = () => {
+    if (!window.confirm(`Dismiss ${suggestedCount} suggested item(s)? This deletes them.`)) return;
+    // Delete edges first, then nodes (node deletion also cascades its edges).
+    suggestedEdges.forEach((e) => deleteEdge.mutate(e.id));
+    suggestedNodes.forEach((n) => deleteNode.mutate(n.id));
+  };
+
   if (isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
 
   return (
@@ -435,7 +473,33 @@ export default function GraphTab({ projectId }: GraphTabProps) {
             Cancel link
           </Button>
         )}
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+        {suggestedCount > 0 && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-medium">
+              {suggestedCount} suggested
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5"
+              onClick={confirmAll}
+              disabled={confirmSuggestions.isPending}
+            >
+              <CheckCheck className="h-4 w-4" /> Confirm all
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5 text-destructive"
+              onClick={dismissAll}
+            >
+              <X className="h-4 w-4" /> Dismiss all
+            </Button>
+          </div>
+        )}
+        <div
+          className={`${suggestedCount > 0 ? "" : "ml-auto"} flex items-center gap-2 text-xs text-muted-foreground`}
+        >
           <span>{nodes.length} nodes</span>
           <span>{edges.length} edges</span>
         </div>
@@ -482,20 +546,47 @@ export default function GraphTab({ projectId }: GraphTabProps) {
               — {selectedNodeData.description}
             </span>
           )}
-          {/* Show connected edges */}
+          {selectedNodeData.status === "suggested" && (
+            <>
+              <span className="text-amber-600 dark:text-amber-400 text-xs">
+                suggested{selectedNodeData.origin ? ` · ${selectedNodeData.origin}` : ""}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 gap-1 text-xs"
+                onClick={() => confirmNode.mutate(selectedNodeData.id)}
+              >
+                <Check className="h-3 w-3" /> Confirm
+              </Button>
+            </>
+          )}
+          {/* Show connected edges — suggested ones can be confirmed */}
           {edges
             .filter((e) => e.sourceNodeId === selectedNode || e.targetNodeId === selectedNode)
             .map((e) => (
-              <Button
-                key={e.id}
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                title="Remove edge"
-                onClick={() => deleteEdge.mutate(e.id)}
-              >
-                <Unlink className="h-3 w-3" />
-              </Button>
+              <span key={e.id} className="flex items-center">
+                {e.status === "suggested" && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                    title="Confirm edge"
+                    onClick={() => confirmEdge.mutate(e.id)}
+                  >
+                    <Check className="h-3 w-3" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  title="Remove edge"
+                  onClick={() => deleteEdge.mutate(e.id)}
+                >
+                  <Unlink className="h-3 w-3" />
+                </Button>
+              </span>
             ))}
         </div>
       )}

@@ -34,6 +34,32 @@ bun run check        # TypeScript typecheck both client and server
 
 Adding shadcn/ui components: `cd client && bunx shadcn@latest add <component>`
 
+## Skills (prefer these over working ad-hoc)
+
+Reach for a skill before doing the work by hand. A `UserPromptSubmit` hook also echoes routing on every prompt.
+
+**Project commands** (local, embed exact invocations — use these for this repo):
+
+- `/check` — typecheck + lint + tests (`bun run check`, `bun run lint`, `bun run --cwd server test`)
+- `/test` — server unit tests only
+
+**Workflow** (global skills):
+
+- `/spec` — new feature/spec before building
+- `/mission` — multi-feature project; phased orchestration in `.missions/` (fits the multi-feature work on this branch)
+- `/scaffold-tests` — new or untested module
+- `/code-review` — deep diff review for bugs + cleanup; `--fix` applies, `--comment` posts to PR (canonical reviewer — supersedes a plain `git diff` read)
+- `/simplify` — apply reuse/simplification/efficiency cleanups (quality only, no bug hunt)
+- `/verify` or `/run` — confirm a change works by launching the app, not just tests
+- `/sherlock` — codebase health pass
+- `/readiness` — AI-readiness audit of project setup
+- `/deep-research` — multi-source, fact-checked research report
+
+**Security** (run on auth, input parsing, secrets, dep changes, or pre-release):
+
+- `/vuln-scan` → `/triage` → fix via `/patch`
+- `/threat-model` — bootstrap `THREAT_MODEL.md` if missing
+
 ## Architecture
 
 **Bun workspace monorepo** with three packages: `client/` (React SPA), `server/` (Fastify API), `shared/` (TypeScript types). The Vite dev server proxies `/api`, `/ws`, `/mcp` to the Fastify backend on port 3001.

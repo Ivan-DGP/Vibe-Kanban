@@ -227,6 +227,31 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
     return (rows as any[]).map(rowToProject);
   });
 
+  // Resolve a filesystem path to the project that owns it (exact match, else
+  // nearest ancestor). Lets external tools (e.g. the brain skill) map a working
+  // directory to its VK project. Static route — Fastify ranks it above /:id.
+  fastify.get("/projects/resolve", async (request, reply) => {
+    const { path: queryPath } = request.query as { path?: string };
+    if (!queryPath) return reply.code(400).send({ error: "path query param required" });
+    const target = path.resolve(queryPath);
+    const rows = db.prepare("SELECT id, path FROM projects").all() as {
+      id: string;
+      path: string;
+    }[];
+    let best: { id: string; path: string } | null = null;
+    let bestLen = -1;
+    for (const row of rows) {
+      const projPath = path.resolve(row.path);
+      const isMatch = target === projPath || target.startsWith(projPath + path.sep);
+      if (isMatch && projPath.length > bestLen) {
+        best = row;
+        bestLen = projPath.length;
+      }
+    }
+    if (!best) return reply.code(404).send({ error: "No project found for path" });
+    return { projectId: best.id };
+  });
+
   // Get project
   fastify.get("/projects/:id", async (request, reply) => {
     const { id } = request.params as any;

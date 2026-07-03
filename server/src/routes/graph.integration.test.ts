@@ -236,3 +236,183 @@ describe("Knowledge Graph API", () => {
     expect(graphRes.json().nodes.length).toBe(0);
   });
 });
+
+describe("Graph status + confirm", () => {
+  let pid: string;
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Status Test ${Date.now()}`, path: `/tmp/status-test-${Date.now()}` },
+    });
+    pid = res.json().id;
+  });
+
+  afterAll(async () => {
+    if (pid) await app.inject({ method: "DELETE", url: `/api/projects/${pid}` });
+  });
+
+  test("created node defaults to status 'confirmed' with null origin", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/nodes`,
+      headers: { "Content-Type": "application/json" },
+      payload: { label: "Default Node" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("confirmed");
+    expect(res.json().origin).toBeNull();
+  });
+
+  test("confirm node sets status 'confirmed'", async () => {
+    const create = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/nodes`,
+      headers: { "Content-Type": "application/json" },
+      payload: { label: "Confirm Me" },
+    });
+    const nodeId = create.json().id;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/graph/nodes/${nodeId}/confirm`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("confirmed");
+  });
+
+  test("confirm node — 404 for missing", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/graph/nodes/nope/confirm" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test("confirm edge — 404 for missing", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/graph/edges/nope/confirm" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test("bulk confirm returns counts scoped to project", async () => {
+    const a = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/nodes`,
+      headers: { "Content-Type": "application/json" },
+      payload: { label: "Bulk A" },
+    });
+    const b = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/nodes`,
+      headers: { "Content-Type": "application/json" },
+      payload: { label: "Bulk B" },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/confirm`,
+      headers: { "Content-Type": "application/json" },
+      payload: { nodeIds: [a.json().id, b.json().id, "missing"], edgeIds: [] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().nodesConfirmed).toBe(2);
+    expect(res.json().edgesConfirmed).toBe(0);
+  });
+});
+
+describe("Graph write API (upsert + batch)", () => {
+  let pid: string;
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Write Test ${Date.now()}`, path: `/tmp/write-test-${Date.now()}` },
+    });
+    pid = res.json().id;
+  });
+
+  afterAll(async () => {
+    if (pid) await app.inject({ method: "DELETE", url: `/api/projects/${pid}` });
+  });
+
+  const createNode = (payload: Record<string, unknown>) =>
+    app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/nodes`,
+      headers: { "Content-Type": "application/json" },
+      payload,
+    });
+
+  test("node create is idempotent on (slug(label), type)", async () => {
+    const first = await createNode({ label: "Repeat Concept", type: "concept" });
+    const second = await createNode({ label: "repeat concept", type: "concept" }); // same slug
+    expect(second.json().id).toBe(first.json().id);
+
+    const graph = await app.inject({ method: "GET", url: `/api/projects/${pid}/graph` });
+    const matches = graph.json().nodes.filter((n: { label: string }) => /repeat concept/i.test(n.label));
+    expect(matches.length).toBe(1);
+  });
+
+  test("different type with same label is a distinct node", async () => {
+    const a = await createNode({ label: "Polymorph", type: "concept" });
+    const b = await createNode({ label: "Polymorph", type: "system" });
+    expect(b.json().id).not.toBe(a.json().id);
+  });
+
+  test("create accepts status + origin", async () => {
+    const res = await createNode({
+      label: "Suggested Node",
+      status: "suggested",
+      origin: "brain:capture",
+    });
+    expect(res.json().status).toBe("suggested");
+    expect(res.json().origin).toBe("brain:capture");
+  });
+
+  test("batch auto-creates missing edge endpoints as suggested + dedupes", async () => {
+    const batch = {
+      nodes: [{ label: "Alpha", type: "concept" }],
+      edges: [{ source: "Alpha", target: "Beta", type: "related", origin: "brain:capture" }],
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: batch,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // Alpha + auto-created Beta
+    expect(body.nodesCreated).toBe(2);
+    expect(body.edgesCreated).toBe(1);
+    const beta = body.nodes.find((n: { label: string }) => n.label === "Beta");
+    expect(beta.status).toBe("suggested");
+    expect(body.edges[0].status).toBe("suggested");
+
+    // Re-running the identical batch is a no-op (nodes deduped, edge deduped).
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: batch,
+    });
+    expect(again.json().nodesCreated).toBe(0);
+    expect(again.json().edgesCreated).toBe(0);
+  });
+
+  test("suggested node from batch can be confirmed", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${pid}/graph/batch`,
+      headers: { "Content-Type": "application/json" },
+      payload: { nodes: [{ label: "Gamma" }], edges: [] },
+    });
+    const gamma = res.json().nodes.find((n: { label: string }) => n.label === "Gamma");
+    expect(gamma.status).toBe("suggested");
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: `/api/graph/nodes/${gamma.id}/confirm`,
+    });
+    expect(confirm.json().status).toBe("confirmed");
+  });
+});
