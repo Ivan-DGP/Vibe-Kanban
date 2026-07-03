@@ -6,7 +6,18 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Search, Settings2, Plus, Download, Loader2, BarChart3, Zap } from "lucide-react";
+import {
+  Search,
+  Settings2,
+  Plus,
+  Download,
+  Loader2,
+  BarChart3,
+  Zap,
+  MessageSquare,
+} from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import AIChatPanel from "@/components/ai/AIChatPanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +58,7 @@ export default function KanbanToolbar({
   projectName,
 }: KanbanToolbarProps) {
   const [milestoneManagerOpen, setMilestoneManagerOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [sizeDialogOpen, setSizeDialogOpen] = useState(false);
   const [sizeLoading, setSizeLoading] = useState(false);
   const [sizeResult, setSizeResult] = useState("");
@@ -239,12 +251,33 @@ Be direct and practical. Output plain text, no markdown headers.`;
             </Button>
           )}
 
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => setChatOpen(true)}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Chat
+          </Button>
+
           <Button size="sm" className="h-8 gap-1.5" onClick={onNewTask}>
             <Plus className="h-3.5 w-3.5" />
             New Task
           </Button>
         </div>
       </div>
+
+      <Sheet open={chatOpen} onOpenChange={setChatOpen}>
+        <SheetContent side="right" className="w-[480px] sm:max-w-[480px] p-0 flex flex-col">
+          <SheetHeader className="px-3 py-2 border-b">
+            <SheetTitle className="text-sm">Chat — project context</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 min-h-0">
+            <AIChatPanel projectId={projectId} />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <MilestoneManagerDialog
         open={milestoneManagerOpen}
