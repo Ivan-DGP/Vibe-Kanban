@@ -2,6 +2,7 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { buildAiResolvePromptWithGrounding, buildAiTestPrompt } from "./aiResolvePrompt";
 import { spawnPty as runtimeSpawnPty, spawnProcessSync } from "../lib/runtime";
+import { parseRateLimit, isAutoResumeEnabled, getResumeFallbackMs } from "./headlessClaude";
 import type { PtyHandle } from "../lib/runtime";
 import type {
   TerminalSessionType,
@@ -217,6 +218,11 @@ export function resolveClaudeCmd(safeEnv: Record<string, string>): string {
   return "claude";
 }
 
+// Distinctive Claude usage-limit phrasings — stricter than the generic detector so
+// a task whose output merely mentions "rate limit" doesn't get mis-parked.
+const PTY_LIMIT_RX =
+  /(claude )?(ai )?usage limit reached|you'?ve reached your usage limit|your limit will reset at|\b5-?hour limit reached|limit reached\|\d{10}/i;
+
 function spawnAiResolve(
   session: PtySession,
   prompt: string,
@@ -225,17 +231,52 @@ function spawnAiResolve(
 ): void {
   const { id } = session;
   const claudeCmd = resolveClaudeCmd(safeEnv);
+  const autoResume = isAutoResumeEnabled();
+  // A known session id we can later resume with `claude -p --resume <id>`. The CLI
+  // never surfaces the auto-generated id, so we pin it up front.
+  const claudeSessionId = crypto.randomUUID();
+  const parkRunId = crypto.randomUUID();
+  const startedAt = new Date().toISOString();
 
   log("info", "terminal", `AI resolve [${id}]: spawning ${claudeCmd} with prompt as argument`);
 
-  const pty = runtimeSpawnPty(claudeCmd, ["--dangerously-skip-permissions", prompt], {
-    cwd: session.cwd,
-    env: safeEnv,
-    cols: opts.cols ?? 80,
-    rows: opts.rows ?? 24,
+  const pty = runtimeSpawnPty(
+    claudeCmd,
+    ["--session-id", claudeSessionId, "--dangerously-skip-permissions", prompt],
+    {
+      cwd: session.cwd,
+      env: safeEnv,
+      cols: opts.cols ?? 80,
+      rows: opts.rows ?? 24,
+    },
+  );
+
+  // Watch the stream for a usage-limit hit so we can park + auto-resume instead of
+  // ending the run. Interactive claude may sit at the prompt after the limit, so we
+  // proactively kill it once detected (onExit then parks the run).
+  let limitTail = "";
+  let parked: { resumeAt: Date } | null = null;
+
+  pty.onData((data) => {
+    emitData(session, data);
+    if (autoResume && !parked && session.taskId && session.projectId) {
+      limitTail = (limitTail + data).slice(-4000);
+      if (PTY_LIMIT_RX.test(limitTail)) {
+        const rl = parseRateLimit(limitTail, "");
+        parked = { resumeAt: rl.resumeAt ?? new Date(Date.now() + getResumeFallbackMs()) };
+        emitData(
+          session,
+          "\r\n\x1b[33m⏸ Usage limit reached — Vibe Kanban will auto-resume this task when your window resets (see the task's AI Runs panel for the countdown).\x1b[0m\r\n",
+        );
+        try {
+          pty.kill();
+        } catch {
+          /* already gone */
+        }
+      }
+    }
   });
 
-  pty.onData((data) => emitData(session, data));
   pty.onExit((exitCode) => {
     log("info", "terminal", `AI resolve [${id}]: exited with code ${exitCode}`);
     session.alive = false;
@@ -245,11 +286,36 @@ function spawnAiResolve(
     if (session.taskId && session.projectId) {
       try {
         const db = getDb();
+        const grounded = JSON.stringify(session.groundedArtifacts ?? []);
+
+        // Usage limit → park as 'waiting_limit'. The resume scheduler continues the
+        // same session headlessly (`claude -p --resume <id>`) when the window resets.
+        if (parked) {
+          db.prepare(
+            `INSERT INTO task_ai_runs
+               (id, taskId, projectId, sessionId, profile, complexity, status, startedAt,
+                resumeAt, resumeReason, resumeAttempts, runMode, groundedArtifacts)
+             VALUES (?, ?, ?, ?, 'auto', 'medium', 'waiting_limit', ?, ?, 'usage-limit', 1, 'in_place', ?)`,
+          ).run(
+            parkRunId,
+            session.taskId,
+            session.projectId,
+            claudeSessionId,
+            startedAt,
+            parked.resumeAt.toISOString(),
+            grounded,
+          );
+          log("info", "terminal", `AI resolve [${id}]: parked for usage-limit auto-resume`, {
+            runId: parkRunId,
+            resumeAt: parked.resumeAt.toISOString(),
+          });
+          sessions.delete(id);
+          return; // do NOT chain a test on a paused run
+        }
+
         const code = exitCode ?? 1;
         const task = db.prepare("SELECT status FROM tasks WHERE id = ?").get(session.taskId) as any;
         const success = task?.status === "done" || code === 0;
-        // O6: persist the knowledge artifacts that grounded this run's prompt.
-        const grounded = JSON.stringify(session.groundedArtifacts ?? []);
         db.prepare(
           `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, groundedArtifacts)
            VALUES (?, ?, ?, ?, 'auto', 'medium', ?, ?, ?)`,

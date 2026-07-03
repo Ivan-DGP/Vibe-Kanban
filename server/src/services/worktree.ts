@@ -60,7 +60,7 @@ async function withGitLock<T>(projectId: string, fn: () => Promise<T>): Promise<
   }
 }
 
-function worktreeDirFor(projectId: string, runId: string): string {
+export function worktreeDirFor(projectId: string, runId: string): string {
   return path.join(getDataDir(), "worktrees", assertSafeSegment(projectId, "projectId"), runId);
 }
 
@@ -147,6 +147,76 @@ export async function finalizeWorktreeSuccess(input: {
       log("error", "claude", "failed to record task.branch", { error: String(e) });
     }
     log("info", "claude", "run worktree finalized to branch", { branch: input.branch });
+  });
+}
+
+/**
+ * Commit work-in-progress to the run's branch when a run is PARKED for usage-limit
+ * auto-resume, so partial work survives even if the worktree dir is later lost.
+ * Mirrors finalizeWorktreeSuccess's identity + --no-verify, but does NOT remove
+ * the worktree or record the branch on the task — the run will resume in this same
+ * tree. A "nothing to commit" non-zero exit is fine (already committed / no changes).
+ */
+export async function checkpointWorktree(input: {
+  projectId: string;
+  dir: string;
+  runId: string;
+}): Promise<void> {
+  await withGitLock(input.projectId, async () => {
+    await git(input.dir, ["add", "-A"]).catch(() => undefined);
+    await git(input.dir, [
+      "-c",
+      "user.name=vibe-kanban",
+      "-c",
+      "user.email=vibe-kanban@local",
+      "commit",
+      "-m",
+      `vk: checkpoint (usage limit) ${input.runId.slice(0, 8)}`,
+      "--no-verify",
+    ]).catch(() => undefined);
+    log("info", "claude", "run worktree checkpointed (usage limit)", { dir: input.dir });
+  });
+}
+
+/**
+ * Reattach a parked run's worktree for resume. If the dir still exists and is a
+ * registered worktree, returns it as-is. If only the branch survived (dir was
+ * deleted/pruned), re-registers a worktree pointing at the EXISTING branch
+ * (no -b — checkpointWorktree committed the WIP to it). Returns null when neither
+ * the dir nor the branch can be recovered; the caller then degrades to a fresh
+ * worktree (WIP lost).
+ */
+export async function reviveWorktree(input: {
+  projectPath: string;
+  projectId: string;
+  dir: string;
+  branch: string;
+}): Promise<RunWorktree | null> {
+  if (!worktreesEnabled()) return null;
+  if (!isGitRepo(input.projectPath)) return null;
+  return withGitLock(input.projectId, async () => {
+    if (fs.existsSync(input.dir)) {
+      const list = await git(input.projectPath, ["worktree", "list", "--porcelain"]).catch(
+        () => null,
+      );
+      if (list && list.exitCode === 0 && list.stdout.includes(input.dir)) {
+        return { branch: input.branch, dir: input.dir };
+      }
+      // Dir present but unregistered (pruned) — clear it so `worktree add` recreates.
+      fs.rmSync(input.dir, { recursive: true, force: true });
+    }
+    await git(input.projectPath, ["worktree", "prune"]).catch(() => undefined);
+    fs.mkdirSync(path.dirname(input.dir), { recursive: true });
+    const res = await git(input.projectPath, ["worktree", "add", input.dir, input.branch]);
+    if (res.exitCode !== 0) {
+      log("warn", "claude", "reviveWorktree failed (branch gone?)", {
+        branch: input.branch,
+        stderr: res.stderr.slice(-300),
+      });
+      return null;
+    }
+    log("info", "claude", "revived run worktree", { branch: input.branch, dir: input.dir });
+    return { branch: input.branch, dir: input.dir };
   });
 }
 

@@ -10,6 +10,7 @@ import {
   listActiveRuns,
   cancelHeadlessRun,
 } from "../services/headlessClaude";
+import { scheduleResume } from "../services/resumeScheduler";
 import type { Task } from "@vibe-kanban/shared";
 
 let cliAvailableCache: boolean | null = null;
@@ -65,7 +66,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
     return { stats: getHeadlessClaudeStats(), runs: listActiveRuns() };
   });
 
-  // Cancel an in-flight headless run
+  // Cancel an in-flight headless run (also cancels a parked 'waiting_limit' run).
   fastify.post("/claude/runs/:runId/cancel", async (request, reply) => {
     const { runId } = request.params as { runId: string };
     if (!cancelHeadlessRun(runId)) {
@@ -74,9 +75,23 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
     return { ok: true, runId };
   });
 
+  // Manual "Resume now" — make a parked ('waiting_limit') run due immediately and
+  // nudge the sweeper. 404 if the run isn't parked.
+  fastify.post("/claude/runs/:runId/resume", async (request, reply) => {
+    const { runId } = request.params as { runId: string };
+    const res = getDb()
+      .prepare("UPDATE task_ai_runs SET resumeAt = ? WHERE id = ? AND status = 'waiting_limit'")
+      .run(new Date().toISOString(), runId);
+    if (!(res as { changes?: number })?.changes) {
+      return reply.code(404).send({ error: "No parked run with that id" });
+    }
+    scheduleResume();
+    return { ok: true, runId };
+  });
+
   // Run history (durable task_ai_runs), filterable by task/project.
   const RUN_COLUMNS =
-    "id, taskId, projectId, sessionId, profile, status, exitCode, success, durationMs, totalCostUsd, summary, startedAt, finishedAt, createdAt";
+    "id, taskId, projectId, sessionId, profile, status, exitCode, success, durationMs, totalCostUsd, summary, startedAt, finishedAt, createdAt, resumeAt, resumeReason, resumeAttempts";
 
   fastify.get("/claude/runs", async (request) => {
     const { taskId, projectId, limit } = request.query as {

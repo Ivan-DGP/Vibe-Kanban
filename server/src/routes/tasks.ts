@@ -11,6 +11,8 @@ import {
 } from "../services/aiResolvePrompt";
 import { maybeSpawnForTask } from "../services/taskSpawner";
 import { embedTaskInBackground } from "../services/taskEmbedder";
+import { discardWorktree, worktreeDirFor } from "../services/worktree";
+import fs from "node:fs";
 import type { Task, TaskStatus, GroundedArtifact, TaskAiRun } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -421,11 +423,54 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
     if (!existing) return reply.code(404).send({ error: "Task not found" });
 
+    // Best-effort: discard any worktrees this task's runs left on disk. Normal
+    // completed runs already removed theirs, but a parked ('waiting_limit') or
+    // hard-crashed run persists its tree under data/worktrees/<projectId>/<runId>.
+    // The task_ai_runs rows cascade-delete with the task, so read them first.
+    cleanupTaskWorktrees(id, existing.projectId);
+
     db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
     log("info", "tasks", `Task deleted: ${existing.title}`);
     writeTaskSnapshot(existing.projectId);
     return reply.code(204).send();
   });
+
+  function cleanupTaskWorktrees(taskId: string, projectId: string): void {
+    try {
+      const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as
+        | { path: string | null }
+        | undefined;
+      const runs = db
+        .prepare("SELECT id, worktreeDir, worktreeBranch FROM task_ai_runs WHERE taskId = ?")
+        .all(taskId) as { id: string; worktreeDir: string | null; worktreeBranch: string | null }[];
+      for (const r of runs) {
+        let dir = r.worktreeDir;
+        if (!dir) {
+          try {
+            dir = worktreeDirFor(projectId, r.id);
+          } catch {
+            dir = null;
+          }
+        }
+        if (!dir || !fs.existsSync(dir)) continue;
+        const branch = r.worktreeBranch ?? `vk/${taskId.slice(0, 8)}-${r.id.slice(0, 8)}`;
+        if (project?.path) {
+          void discardWorktree({ projectPath: project.path, projectId, dir, branch }).catch(
+            () => undefined,
+          );
+        } else {
+          // No repo path — just remove the directory.
+          try {
+            fs.rmSync(dir, { recursive: true, force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+    } catch {
+      /* best-effort GC — never block the delete */
+    }
+  }
 
   // Reorder tasks
   fastify.patch("/tasks/reorder", async (request) => {
