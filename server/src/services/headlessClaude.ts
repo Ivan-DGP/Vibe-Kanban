@@ -13,9 +13,12 @@ import {
   createRunWorktree,
   finalizeWorktreeSuccess,
   discardWorktree,
+  checkpointWorktree,
+  reviveWorktree,
   type RunWorktree,
 } from "./worktree";
 import { setRunCwd, clearRunCwd } from "./runContext";
+import { readUsageResetFromCache } from "../lib/usageCache";
 
 export interface HeadlessClaudeOptions {
   prompt: string;
@@ -32,6 +35,17 @@ export interface HeadlessClaudeOptions {
    * to a fresh UUID when omitted.
    */
   runId?: string;
+  // ── Usage-limit auto-resume (set by resumeScheduler when resuming a parked run) ──
+  /** Resume an existing Claude session: splices `--resume <id>` into the cmd. */
+  resumeSessionId?: string;
+  /** Reuse a parked run's worktree instead of creating a fresh one. */
+  existingWorktree?: { dir: string; branch: string } | null;
+  /** In-place (non-worktree) resume: re-acquire the project lock, run in cwd. */
+  inPlaceResume?: boolean;
+  /** First-attempt pre-spawn SHA so verifiers diff the whole change, not the delta. */
+  baselineSha?: string | null;
+  /** Resume attempt count carried from the parked row; guards the re-park cap. */
+  resumeAttempts?: number;
 }
 
 export interface HeadlessClaudeResult {
@@ -40,6 +54,8 @@ export interface HeadlessClaudeResult {
   sessionId: string | null;
   durationMs: number;
   runId: string;
+  /** True when the run was parked for usage-limit auto-resume — NOT terminal. */
+  parked?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = (() => {
@@ -50,6 +66,40 @@ const CONCURRENCY_CAP = (() => {
   const fromEnv = Number(process.env.VK_HEADLESS_CLAUDE_CONCURRENCY);
   return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 3;
 })();
+
+// ── Usage-limit auto-resume config ────────────────────────────
+/** Kill switch: when false, a usage-limit hit is marked 'failed' as before. */
+function autoResumeEnabled(): boolean {
+  const v = (process.env.VK_AUTORESUME_ENABLED ?? "").toLowerCase();
+  return v !== "0" && v !== "false";
+}
+/** Wait when the reset time is unknown (epoch/cache parse failed). */
+const RESUME_FALLBACK_MS = (() => {
+  const fromEnv = Number(process.env.VK_RESUME_FALLBACK_MS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 30 * 60 * 1000;
+})();
+/** Re-park cap: stop auto-resuming after this many attempts and fail the run. */
+const MAX_RESUME_ATTEMPTS = (() => {
+  const fromEnv = Number(process.env.VK_RESUME_MAX_ATTEMPTS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? Math.floor(fromEnv) : 12;
+})();
+
+export function isAutoResumeEnabled(): boolean {
+  return autoResumeEnabled();
+}
+export function getResumeMaxAttempts(): number {
+  return MAX_RESUME_ATTEMPTS;
+}
+export function getResumeFallbackMs(): number {
+  return RESUME_FALLBACK_MS;
+}
+
+// Optional hook the resume scheduler registers so a freshly-parked run can nudge
+// the sweeper. Decouples headlessClaude from resumeScheduler (no circular import).
+let resumeNudge: (() => void) | null = null;
+export function setResumeNudge(fn: (() => void) | null): void {
+  resumeNudge = fn;
+}
 
 let inFlight = 0;
 const queue: (() => void)[] = [];
@@ -105,13 +155,64 @@ interface ActiveRun {
 }
 const activeRuns = new Map<string, ActiveRun>();
 
-/** Cancel an in-flight run by id. Returns false if no such run is active. */
+/**
+ * Cancel a run by id. Aborts the live process if in-flight; otherwise cancels a
+ * parked ('waiting_limit') run so a user can abort a run that's only waiting for
+ * the usage window to reset. Returns false if neither applies.
+ */
 export function cancelHeadlessRun(runId: string): boolean {
   const run = activeRuns.get(runId);
-  if (!run) return false;
-  log("info", "claude", "headless run cancel requested", { runId, taskId: run.taskId });
-  run.controller.abort();
-  return true;
+  if (run) {
+    log("info", "claude", "headless run cancel requested", { runId, taskId: run.taskId });
+    run.controller.abort();
+    return true;
+  }
+  return cancelParkedRun(runId);
+}
+
+/** Cancel a parked run (status='waiting_limit') and discard its worktree. */
+function cancelParkedRun(runId: string): boolean {
+  try {
+    const db = getDb();
+    const row = db
+      .prepare(
+        "SELECT projectId, worktreeDir, worktreeBranch FROM task_ai_runs WHERE id = ? AND status = 'waiting_limit'",
+      )
+      .get(runId) as
+      | { projectId: string; worktreeDir: string | null; worktreeBranch: string | null }
+      | undefined;
+    if (!row) return false;
+    const res = db
+      .prepare(
+        "UPDATE task_ai_runs SET status = 'canceled', finishedAt = ?, resumeAt = NULL WHERE id = ? AND status = 'waiting_limit'",
+      )
+      .run(new Date().toISOString(), runId);
+    if (!(res as { changes?: number })?.changes) return false; // claimed by a sweep meanwhile
+    log("info", "claude", "parked run canceled", { runId });
+    if (row.worktreeDir)
+      void discardParkedWorktree(row.projectId, row.worktreeDir, row.worktreeBranch);
+    return true;
+  } catch (e) {
+    log("error", "claude", "cancelParkedRun failed", { runId, error: String(e) });
+    return false;
+  }
+}
+
+/** Best-effort discard of a parked run's worktree + branch (looks up the repo path). */
+async function discardParkedWorktree(
+  projectId: string,
+  dir: string,
+  branch: string | null,
+): Promise<void> {
+  try {
+    const proj = getDb().prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as
+      | { path: string | null }
+      | undefined;
+    if (!proj?.path) return;
+    await discardWorktree({ projectPath: proj.path, projectId, dir, branch: branch ?? "" });
+  } catch (e) {
+    log("error", "claude", "discardParkedWorktree failed", { projectId, dir, error: String(e) });
+  }
 }
 
 export function listActiveRuns(): {
@@ -141,11 +242,30 @@ export function cancelAllHeadlessRuns(): void {
 export function markInterruptedRuns(): void {
   try {
     const db = getDb();
+    const now = new Date().toISOString();
+    // 1) A resume that was claimed (waiting_limit→running) but whose process died
+    //    mid-flight is RE-ARMED to 'waiting_limit' (not failed) so the boot sweep
+    //    retries it and its worktree isn't leaked. Discriminator: a 'running' row
+    //    carrying resume metadata (worktreeDir + resumeReason) under the attempt
+    //    cap. Must run BEFORE the blanket fail below.
+    let rearmed = 0;
+    if (autoResumeEnabled()) {
+      const res = db
+        .prepare(
+          `UPDATE task_ai_runs SET status = 'waiting_limit', resumeAt = ?
+           WHERE status = 'running' AND resumeReason IS NOT NULL
+                 AND worktreeDir IS NOT NULL AND resumeAttempts < ?`,
+        )
+        .run(now, MAX_RESUME_ATTEMPTS);
+      rearmed = (res as { changes?: number })?.changes ?? 0;
+    }
+    // 2) Everything else still 'running' had no live process — mark it failed.
     const res = db
       .prepare("UPDATE task_ai_runs SET status = 'failed', finishedAt = ? WHERE status = 'running'")
-      .run(new Date().toISOString());
-    const changes = (res as { changes?: number })?.changes ?? 0;
-    if (changes > 0) log("warn", "claude", `marked ${changes} interrupted task_ai_run(s) failed`);
+      .run(now);
+    const failed = (res as { changes?: number })?.changes ?? 0;
+    if (rearmed > 0) log("warn", "claude", `re-armed ${rearmed} interrupted resume(s)`);
+    if (failed > 0) log("warn", "claude", `marked ${failed} interrupted task_ai_run(s) failed`);
   } catch (e) {
     log("error", "claude", "failed to reconcile interrupted runs", { error: String(e) });
   }
@@ -222,12 +342,105 @@ export function parseClaudeCost(stdout: string): number | null {
   return null;
 }
 
+export interface RateLimitInfo {
+  /** True when the output indicates a subscription usage / rate limit was hit. */
+  limited: boolean;
+  /** When the window resets (epoch in output → usage cache → null). */
+  resumeAt: Date | null;
+  /** Short label, e.g. "usage-limit". */
+  reason: string | null;
+}
+
+const LIMIT_RX =
+  /(usage limit reached|rate limit|5-?hour limit|hit your (usage )?limit|too many requests)/i;
+// Claude CLI sometimes emits a pipe-delimited reset epoch: "...usage limit reached|1719150000".
+const EPOCH_RX = /limit reached\|(\d{10})/i;
+
+/**
+ * Detect whether a finished run hit the subscription usage limit and, if so,
+ * when the window resets. Reset-time precedence: (1) epoch embedded in the
+ * output → (2) the undocumented usage cache → (3) null (caller polls). Prefers
+ * the structured JSON result (is_error/subtype) when stdout parses as JSON.
+ */
+export function parseRateLimit(stdout: string, stderr: string): RateLimitInfo {
+  const blob = `${stdout}\n${stderr}`;
+  let text = blob;
+  try {
+    const j = JSON.parse(stdout.trim());
+    if (j && (j.is_error || j.subtype)) text = `${j.result ?? ""} ${j.error ?? ""} ${blob}`;
+  } catch {
+    // streaming-json / plain text — fall back to the raw blob
+  }
+  if (!LIMIT_RX.test(text)) return { limited: false, resumeAt: null, reason: null };
+
+  let resumeAt: Date | null = null;
+  const epoch = text.match(EPOCH_RX);
+  if (epoch) {
+    const d = new Date(Number(epoch[1]) * 1000);
+    if (!Number.isNaN(d.getTime())) resumeAt = d;
+  }
+  if (!resumeAt) resumeAt = readUsageResetFromCache();
+  return { limited: true, resumeAt, reason: "usage-limit" };
+}
+
+export interface ParkRunInput {
+  runId: string;
+  sessionId: string | null;
+  summary: string | null;
+  totalCostUsd: number | null;
+  resumeAt: Date;
+  reason: string | null;
+  /** Isolated worktree to keep across the pause, or null for in-place runs. */
+  worktree: { dir: string; branch: string } | null;
+  /** First-attempt baseline SHA (COALESCEd so it's only set once). */
+  baselineSha: string | null;
+}
+
+/**
+ * Park a run for usage-limit auto-resume: flip its row to 'waiting_limit', persist
+ * the resume schedule + worktree, and nudge the sweeper. Shared by the headless
+ * path and the interactive AI-resolve PTY path so both park identically.
+ */
+export function parkRun(input: ParkRunInput): void {
+  try {
+    getDb()
+      .prepare(
+        `UPDATE task_ai_runs
+         SET status = 'waiting_limit', sessionId = ?, summary = ?, totalCostUsd = ?,
+             resumeAt = ?, resumeReason = ?, resumeAttempts = resumeAttempts + 1,
+             worktreeDir = ?, worktreeBranch = ?, runMode = ?,
+             baselineSha = COALESCE(baselineSha, ?)
+         WHERE id = ?`,
+      )
+      .run(
+        input.sessionId,
+        input.summary,
+        input.totalCostUsd,
+        input.resumeAt.toISOString(),
+        input.reason,
+        input.worktree?.dir ?? null,
+        input.worktree?.branch ?? null,
+        input.worktree ? "worktree" : "in_place",
+        input.baselineSha,
+        input.runId,
+      );
+  } catch (e) {
+    log("error", "claude", "failed to park run for resume", {
+      runId: input.runId,
+      error: String(e),
+    });
+  }
+  if (resumeNudge) resumeNudge();
+}
+
 export async function spawnHeadlessClaude(
   opts: HeadlessClaudeOptions,
 ): Promise<HeadlessClaudeResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const profile = opts.profile ?? "headless";
   const runId = opts.runId ?? crypto.randomUUID();
+  // A resume reuses the parked run's row id, so we update rather than insert.
+  const isResume = !!(opts.resumeSessionId || opts.existingWorktree || opts.inPlaceResume);
 
   await acquireSlot();
   const started = Date.now();
@@ -248,42 +461,96 @@ export async function spawnHeadlessClaude(
   let runCwd = opts.cwd;
 
   // Insert the run row as 'running' up front so it's visible/recoverable while
-  // the (possibly long) process executes.
+  // the (possibly long) process executes. On resume the row already exists
+  // (parked) — flip it back to 'running' instead of inserting a duplicate id.
   try {
-    getDb()
-      .prepare(
-        `INSERT INTO task_ai_runs (id, taskId, projectId, profile, complexity, status, startedAt)
-         VALUES (?, ?, ?, ?, ?, 'running', ?)`,
-      )
-      .run(runId, opts.taskId, opts.projectId, profile, "medium", new Date(started).toISOString());
+    if (isResume) {
+      getDb().prepare("UPDATE task_ai_runs SET status = 'running' WHERE id = ?").run(runId);
+    } else {
+      getDb()
+        .prepare(
+          `INSERT INTO task_ai_runs (id, taskId, projectId, profile, complexity, status, startedAt)
+           VALUES (?, ?, ?, ?, ?, 'running', ?)`,
+        )
+        .run(
+          runId,
+          opts.taskId,
+          opts.projectId,
+          profile,
+          "medium",
+          new Date(started).toISOString(),
+        );
+    }
   } catch (e) {
-    log("error", "claude", `failed to insert running task_ai_run`, { runId, error: String(e) });
+    log("error", "claude", `failed to record running task_ai_run`, { runId, error: String(e) });
   }
 
   try {
-    worktree = await createRunWorktree({
-      projectPath: opts.cwd,
-      projectId: opts.projectId,
-      taskId: opts.taskId,
-      runId,
-    });
-    if (worktree) {
-      runCwd = worktree.dir;
-    } else {
-      // In-place fallback: serialize runs for this project.
+    if (opts.existingWorktree) {
+      // RESUME: reuse the parked tree. NEVER call createRunWorktree (it rm's the dir).
+      worktree = await reviveWorktree({
+        projectPath: opts.cwd,
+        projectId: opts.projectId,
+        dir: opts.existingWorktree.dir,
+        branch: opts.existingWorktree.branch,
+      });
+      if (worktree) {
+        runCwd = worktree.dir;
+      } else if (opts.inPlaceResume) {
+        releaseProject = await acquireProjectLock(opts.projectId);
+        runCwd = opts.cwd;
+      } else {
+        // Tree AND branch both gone — degrade to a fresh worktree (WIP lost).
+        log("warn", "claude", "parked worktree unrecoverable; resuming in a fresh worktree", {
+          runId,
+          branch: opts.existingWorktree.branch,
+        });
+        worktree = await createRunWorktree({
+          projectPath: opts.cwd,
+          projectId: opts.projectId,
+          taskId: opts.taskId,
+          runId,
+        });
+        if (worktree) runCwd = worktree.dir;
+        else {
+          releaseProject = await acquireProjectLock(opts.projectId);
+          runCwd = opts.cwd;
+        }
+      }
+    } else if (opts.inPlaceResume) {
+      // RESUME (in-place mode): no worktree to revive — re-acquire the project lock.
       releaseProject = await acquireProjectLock(opts.projectId);
       runCwd = opts.cwd;
+    } else {
+      // FRESH run: isolate in a git worktree when possible, else run in place and
+      // serialize per-project so concurrent agents can't stomp the shared tree.
+      worktree = await createRunWorktree({
+        projectPath: opts.cwd,
+        projectId: opts.projectId,
+        taskId: opts.taskId,
+        runId,
+      });
+      if (worktree) {
+        runCwd = worktree.dir;
+      } else {
+        releaseProject = await acquireProjectLock(opts.projectId);
+        runCwd = opts.cwd;
+      }
     }
     // Expose this run's cwd so the per-run MCP endpoint scopes git tools to it.
     setRunCwd(runId, runCwd);
 
-    preSnapshot = await snapshotPreSpawn(runCwd);
+    // Verification baseline: capture once on a fresh run; on resume reuse the
+    // first attempt's SHA so verifiers diff the whole change (baseline → final),
+    // not just the post-resume delta.
+    preSnapshot = opts.baselineSha ? { preSha: opts.baselineSha } : await snapshotPreSpawn(runCwd);
 
     const cmd = [
       "claude",
       "-p",
       "--output-format",
       "json",
+      ...(opts.resumeSessionId ? ["--resume", opts.resumeSessionId] : []),
       "--mcp-config",
       opts.mcpConfigPath,
       "--dangerously-skip-permissions",
@@ -308,8 +575,53 @@ export async function spawnHeadlessClaude(
     const { sessionId, summary } = parseClaudeOutput(result.stdout);
     const totalCostUsd = parseClaudeCost(result.stdout);
     const canceled = controller.signal.aborted;
+
+    // ── Usage-limit auto-resume ──────────────────────────────────
+    // If a (non-canceled) failure was actually the subscription usage limit,
+    // park the run as 'waiting_limit' and hand it to the resume scheduler
+    // instead of burning a retry. Gating on exitCode !== 0 avoids false-parking
+    // a SUCCESSFUL run whose output merely mentions "rate limit".
+    const limitHit =
+      !canceled && result.exitCode !== 0
+        ? parseRateLimit(result.stdout, result.stderr)
+        : { limited: false, resumeAt: null, reason: null };
+    const attempts = opts.resumeAttempts ?? 0;
+    if (autoResumeEnabled() && limitHit.limited && attempts < MAX_RESUME_ATTEMPTS) {
+      const resumeAt = limitHit.resumeAt ?? new Date(started + durationMs + RESUME_FALLBACK_MS);
+      // Durable WIP commit so work survives even if the dir is later lost.
+      if (worktree) {
+        await checkpointWorktree({ projectId: opts.projectId, dir: worktree.dir, runId }).catch(
+          () => undefined,
+        );
+      }
+      parkRun({
+        runId,
+        sessionId,
+        summary,
+        totalCostUsd,
+        resumeAt,
+        reason: limitHit.reason,
+        worktree,
+        baselineSha: preSnapshot.preSha,
+      });
+      log("info", "claude", "headless run parked (usage limit)", {
+        runId,
+        taskId: opts.taskId,
+        resumeAt: resumeAt.toISOString(),
+        attempt: attempts + 1,
+        isolated: !!worktree,
+      });
+      worktree = null; // CRITICAL: keep the tree — finally must not discard it
+      return { exitCode: result.exitCode, summary, sessionId, durationMs, runId, parked: true };
+    }
+
+    // Limit hit but auto-resume is off or the attempt cap was reached → fail loudly.
+    const gaveUp = limitHit.limited && attempts >= MAX_RESUME_ATTEMPTS;
     const success = !canceled && result.exitCode === 0 ? 1 : 0;
     const status = canceled ? "canceled" : result.exitCode === 0 ? "succeeded" : "failed";
+    const dbSummary = gaveUp
+      ? `auto-resume gave up after ${attempts} attempt(s); usage limit not cleared`
+      : summary;
 
     try {
       const db = getDb();
@@ -323,7 +635,7 @@ export async function spawnHeadlessClaude(
         result.exitCode,
         success,
         durationMs,
-        summary,
+        dbSummary,
         status,
         new Date().toISOString(),
         totalCostUsd,

@@ -389,3 +389,50 @@ test.describe("Knowledge Base — Roadmap rollup (O4)", () => {
     await expect(page.getByText("1/2")).toBeVisible();
   });
 });
+
+// Phase 4 — suggested graph entities (from /brain capture/ingest via /graph/batch)
+// render as a reviewable "N suggested" chip with Confirm all / Dismiss all. Canvas
+// dimming/dashing can't be asserted in pixels, but the review controls are DOM.
+test.describe("Knowledge Base — Suggested graph review (Phase 4)", () => {
+  let sgProjectId: string;
+  test.beforeAll(async () => {
+    const res = await fetch(`${BASE_API}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: `E2E-Knowledge-SG-${Date.now()}`,
+        path: `/tmp/e2e-knowledge-sg-${Date.now()}`,
+      }),
+    });
+    sgProjectId = (await res.json()).id;
+  });
+  test.afterAll(async () => {
+    if (sgProjectId) {
+      await fetch(`${BASE_API}/projects/${sgProjectId}`, { method: "DELETE" });
+    }
+  });
+
+  test("suggestions chip + Confirm all clears suggested state", async ({ page }) => {
+    // Seed via batch: 1 listed node + 1 auto-created endpoint + 1 edge = 3 suggested.
+    await fetch(`${BASE_API}/projects/${sgProjectId}/graph/batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nodes: [{ label: "Suggested A", type: "concept", origin: "brain:capture" }],
+        edges: [{ source: "Suggested A", target: "Suggested B", type: "related" }],
+      }),
+    });
+
+    await page.goto(`/project/${sgProjectId}`, { waitUntil: "networkidle" });
+    await dismissOnboarding(page);
+    await page.getByRole("button", { name: /knowledge/i }).click();
+    await page.getByRole("tab", { name: /graph/i }).click();
+
+    // Chip shows the count of suggested entities.
+    await expect(page.getByText(/\d+ suggested/)).toBeVisible({ timeout: 10000 });
+
+    // Confirm all → suggestions cleared, chip gone.
+    await page.getByRole("button", { name: /confirm all/i }).click();
+    await expect(page.getByText(/\d+ suggested/)).not.toBeVisible({ timeout: 10000 });
+  });
+});

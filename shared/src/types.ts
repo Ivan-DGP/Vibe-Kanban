@@ -147,10 +147,16 @@ export interface TaskAiRun {
   summary: string | null;
   createdAt: string;
   // Durable lifecycle (added with the worktree/cancellable run engine).
-  status?: "running" | "succeeded" | "failed" | "canceled" | string;
+  // 'waiting_limit' = parked after a subscription usage-limit hit, awaiting
+  // auto-resume of the same Claude session when the window resets.
+  status?: "running" | "succeeded" | "failed" | "canceled" | "waiting_limit" | string;
   startedAt?: string | null;
   finishedAt?: string | null;
   totalCostUsd?: number | null;
+  // Auto-resume after usage-limit (set while status === 'waiting_limit').
+  resumeAt?: string | null;
+  resumeReason?: string | null;
+  resumeAttempts?: number | null;
   // O6: knowledge artifacts injected into this run's prompt. Empty when no
   // knowledge was grounded (embeddings disabled, no artifacts, or timeout).
   groundedArtifacts?: GroundedArtifact[];
@@ -645,6 +651,11 @@ export type GraphEdgeType =
   | "owned_by"
   | "wikilink";
 
+// Graph entities are 'confirmed' (live) or 'suggested' (AI-proposed, awaiting
+// human review). `origin` records provenance: 'manual', 'wikilink',
+// 'brain:capture', 'brain:ingest', etc.
+export type GraphStatus = "confirmed" | "suggested";
+
 export interface GraphNode {
   id: string;
   projectId: string;
@@ -654,6 +665,8 @@ export interface GraphNode {
   x: number | null;
   y: number | null;
   metadata: Record<string, unknown>;
+  status: GraphStatus;
+  origin: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -665,6 +678,8 @@ export interface GraphEdge {
   targetNodeId: string;
   label: string | null;
   type: GraphEdgeType;
+  status: GraphStatus;
+  origin: string | null;
   createdAt: string;
 }
 
@@ -680,6 +695,8 @@ export interface CreateGraphNodeInput {
   x?: number;
   y?: number;
   metadata?: Record<string, unknown>;
+  status?: GraphStatus;
+  origin?: string;
 }
 
 export interface UpdateGraphNodeInput {
@@ -696,6 +713,8 @@ export interface CreateGraphEdgeInput {
   targetNodeId: string;
   label?: string;
   type?: GraphEdgeType;
+  status?: GraphStatus;
+  origin?: string;
 }
 
 // ============================================================

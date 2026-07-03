@@ -789,6 +789,70 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 32,
+      name: "add-task-ai-run-resume",
+      up: () => {
+        // Auto-resume after usage-limit: a run that hits the subscription usage
+        // limit is parked as status='waiting_limit' and resumed (same Claude
+        // session) once the window resets. These columns persist the resume
+        // schedule + the isolated worktree so a parked run survives a server
+        // restart and resumes IN the exact tree it left.
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        const has = (n: string) => cols.some((c) => c.name === n);
+        if (!has("resumeAt"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN resumeAt TEXT DEFAULT NULL");
+        if (!has("resumeReason"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN resumeReason TEXT DEFAULT NULL");
+        if (!has("resumeAttempts"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN resumeAttempts INTEGER NOT NULL DEFAULT 0");
+        // The parked run's isolated tree + vk/… branch, so resume reuses it.
+        if (!has("worktreeDir"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN worktreeDir TEXT DEFAULT NULL");
+        if (!has("worktreeBranch"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN worktreeBranch TEXT DEFAULT NULL");
+        // 'worktree' (isolated) | 'in_place' (no isolation; pause is best-effort).
+        if (!has("runMode"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN runMode TEXT DEFAULT NULL");
+        // First attempt's pre-spawn SHA, reused across resumes so verifiers diff
+        // the whole change (baseline → final), not just the post-resume delta.
+        if (!has("baselineSha"))
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN baselineSha TEXT DEFAULT NULL");
+        db.exec(
+          "CREATE INDEX IF NOT EXISTS idx_task_ai_runs_resume ON task_ai_runs (status, resumeAt)",
+        );
+      },
+    },
+    {
+      version: 33,
+      name: "add-graph-status-origin",
+      up: () => {
+        // Centralized-brain bridge: graph nodes/edges can be AI-proposed. `status`
+        // gates whether an entity is live ('confirmed') or awaiting human review
+        // ('suggested'); `origin` records provenance (brain:capture, brain:ingest,
+        // manual, wikilink). Existing rows backfill to 'confirmed' via the column
+        // default, so the graph is unchanged for pre-bridge projects.
+        for (const table of ["project_graph_nodes", "project_graph_edges"]) {
+          const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+          const has = (n: string) => cols.some((c) => c.name === n);
+          if (!has("status")) {
+            db.exec(
+              `ALTER TABLE ${table} ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed' ` +
+                `CHECK (status IN ('confirmed', 'suggested'))`,
+            );
+          }
+          if (!has("origin")) {
+            db.exec(`ALTER TABLE ${table} ADD COLUMN origin TEXT DEFAULT NULL`);
+          }
+        }
+        db.exec(
+          "CREATE INDEX IF NOT EXISTS idx_graph_nodes_status ON project_graph_nodes (projectId, status)",
+        );
+        db.exec(
+          "CREATE INDEX IF NOT EXISTS idx_graph_edges_status ON project_graph_edges (projectId, status)",
+        );
+      },
+    },
   ];
 
   for (const migration of migrations) {

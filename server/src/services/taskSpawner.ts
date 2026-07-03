@@ -37,6 +37,75 @@ function projectFromRow(row: any): Project | null {
   } as Project;
 }
 
+export interface BuiltSpawnOpts {
+  prompt: string;
+  taskId: string;
+  projectId: string;
+  mcpConfigPath: string;
+  cwd: string;
+  profile: string;
+  timeoutMs?: number;
+  /** Removes the temp MCP config written for this runId. Caller owns the lifecycle. */
+  cleanup: () => void;
+}
+
+/**
+ * Assemble everything `spawnHeadlessClaude` needs for a task + a specific runId:
+ * loads the task & project, resolves the spawn config, builds the prompt, and
+ * writes a per-run MCP config pointed at runId's endpoint. Returns null when the
+ * task/project/config is missing or the project path is gone.
+ *
+ * Shared by the retry loop (fresh runId per attempt) and the resume scheduler
+ * (reuses the parked row's id). Deliberately does NOT gate on autoSpawnEnabled —
+ * a resume completes work that already started.
+ */
+export async function buildSpawnOpts(
+  taskId: string,
+  runId: string,
+): Promise<BuiltSpawnOpts | null> {
+  const db = getDb();
+  const taskRow = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
+  if (!taskRow) return null;
+  const task = {
+    ...taskRow,
+    metadata: taskRow.metadata ? JSON.parse(taskRow.metadata) : {},
+  } as Task;
+
+  const metadataType =
+    task.metadata && typeof task.metadata === "object"
+      ? (task.metadata as Record<string, unknown>).type
+      : undefined;
+  const config =
+    typeof metadataType === "string" && metadataType ? getSpawnConfig(metadataType) : undefined;
+
+  const project = projectFromRow(
+    db.prepare("SELECT * FROM projects WHERE id = ?").get(task.projectId),
+  );
+  if (!project || !project.path || !fs.existsSync(project.path)) return null;
+
+  // Tasks without a registered spawn config (e.g. interactive AI-resolve runs that
+  // were parked for usage-limit resume) fall back to a generic resolve config so the
+  // scheduler can still continue them headlessly via `claude -p --resume`.
+  const servers = config?.mcpServers ?? ["vibe-kanban"];
+  const profile = config?.profile ?? "resolve";
+  const prompt = config
+    ? config.buildPrompt({ task, project })
+    : task.prompt || [task.title, task.description].filter(Boolean).join("\n\n");
+
+  const mcpConfigPath = await writeTempMcpConfig({ project, servers, runId });
+
+  return {
+    prompt,
+    taskId: task.id,
+    projectId: project.id,
+    mcpConfigPath,
+    cwd: project.path,
+    profile,
+    timeoutMs: config?.timeoutMs,
+    cleanup: () => cleanupMcpConfig(mcpConfigPath),
+  };
+}
+
 /**
  * Look at a freshly inserted/updated task and, if its `metadata.type` matches a
  * registered spawn config AND the project has `autoSpawnEnabled`, fire a
@@ -95,7 +164,6 @@ async function runSpawn(task: Task): Promise<void> {
     return;
   }
 
-  const prompt = config.buildPrompt({ task, project });
   const maxAttempts = maxAttemptsFor(config);
 
   log("info", "claude", `taskSpawner dispatching`, {
@@ -113,14 +181,13 @@ async function runSpawn(task: Task): Promise<void> {
     // runId is generated up front so the MCP config can point the agent at this
     // run's per-run endpoint (/mcp/run/<runId>).
     const runId = crypto.randomUUID();
-    let mcpConfigPath: string | null = null;
+    const built = await buildSpawnOpts(task.id, runId);
+    if (!built) {
+      log("warn", "claude", `taskSpawner: could not assemble spawn opts`, { taskId: task.id });
+      return;
+    }
+    const { cleanup, ...spawnOpts } = built;
     try {
-      mcpConfigPath = await writeTempMcpConfig({
-        project,
-        servers: config.mcpServers,
-        runId,
-      });
-
       await maybeRunPreflight({
         runId,
         taskId: task.id,
@@ -128,17 +195,11 @@ async function runSpawn(task: Task): Promise<void> {
         cwd: project.path,
       }).catch(() => null);
 
-      const result = await spawnHeadlessClaude({
-        prompt,
-        taskId: task.id,
-        projectId: project.id,
-        mcpConfigPath,
-        cwd: project.path,
-        profile: config.profile,
-        timeoutMs: config.timeoutMs,
-        runId,
-      });
+      const result = await spawnHeadlessClaude({ ...spawnOpts, runId });
 
+      // Parked for usage-limit auto-resume — handed to resumeScheduler. Not a
+      // failure; do NOT consume an attempt or fall into the backoff/exhaust path.
+      if (result.parked) return;
       if (result.exitCode === 0) return; // success — done
       log("warn", "claude", `taskSpawner attempt failed`, {
         taskId: task.id,
@@ -153,7 +214,7 @@ async function runSpawn(task: Task): Promise<void> {
         error: String(err),
       });
     } finally {
-      if (mcpConfigPath) cleanupMcpConfig(mcpConfigPath);
+      cleanup();
     }
 
     if (attempt < maxAttempts) await delay(retryDelayMs(attempt));

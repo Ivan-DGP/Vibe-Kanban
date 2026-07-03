@@ -56,6 +56,7 @@ import type {
   UpdateRoadmapItemInput,
   ProjectGraph,
   GraphNode,
+  GraphEdge,
   CreateGraphNodeInput,
   UpdateGraphNodeInput,
   CreateGraphEdgeInput,
@@ -205,6 +206,7 @@ export const api = {
         runs: unknown[];
       }>("/claude/runs/active"),
     cancelRun: (runId: string) => post<{ ok: boolean }>(`/claude/runs/${runId}/cancel`, {}),
+    resumeRun: (runId: string) => post<{ ok: boolean }>(`/claude/runs/${runId}/resume`, {}),
     analyze: (projectId: string, taskId: string, signal?: AbortSignal) =>
       fetch("/api/claude/analyze", {
         method: "POST",
@@ -405,6 +407,13 @@ export const api = {
     createEdge: (projectId: string, input: CreateGraphEdgeInput) =>
       post(`/projects/${projectId}/graph/edges`, input),
     deleteEdge: (id: string) => del(`/graph/edges/${id}`),
+    confirmNode: (id: string) => post<GraphNode>(`/graph/nodes/${id}/confirm`, {}),
+    confirmEdge: (id: string) => post<GraphEdge>(`/graph/edges/${id}/confirm`, {}),
+    confirmSuggestions: (projectId: string, input: { nodeIds?: string[]; edgeIds?: string[] }) =>
+      post<{ nodesConfirmed: number; edgesConfirmed: number }>(
+        `/projects/${projectId}/graph/confirm`,
+        input,
+      ),
   },
 
   benchmarks: {

@@ -8,6 +8,7 @@ import { getDb, closeDb } from "./db";
 import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
 import { markOrphans as markOrphanBenchRuns } from "./services/benchRunsRepo";
 import { markInterruptedRuns, cancelAllHeadlessRuns } from "./services/headlessClaude";
+import { startResumeScheduler, stopResumeScheduler } from "./services/resumeScheduler";
 
 export async function buildApp(opts: { bodyLimit?: number } = {}) {
   const app = Fastify({ logger: true, bodyLimit: opts.bodyLimit });
@@ -16,10 +17,14 @@ export async function buildApp(opts: { bodyLimit?: number } = {}) {
 
   // bench_runs left 'running' across boot were killed mid-flight; mark failed before serving.
   markOrphanBenchRuns();
-  // Same for task AI runs interrupted by a crash/restart.
+  // Same for task AI runs interrupted by a crash/restart. This also re-arms any
+  // resume that was mid-flight at the crash back to 'waiting_limit'.
   markInterruptedRuns();
 
   registerSpawnConfigs();
+
+  // Usage-limit auto-resume: the boot sweep picks up re-armed/pending parked runs.
+  startResumeScheduler();
 
   // Plugins
   await app.register(cors, {
@@ -97,6 +102,7 @@ export async function buildApp(opts: { bodyLimit?: number } = {}) {
   // Cleanup on shutdown
   app.addHook("onClose", () => {
     cancelAllHeadlessRuns();
+    stopResumeScheduler(); // before closeDb so no sweep touches a closed connection
     closeDb();
   });
 

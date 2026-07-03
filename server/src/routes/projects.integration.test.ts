@@ -836,3 +836,57 @@ describe("GET /api/browse", () => {
     expect(body.folders).toEqual([]);
   });
 });
+
+describe("GET /api/projects/resolve", () => {
+  const suffix = Date.now();
+  const projPath = path.join(os.tmpdir(), `vk-resolve-${suffix}`);
+  let resolveProjectId: string;
+
+  beforeAll(async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: `Resolve Project ${suffix}`, path: projPath },
+    });
+    resolveProjectId = res.json().id;
+  });
+
+  afterAll(async () => {
+    if (resolveProjectId) {
+      await app.inject({ method: "DELETE", url: `/api/projects/${resolveProjectId}` });
+    }
+  });
+
+  test("exact path match resolves to project", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/resolve?path=${encodeURIComponent(projPath)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projectId).toBe(resolveProjectId);
+  });
+
+  test("subdirectory resolves to nearest ancestor project", async () => {
+    const sub = path.join(projPath, "server", "src");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/resolve?path=${encodeURIComponent(sub)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projectId).toBe(resolveProjectId);
+  });
+
+  test("unknown path returns 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/resolve?path=${encodeURIComponent("/tmp/no-such-vk-project-xyz")}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test("missing path query returns 400", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/projects/resolve" });
+    expect(res.statusCode).toBe(400);
+  });
+});

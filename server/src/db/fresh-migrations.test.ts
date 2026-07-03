@@ -39,7 +39,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 31 on a blank database", () => {
+  test("runs all migrations from version 1 to 33 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -55,7 +55,7 @@ describe("fresh database: real runMigrations", () => {
       version: number;
       name: string;
     }[];
-    expect(rows.length).toBe(31);
+    expect(rows.length).toBe(33);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
@@ -91,6 +91,71 @@ describe("fresh database: real runMigrations", () => {
     for (const t of expected) {
       expect(names).toContain(t);
     }
+  });
+
+  test("graph tables have status + origin columns (migration 33)", () => {
+    for (const table of ["project_graph_nodes", "project_graph_edges"]) {
+      const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      expect(cols).toContain("status");
+      expect(cols).toContain("origin");
+    }
+  });
+
+  test("migration 33 backfills pre-existing graph rows to status='confirmed'", () => {
+    const old = freshDb("pre-v33");
+    old.exec("PRAGMA foreign_keys = ON");
+
+    // Simulate a pre-v33 database: graph tables WITHOUT status/origin, and a
+    // _migrations ledger already at version 32 so only migration 33 runs.
+    old.exec(`
+      CREATE TABLE _migrations (version INTEGER PRIMARY KEY, name TEXT);
+      CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, path TEXT);
+      CREATE TABLE project_graph_nodes (
+        id TEXT PRIMARY KEY,
+        projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        label TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'concept', description TEXT,
+        x REAL, y REAL, metadata TEXT NOT NULL DEFAULT '{}', createdAt TEXT, updatedAt TEXT
+      );
+      CREATE TABLE project_graph_edges (
+        id TEXT PRIMARY KEY,
+        projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        sourceNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+        targetNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
+        label TEXT, type TEXT NOT NULL DEFAULT 'related', createdAt TEXT
+      );
+    `);
+    for (let v = 1; v <= 32; v++) {
+      old.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(v, `seed-${v}`);
+    }
+    old.prepare("INSERT INTO projects (id, name, path) VALUES ('p1','P','/tmp/p1')").run();
+    old
+      .prepare("INSERT INTO project_graph_nodes (id, projectId, label) VALUES ('n1','p1','Old')")
+      .run();
+    old
+      .prepare("INSERT INTO project_graph_nodes (id, projectId, label) VALUES ('n2','p1','Old2')")
+      .run();
+    old
+      .prepare(
+        "INSERT INTO project_graph_edges (id, projectId, sourceNodeId, targetNodeId) VALUES ('e1','p1','n1','n2')",
+      )
+      .run();
+
+    _runMigrations(old);
+
+    const node = old
+      .prepare("SELECT status, origin FROM project_graph_nodes WHERE id='n1'")
+      .get() as { status: string; origin: string | null };
+    expect(node.status).toBe("confirmed");
+    expect(node.origin).toBeNull();
+    const edge = old
+      .prepare("SELECT status, origin FROM project_graph_edges WHERE id='e1'")
+      .get() as { status: string; origin: string | null };
+    expect(edge.status).toBe("confirmed");
+
+    const maxV = old.prepare("SELECT MAX(version) v FROM _migrations").get() as { v: number };
+    expect(maxV.v).toBe(33);
   });
 
   test("tasks table has all columns from all migrations", () => {
@@ -231,8 +296,8 @@ describe("runMigrations idempotency", () => {
       db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
     ).c;
 
-    expect(countAfterFirst).toBe(31);
-    expect(countAfterSecond).toBe(31);
+    expect(countAfterFirst).toBe(33);
+    expect(countAfterSecond).toBe(33);
   });
 });
 
@@ -258,7 +323,7 @@ describe("migration from completely empty database", () => {
     const finalVersion = (
       db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }
     ).v;
-    expect(finalVersion).toBe(31);
+    expect(finalVersion).toBe(33);
   });
 });
 
@@ -318,7 +383,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(31);
+    expect(max).toBe(33);
   });
 });
 
@@ -343,7 +408,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(31);
+    expect(max).toBe(33);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -751,7 +816,7 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(31);
+    expect(max).toBe(33);
   });
 });
 
