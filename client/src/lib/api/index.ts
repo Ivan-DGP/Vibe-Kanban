@@ -28,6 +28,7 @@ import type {
   TerminalSessionInfo,
   TerminalStatusResponse,
   CreateTerminalSessionInput,
+  ClaudeSessionInfo,
   BatchResolveInput,
   BatchResolveStatus,
   Todo,
@@ -281,6 +282,14 @@ export const api = {
       post<TerminalSessionInfo>("/terminal/sessions", input),
     kill: (sessionId: string) => del(`/terminal/sessions/${sessionId}`),
     aiSessions: () => get<TerminalSessionInfo[]>("/terminal/ai-sessions"),
+    claudeSessions: (projectId?: string) =>
+      get<ClaudeSessionInfo[]>(
+        `/terminal/claude-sessions${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`,
+      ),
+    transcript: (sessionId: string) =>
+      get<{ sessionId: string; content: string }>(
+        `/terminal/transcripts/${encodeURIComponent(sessionId)}`,
+      ),
     batchResolve: (input: BatchResolveInput) =>
       post<BatchResolveStatus>("/terminal/batch-resolve", input),
     batchResolveStatus: () => get<BatchResolveStatus>("/terminal/batch-resolve/status"),

@@ -16,7 +16,7 @@ const terminalWsRoutes: FastifyPluginAsync = async (fastify) => {
     // Browsers always send Origin, so the legit client is unaffected; this
     // blocks non-browser clients (which omit Origin) from attaching.
     const origin = request.headers.origin;
-    if (!isAllowedOrigin(origin)) {
+    if (!isAllowedOrigin(origin, request.headers.host)) {
       log("warn", "terminal", `Rejected WebSocket from origin: ${origin ?? "<missing>"}`);
       socket.close(4003, "Forbidden origin");
       return;

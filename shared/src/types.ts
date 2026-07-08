@@ -355,7 +355,13 @@ export interface FileEntry {
 // Terminal
 // ============================================================
 
-export type TerminalSessionType = "shell" | "dev" | "claude-ai" | "ai-resolve" | "ai-test";
+export type TerminalSessionType =
+  | "shell"
+  | "dev"
+  | "claude-ai"
+  | "ai-resolve"
+  | "ai-test"
+  | "claude-interactive";
 
 // REST API types
 export interface TerminalSessionInfo {
@@ -366,6 +372,10 @@ export interface TerminalSessionInfo {
   name?: string;
   cwd: string;
   alive: boolean;
+  // For claude-interactive sessions: the selected model + the pinned Claude
+  // session id (so the tab header can show them and a picker can resume).
+  model?: string;
+  claudeSessionId?: string;
 }
 
 export interface CreateTerminalSessionInput {
@@ -378,6 +388,23 @@ export interface CreateTerminalSessionInput {
   prompt?: string;
   branch?: string;
   devCommand?: string;
+  // claude-interactive options:
+  model?: string; // → claude --model <model>
+  resumeSessionId?: string; // → claude --resume <id>
+  continueLast?: boolean; // → claude --continue
+}
+
+// A Claude interactive session VK has spawned (persisted so a picker can
+// list/resume them). `id` is the Claude CLI --session-id UUID.
+export interface ClaudeSessionInfo {
+  id: string;
+  projectId?: string;
+  taskId?: string;
+  model?: string;
+  cwd: string;
+  title?: string;
+  createdAt: string;
+  lastUsedAt: string;
 }
 
 export interface TerminalStatusResponse {

@@ -116,6 +116,19 @@ export default function TerminalPanel() {
     setTabState((prev) => ({ ...prev, activeSessionId: result.id }));
   }, [project, projectId, terminalVisible, toggleTerminal, createSession]);
 
+  // Launch a native interactive `claude` REPL directly — no picker. Model and
+  // session (resume/continue) are handled via claude's own slash commands
+  // inside the terminal, same as running `claude` in a shell.
+  const handleNewClaudeSession = useCallback(async () => {
+    if (!terminalVisible) toggleTerminal();
+    const result = await createSession.mutateAsync({
+      type: "claude-interactive",
+      projectId,
+      name: "Claude",
+    });
+    setTabState((prev) => ({ ...prev, activeSessionId: result.id }));
+  }, [projectId, terminalVisible, toggleTerminal, createSession]);
+
   const handleKillSession = (id: string) => {
     killSession.mutate(id);
     setTabState((prev) => {
@@ -187,6 +200,7 @@ export default function TerminalPanel() {
           onKill={handleKillSession}
           onNewSession={handleNewSession}
           onNewDevSession={project ? handleNewDevSession : undefined}
+          onNewClaudeSession={handleNewClaudeSession}
         />
       </div>
 

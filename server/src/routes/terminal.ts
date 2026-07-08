@@ -1,5 +1,31 @@
 import type { FastifyPluginAsync } from "fastify";
 import * as termService from "../services/terminalService";
+import type { PtySession } from "../services/terminalService";
+import { readTranscript } from "../services/transcriptService";
+
+// Public shape for a live session — never leaks internals (proc/ws/buffers).
+function toSessionInfo(s: PtySession) {
+  return {
+    id: s.id,
+    type: s.type,
+    projectId: s.projectId,
+    taskId: s.taskId,
+    name: s.name,
+    cwd: s.cwd,
+    alive: s.alive,
+    model: s.model,
+    claudeSessionId: s.claudeSessionId,
+  };
+}
+
+const VALID_SESSION_TYPES = [
+  "shell",
+  "dev",
+  "claude-ai",
+  "ai-resolve",
+  "ai-test",
+  "claude-interactive",
+];
 
 const terminalRoutes: FastifyPluginAsync = async (fastify) => {
   // ── REST: Check if node-pty is available ─────────────────────
@@ -10,14 +36,21 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
   // ── REST: List sessions ──────────────────────────────────────
   fastify.get("/terminal/sessions", async (request) => {
     const { projectId } = request.query as { projectId?: string };
-    return termService.listSessions(projectId).map((s) => ({
+    return termService.listSessions(projectId).map(toSessionInfo);
+  });
+
+  // ── REST: List known Claude interactive sessions (for resume picker) ──
+  fastify.get("/terminal/claude-sessions", async (request) => {
+    const { projectId } = request.query as { projectId?: string };
+    return termService.listClaudeSessions(projectId).map((s) => ({
       id: s.id,
-      type: s.type,
-      projectId: s.projectId,
-      taskId: s.taskId,
-      name: s.name,
+      projectId: s.projectId ?? undefined,
+      taskId: s.taskId ?? undefined,
+      model: s.model ?? undefined,
       cwd: s.cwd,
-      alive: s.alive,
+      title: s.title ?? undefined,
+      createdAt: s.createdAt,
+      lastUsedAt: s.lastUsedAt,
     }));
   });
 
@@ -33,10 +66,13 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
       prompt?: string;
       branch?: string;
       devCommand?: string;
+      model?: string;
+      resumeSessionId?: string;
+      continueLast?: boolean;
     };
 
     const type = body.type || "shell";
-    if (!["shell", "dev", "claude-ai", "ai-resolve", "ai-test"].includes(type)) {
+    if (!VALID_SESSION_TYPES.includes(type)) {
       return reply.code(400).send({ error: "Invalid session type" });
     }
 
@@ -51,17 +87,12 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         prompt: body.prompt,
         branch: body.branch,
         devCommand: body.devCommand,
+        model: body.model,
+        resumeSessionId: body.resumeSessionId,
+        continueLast: body.continueLast,
       });
 
-      return {
-        id: session.id,
-        type: session.type,
-        projectId: session.projectId,
-        taskId: session.taskId,
-        name: session.name,
-        cwd: session.cwd,
-        alive: session.alive,
-      };
+      return toSessionInfo(session);
     } catch (err: any) {
       return reply.code(500).send({ error: err.message || "Failed to create session" });
     }
@@ -84,20 +115,25 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
     return { ok: true };
   });
 
+  // ── REST: Read a session's persisted transcript ──────────────
+  fastify.get("/terminal/transcripts/:sessionId", async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    let content: string | null;
+    try {
+      content = readTranscript(sessionId);
+    } catch {
+      return reply.code(400).send({ error: "Invalid session id" });
+    }
+    if (content === null) return reply.code(404).send({ error: "No transcript for this session" });
+    return { sessionId, content };
+  });
+
   // ── REST: List AI sessions (sessions with a taskId) ──────────
   fastify.get("/terminal/ai-sessions", async () => {
     return termService
       .listSessions()
       .filter((s) => s.taskId)
-      .map((s) => ({
-        id: s.id,
-        type: s.type,
-        projectId: s.projectId,
-        taskId: s.taskId,
-        name: s.name,
-        cwd: s.cwd,
-        alive: s.alive,
-      }));
+      .map(toSessionInfo);
   });
 
   // ── REST: Batch AI Resolve ─────────────────────────────────

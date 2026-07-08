@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Clock } from "lucide-react";
+import { Loader2, Clock, ScrollText } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTaskAiRuns, useCancelRun, useResumeRun } from "@/hooks/useClaude";
+import TranscriptDialog from "@/components/terminal/TranscriptDialog";
 import type { TaskAiRun } from "@vibe-kanban/shared";
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -44,6 +45,7 @@ export default function TaskAiRuns({ taskId }: { taskId: string }) {
   const { data: runs = [] } = useTaskAiRuns(taskId);
   const cancel = useCancelRun(taskId);
   const resume = useResumeRun(taskId);
+  const [transcriptSession, setTranscriptSession] = useState<string | null>(null);
 
   // Tick once a second while any run is parked, so the countdown stays live.
   const hasWaiting = runs.some((r: TaskAiRun) => statusOf(r) === "waiting_limit");
@@ -130,6 +132,17 @@ export default function TaskAiRuns({ taskId }: { taskId: string }) {
                   </Button>
                 </>
               )}
+              {r.sessionId && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-5 px-1.5 text-[10px] gap-1 text-muted-foreground"
+                  onClick={() => setTranscriptSession(r.sessionId)}
+                >
+                  <ScrollText className="h-3 w-3" />
+                  Output
+                </Button>
+              )}
               {r.groundedArtifacts && r.groundedArtifacts.length > 0 && (
                 <div className="w-full pl-1 text-[10px] text-muted-foreground">
                   <span className="font-medium">Grounded in:</span>{" "}
@@ -140,6 +153,12 @@ export default function TaskAiRuns({ taskId }: { taskId: string }) {
           );
         })}
       </div>
+
+      <TranscriptDialog
+        sessionId={transcriptSession}
+        open={!!transcriptSession}
+        onOpenChange={(o) => !o && setTranscriptSession(null)}
+      />
     </>
   );
 }

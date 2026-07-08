@@ -5,7 +5,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, X, Terminal, Play, Bot, Zap, FlaskConical, CheckCircle2 } from "lucide-react";
+import {
+  Plus,
+  X,
+  Terminal,
+  Play,
+  Bot,
+  Zap,
+  FlaskConical,
+  CheckCircle2,
+  Sparkles,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TerminalSessionType, TerminalSessionInfo } from "@vibe-kanban/shared";
 
@@ -15,6 +25,7 @@ const SESSION_ICONS: Record<TerminalSessionType, typeof Terminal> = {
   "claude-ai": Bot,
   "ai-resolve": Zap,
   "ai-test": FlaskConical,
+  "claude-interactive": Sparkles,
 };
 
 interface TerminalTabsProps {
@@ -24,6 +35,7 @@ interface TerminalTabsProps {
   onKill: (id: string) => void;
   onNewSession: () => void;
   onNewDevSession?: () => void;
+  onNewClaudeSession?: () => void;
 }
 
 export default function TerminalTabs({
@@ -33,6 +45,7 @@ export default function TerminalTabs({
   onKill,
   onNewSession,
   onNewDevSession,
+  onNewClaudeSession,
 }: TerminalTabsProps) {
   return (
     <div className="flex items-center gap-1 px-1 h-9 overflow-x-auto flex-1">
@@ -43,6 +56,11 @@ export default function TerminalTabs({
             key={session.id}
             role="tab"
             tabIndex={0}
+            title={
+              session.claudeSessionId
+                ? `${session.model ? session.model + " · " : ""}session ${session.claudeSessionId}`
+                : undefined
+            }
             onClick={() => onSetActive(session.id)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") onSetActive(session.id);
@@ -94,6 +112,11 @@ export default function TerminalTabs({
           {onNewDevSession && (
             <DropdownMenuItem onClick={onNewDevSession}>
               <Play className="h-3.5 w-3.5 mr-2" /> Dev Server
+            </DropdownMenuItem>
+          )}
+          {onNewClaudeSession && (
+            <DropdownMenuItem onClick={onNewClaudeSession}>
+              <Sparkles className="h-3.5 w-3.5 mr-2" /> Claude Terminal
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>

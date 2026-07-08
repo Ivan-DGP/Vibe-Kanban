@@ -3,6 +3,7 @@ import { log } from "../lib/logger";
 import { buildAiResolvePromptWithGrounding, buildAiTestPrompt } from "./aiResolvePrompt";
 import { spawnPty as runtimeSpawnPty, spawnProcessSync } from "../lib/runtime";
 import { parseRateLimit, isAutoResumeEnabled, getResumeFallbackMs } from "./headlessClaude";
+import { openTranscript } from "./transcriptService";
 import type { PtyHandle } from "../lib/runtime";
 import type {
   TerminalSessionType,
@@ -33,6 +34,13 @@ export interface PtySession {
   // O6: knowledge artifacts injected into this session's prompt, persisted on
   // the run row written when the session exits. Empty when none grounded.
   groundedArtifacts?: GroundedArtifact[];
+  // claude-interactive: selected model + the pinned Claude session id, surfaced
+  // to the client so the tab header shows them and a picker can resume.
+  model?: string;
+  claudeSessionId?: string;
+  // Append-only transcript stream (Claude/AI sessions only) so output survives
+  // after the session exits and its scrollback is dropped.
+  transcriptStream?: import("node:fs").WriteStream | null;
 }
 
 // ── Safe environment ───────────────────────────────────────────
@@ -125,6 +133,15 @@ export function emitData(session: PtySession, data: string) {
   session.scrollback += data;
   if (session.scrollback.length > MAX_SCROLLBACK_CHARS) {
     session.scrollback = session.scrollback.slice(-MAX_SCROLLBACK_CHARS);
+  }
+
+  // Persist to the on-disk transcript (Claude/AI sessions set this stream).
+  if (session.transcriptStream) {
+    try {
+      session.transcriptStream.write(data);
+    } catch {
+      /* stream closed/errored — scrollback still has recent output */
+    }
   }
 
   if (session.ws && session.ws.readyState === 1) {
@@ -238,6 +255,11 @@ function spawnAiResolve(
   const parkRunId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
 
+  session.transcriptStream = openTranscript(
+    id,
+    `\n===== ai-resolve · session ${id} · ${startedAt} =====\n`,
+  );
+
   log("info", "terminal", `AI resolve [${id}]: spawning ${claudeCmd} with prompt as argument`);
 
   const pty = runtimeSpawnPty(
@@ -280,6 +302,7 @@ function spawnAiResolve(
   pty.onExit((exitCode) => {
     log("info", "terminal", `AI resolve [${id}]: exited with code ${exitCode}`);
     session.alive = false;
+    session.transcriptStream?.end();
     emitExit(session, exitCode ?? 1);
 
     // Record AI run result
@@ -394,6 +417,11 @@ function spawnAiTest(
   const { id } = session;
   const claudeCmd = resolveClaudeCmd(safeEnv);
 
+  session.transcriptStream = openTranscript(
+    id,
+    `\n===== ai-test · session ${id} · ${new Date().toISOString()} =====\n`,
+  );
+
   log("info", "terminal", `AI test [${id}]: spawning ${claudeCmd}`);
 
   const pty = runtimeSpawnPty(claudeCmd, ["--dangerously-skip-permissions", prompt], {
@@ -407,6 +435,7 @@ function spawnAiTest(
   pty.onExit((exitCode) => {
     log("info", "terminal", `AI test [${id}]: exited with code ${exitCode}`);
     session.alive = false;
+    session.transcriptStream?.end();
     emitExit(session, exitCode ?? 1);
 
     // Record test run
@@ -432,6 +461,130 @@ function spawnAiTest(
       }
     }
 
+    sessions.delete(id);
+  });
+
+  session.proc = pty;
+}
+
+// ── Interactive Claude REPL via PTY ─────────────────────────────
+
+// Models offered in the launcher. Free-form strings are also accepted (the CLI
+// validates), but these are the vetted defaults surfaced in the UI.
+export const CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"] as const;
+
+/** Persist (or touch) a Claude session VK spawned so a picker can resume it. */
+function recordClaudeSession(session: PtySession): void {
+  if (!session.claudeSessionId) return; // `--continue` sessions have no known id
+  try {
+    const db = getDb();
+    const now = new Date().toISOString();
+    // Upsert: resuming an existing id just bumps lastUsedAt (+ model if changed).
+    db.prepare(
+      `INSERT INTO claude_sessions (id, projectId, taskId, model, cwd, title, createdAt, lastUsedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         lastUsedAt = excluded.lastUsedAt,
+         model = COALESCE(excluded.model, claude_sessions.model),
+         title = COALESCE(excluded.title, claude_sessions.title)`,
+    ).run(
+      session.claudeSessionId,
+      session.projectId ?? null,
+      session.taskId ?? null,
+      session.model ?? null,
+      session.cwd,
+      session.name ?? null,
+      now,
+      now,
+    );
+  } catch (e) {
+    log("warn", "terminal", `Failed to record claude session: ${e}`);
+  }
+}
+
+/** List Claude sessions VK has spawned (most recently used first). */
+export function listClaudeSessions(projectId?: string): any[] {
+  try {
+    const db = getDb();
+    const rows = projectId
+      ? db
+          .prepare(
+            "SELECT * FROM claude_sessions WHERE projectId = ? ORDER BY lastUsedAt DESC LIMIT 100",
+          )
+          .all(projectId)
+      : db.prepare("SELECT * FROM claude_sessions ORDER BY lastUsedAt DESC LIMIT 100").all();
+    return rows as any[];
+  } catch {
+    return [];
+  }
+}
+
+// Spawn `claude` as a live interactive REPL (NO positional prompt) so the user
+// types directly into it — distinct from ai-resolve (autonomous, one-shot).
+function spawnClaudeInteractive(
+  session: PtySession,
+  safeEnv: Record<string, string>,
+  opts: CreateSessionOptions,
+): void {
+  const { id } = session;
+  const claudeCmd = resolveClaudeCmd(safeEnv);
+
+  // Session selection: resume a specific id, continue the most recent, or start
+  // fresh. New sessions pin a --session-id UUID so we always know the id for a
+  // later resume/switch; --continue can't also pin one (CLI picks the latest).
+  const args: string[] = [];
+  if (opts.model && opts.model !== "default") {
+    args.push("--model", opts.model);
+    session.model = opts.model;
+  }
+
+  if (opts.resumeSessionId) {
+    args.push("--resume", opts.resumeSessionId);
+    session.claudeSessionId = opts.resumeSessionId;
+  } else if (opts.continueLast) {
+    args.push("--continue");
+  } else {
+    const newId = crypto.randomUUID();
+    args.push("--session-id", newId);
+    session.claudeSessionId = newId;
+  }
+
+  args.push("--dangerously-skip-permissions");
+
+  log(
+    "info",
+    "terminal",
+    `Claude interactive [${id}]: spawning ${claudeCmd} ${args.join(" ")} (cwd=${session.cwd})`,
+  );
+
+  session.transcriptStream = openTranscript(
+    id,
+    `\n===== claude-interactive · session ${id}` +
+      `${session.model ? " · model " + session.model : ""}` +
+      `${session.claudeSessionId ? " · claude " + session.claudeSessionId : ""}` +
+      ` · ${new Date().toISOString()} =====\n`,
+  );
+
+  const pty = runtimeSpawnPty(claudeCmd, args, {
+    cwd: session.cwd,
+    env: safeEnv,
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+  });
+
+  // Persist the session id now so it survives even if the REPL is short-lived.
+  recordClaudeSession(session);
+
+  pty.onData((data) => emitData(session, data));
+  pty.onExit((exitCode) => {
+    log("info", "terminal", `Claude interactive [${id}]: exited with code ${exitCode}`);
+    session.alive = false;
+    session.proc = null;
+    session.transcriptStream?.end();
+    emitExit(session, exitCode ?? 0);
+    // User-driven session: no task_ai_runs finalization (see spec). Touch the
+    // session row so lastUsedAt reflects the end of the conversation.
+    recordClaudeSession(session);
     sessions.delete(id);
   });
 
@@ -468,6 +621,10 @@ export interface CreateSessionOptions {
   // O6: knowledge artifacts grounded into the prompt for this AI-resolve
   // session, threaded through to the persisted run row.
   groundedArtifacts?: GroundedArtifact[];
+  // claude-interactive options (see spawnClaudeInteractive):
+  model?: string; // → claude --model <model>
+  resumeSessionId?: string; // → claude --resume <id>
+  continueLast?: boolean; // → claude --continue
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<PtySession> {
@@ -500,12 +657,22 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   sessions.set(id, session);
 
-  // Checkout target branch before AI resolve
-  if (opts.type === "ai-resolve" && opts.branch) {
+  // Checkout target branch before AI resolve / interactive claude
+  if ((opts.type === "ai-resolve" || opts.type === "claude-interactive") && opts.branch) {
     const checkout = await checkoutBranch(cwd, opts.branch);
     if (!checkout.ok) {
       log("warn", "terminal", `Branch checkout failed for "${opts.branch}": ${checkout.error}`);
     }
+  }
+
+  // Claude interactive: live REPL running `claude` with no positional prompt
+  if (opts.type === "claude-interactive") {
+    spawnClaudeInteractive(session, safeEnv, opts);
+    log("info", "terminal", `Session created: ${id}`, {
+      type: "claude-interactive",
+      backend: "bun-terminal",
+    });
+    return session;
   }
 
   // AI Resolve: interactive PTY running claude CLI

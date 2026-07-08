@@ -22,12 +22,25 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const disposedRef = useRef(false);
   const connectionGenRef = useRef(0);
+  // Keystrokes typed while the socket is (re)connecting — buffered here and
+  // flushed on open, so no input is lost during a reconnect.
+  const pendingInputRef = useRef<string[]>([]);
 
   const safeFit = useCallback(() => {
     if (disposedRef.current || !fitRef.current || !termRef.current) return;
     try {
       fitRef.current.fit();
     } catch {}
+  }, []);
+
+  // Send input if the socket is open; otherwise buffer it for the next open.
+  const sendInput = useCallback((data: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "input", data }));
+    } else {
+      pendingInputRef.current.push(data);
+    }
   }, []);
 
   const connectWs = useCallback(() => {
@@ -49,6 +62,12 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       if (termRef.current) {
         const { cols, rows } = termRef.current;
         ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      }
+      // Flush any keystrokes buffered while (re)connecting.
+      if (pendingInputRef.current.length) {
+        const pending = pendingInputRef.current;
+        pendingInputRef.current = [];
+        for (const data of pending) ws.send(JSON.stringify({ type: "input", data }));
       }
     };
 
@@ -120,13 +139,8 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       term.open(container);
       requestAnimationFrame(safeFit);
 
-      // Input → WebSocket
-      term.onData((data) => {
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "input", data }));
-        }
-      });
+      // Input → WebSocket (buffered across reconnects)
+      term.onData((data) => sendInput(data));
 
       // Binary mouse reports
       term.onBinary((data) => {
@@ -154,12 +168,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
         if (ev.ctrlKey && ev.key === "v") {
           navigator.clipboard
             .readText()
-            .then((text) => {
-              const ws = wsRef.current;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "input", data: text }));
-              }
-            })
+            .then((text) => sendInput(text))
             .catch(() => {});
           return false;
         }
@@ -212,7 +221,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [sessionId, connectWs, safeFit]);
+  }, [sessionId, connectWs, safeFit, sendInput]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
