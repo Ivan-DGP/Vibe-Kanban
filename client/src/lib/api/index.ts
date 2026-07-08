@@ -61,6 +61,7 @@ import type {
   CreateGraphNodeInput,
   UpdateGraphNodeInput,
   CreateGraphEdgeInput,
+  InterviewQa,
 } from "@vibe-kanban/shared";
 
 function toQuery(params: Record<string, unknown>): string {
@@ -227,6 +228,20 @@ export const api = {
         body: JSON.stringify({ taskTitle, taskDescription, projectId }),
         signal,
       }),
+    interview: {
+      next: (projectId: string, taskId: string, answers: InterviewQa[]) =>
+        fetch("/api/claude/interview/next", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, taskId, answers }),
+        }),
+      finalize: (projectId: string, taskId: string, answers: InterviewQa[]) =>
+        post<{ ok: boolean; artifactId: string }>("/claude/interview/finalize", {
+          projectId,
+          taskId,
+          answers,
+        }),
+    },
   },
 
   settings: {

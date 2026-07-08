@@ -15,6 +15,7 @@ import {
   FileSearch,
   Image as ImageIcon,
   X,
+  MessageSquareText,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
@@ -25,6 +26,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PriorityBadge from "./PriorityBadge";
 import GatherContextModal from "./GatherContextModal";
+import InterviewPanel from "@/components/ai/InterviewPanel";
 import TaskAiRuns from "./TaskAiRuns";
 import { STATUS_LABELS } from "@/lib/constants";
 import { useDeleteTask, useUpdateTask, useUploadArtifact, useUpdateArtifact } from "@/hooks";
@@ -67,6 +69,7 @@ export default function TaskViewerDialog({
   const [copying, setCopying] = useState(false);
   const [decomposing, setDecomposing] = useState(false);
   const [gatherModalOpen, setGatherModalOpen] = useState(false);
+  const [interviewOpen, setInterviewOpen] = useState(false);
   const [pastedArtifacts, setPastedArtifacts] = useState<
     Array<{ id: string; filename: string; renaming: boolean }>
   >([]);
@@ -493,6 +496,15 @@ export default function TaskViewerDialog({
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setInterviewOpen(true)}
+            disabled={interviewOpen}
+          >
+            <MessageSquareText className="h-3.5 w-3.5 mr-1" />
+            Interview me
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setGatherModalOpen(true)}
             disabled={gatherModalOpen}
           >
@@ -528,6 +540,25 @@ export default function TaskViewerDialog({
           );
         }}
       />
+
+      {interviewOpen && (
+        <Dialog open={interviewOpen} onOpenChange={setInterviewOpen}>
+          <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto p-0">
+            <div className="h-[500px]">
+              <InterviewPanel
+                projectId={task.projectId}
+                taskId={task.id}
+                taskTitle={task.title}
+                onClose={() => setInterviewOpen(false)}
+                onFinalized={() => {
+                  setInterviewOpen(false);
+                  toast.success("Interview saved — answers will feed AI resolve");
+                }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   );
 }
