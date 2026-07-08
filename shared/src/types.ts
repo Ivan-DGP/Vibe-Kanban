@@ -334,6 +334,16 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface InterviewQa {
+  question: string;
+  answer: string;
+}
+
+export interface InterviewNextResponse {
+  question: string;
+  done: boolean;
+}
+
 // ============================================================
 // Report
 // ============================================================
