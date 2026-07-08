@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import type { Task, Project } from "@vibe-kanban/shared";
-import { buildQaTestPrompt, buildDevFixPrompt } from "./spawnPrompts";
+import { buildQaTestPrompt, buildDevFixPrompt, buildBlindspotPrompt } from "./spawnPrompts";
 
 const baseProject: Project = {
   id: "proj-1",
@@ -198,5 +198,49 @@ describe("buildDevFixPrompt", () => {
     expect(out).toContain("4. Commit");
     expect(out).toContain("5. Use `vibe-kanban` MCP `update_task`");
     expect(out).toContain("6. Use `vibe-kanban` MCP `create_task`");
+  });
+});
+
+describe("buildBlindspotPrompt", () => {
+  test("renders system header + project + task ids", () => {
+    const out = buildBlindspotPrompt({
+      task: makeTask({ id: "bs-1", title: "Refactor auth" }),
+      project: baseProject,
+    });
+    expect(out).toContain("Unknowns Brief Agent");
+    expect(out).toContain("Task ID: bs-1");
+    expect(out).toContain("Project: Acme (proj-1)");
+    expect(out).toContain("Project path: /home/dev/acme");
+  });
+
+  test("mentions unknowns, risks, assumptions in the output", () => {
+    const out = buildBlindspotPrompt({
+      task: makeTask(),
+      project: baseProject,
+    });
+    expect(out).toContain("unknowns");
+    expect(out).toContain("riskiest");
+    expect(out).toContain("assumptions");
+    expect(out).toContain("impact");
+  });
+
+  test("includes create_artifact and attach_artifact_to_task instructions", () => {
+    const out = buildBlindspotPrompt({
+      task: makeTask({ id: "bs-2" }),
+      project: baseProject,
+    });
+    expect(out).toContain("create_artifact");
+    expect(out).toContain("attach_artifact_to_task");
+    expect(out).toContain('role="unknowns"');
+    expect(out).toContain("unknowns-brief-bs-2.md");
+  });
+
+  test("includes update_task instruction to mark done", () => {
+    const out = buildBlindspotPrompt({
+      task: makeTask({ id: "bs-3" }),
+      project: baseProject,
+    });
+    expect(out).toContain("update_task");
+    expect(out).toContain('status="done"');
   });
 });
