@@ -4,7 +4,7 @@ import { log } from "../lib/logger";
 import { tryDecrypt } from "../lib/crypto";
 import { writeTaskSnapshot } from "../services/snapshot";
 import {
-  buildAiResolvePrompt,
+  buildAiResolvePromptWithGrounding,
   buildDecomposePrompt,
   classifyTaskProfile,
   estimateComplexity,
@@ -885,8 +885,15 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     if (!task) return reply.code(404).send({ error: "Task not found" });
 
     const port = parseInt(process.env.PORT || "3001", 10);
-    const prompt = await buildAiResolvePrompt(task, projectId, port);
-    return { prompt };
+    // Use the grounding builder so knowledge artifacts are injected AND the
+    // audit list is returned; the client passes groundedArtifacts back to
+    // POST /tasks/:taskId/ai-runs so task_ai_runs.groundedArtifacts is recorded.
+    const { prompt, groundedArtifacts } = await buildAiResolvePromptWithGrounding(
+      task,
+      projectId,
+      port,
+    );
+    return { prompt, groundedArtifacts };
   });
 
   // Record an AI run result

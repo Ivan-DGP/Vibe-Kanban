@@ -215,3 +215,29 @@ describe("artifact loop: run audit columns round-trip", () => {
     expect(parsed.artifactId).toBe("impl-notes-1");
   });
 });
+
+describe("artifact loop: single-task ai-resolve grounds", () => {
+  test("POST ai-resolve returns a groundedArtifacts array (grounding builder wired)", async () => {
+    const db = getDb();
+    fs.mkdirSync(`/tmp/artifact-loop-${projectId}`, { recursive: true });
+    const taskId = crypto.randomUUID();
+    db.prepare("INSERT INTO tasks (id, projectId, title, status) VALUES (?, ?, ?, 'todo')").run(
+      taskId,
+      projectId,
+      "resolve grounding task",
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${taskId}/ai-resolve`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.prompt).toBe("string");
+    expect(body.prompt.length).toBeGreaterThan(0);
+    // Regression guard: legacy builder returned only { prompt }. The grounding
+    // builder must also return the (possibly empty) audit list.
+    expect(Array.isArray(body.groundedArtifacts)).toBe(true);
+  });
+});
