@@ -186,7 +186,7 @@ const mcpRoutes: FastifyPluginAsync = async (app) => {
     if (!checkAuth(request)) return reply.code(401).send({ error: "Unauthorized" });
     const { runId } = request.params as { runId: string };
     const cwd = getRunCwd(runId) ?? undefined;
-    return handleRpc(request.body as any, reply, { cwd });
+    return handleRpc(request.body as any, reply, { cwd, runId });
   });
 
   // SSE endpoints for MCP

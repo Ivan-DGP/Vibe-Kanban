@@ -13,7 +13,13 @@ import { maybeSpawnForTask } from "../services/taskSpawner";
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import { discardWorktree, worktreeDirFor } from "../services/worktree";
 import fs from "node:fs";
-import type { Task, TaskStatus, GroundedArtifact, TaskAiRun } from "@vibe-kanban/shared";
+import type {
+  Task,
+  TaskStatus,
+  GroundedArtifact,
+  TaskAiRun,
+  RunDeviations,
+} from "@vibe-kanban/shared";
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -21,8 +27,8 @@ function uuid(): string {
 
 /**
  * Map a raw `task_ai_runs` DB row to the API/UI shape, parsing the O6
- * `groundedArtifacts` JSON column into a structured list. Malformed or NULL
- * JSON degrades to an empty list rather than throwing.
+ * `groundedArtifacts` and the `deviations` JSON columns into structured shapes.
+ * Malformed or NULL JSON degrades to empty/null rather than throwing.
  */
 export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
   let groundedArtifacts: GroundedArtifact[] = [];
@@ -35,7 +41,19 @@ export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
       // Leave empty on malformed JSON.
     }
   }
-  return { ...(row as unknown as TaskAiRun), groundedArtifacts };
+
+  let deviations: RunDeviations | null = null;
+  const rawDev = row.deviations;
+  if (typeof rawDev === "string" && rawDev.length > 0) {
+    try {
+      const parsed = JSON.parse(rawDev);
+      if (parsed && typeof parsed === "object") deviations = parsed as RunDeviations;
+    } catch {
+      // Leave null on malformed JSON.
+    }
+  }
+
+  return { ...(row as unknown as TaskAiRun), groundedArtifacts, deviations };
 }
 
 function now(): string {

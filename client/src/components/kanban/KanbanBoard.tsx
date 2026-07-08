@@ -12,11 +12,14 @@ import {
 import {
   useTasks,
   useReorderTasks,
+  useUpdateTask,
   useCreateTask,
   useDeleteTask,
   useBatchCIStatus,
   useArchiveApproved,
 } from "@/hooks";
+import { shouldGateApproval } from "@/lib/taskArtifacts";
+import QuizDialog from "@/components/tasks/QuizDialog";
 import { useAppStore } from "@/stores/appStore";
 import {
   useCreateTerminalSession,
@@ -79,7 +82,9 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
 
   // DnD
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [quizGateTask, setQuizGateTask] = useState<Task | null>(null);
   const reorderTasks = useReorderTasks();
+  const updateTask = useUpdateTask();
 
   const baseFilters: Partial<TaskFilters> = {
     milestoneId: milestoneId ?? undefined,
@@ -190,6 +195,13 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       task.status !== newStatus &&
       !(targetColumn === "inbox" && (task.status === "backlog" || task.status === "todo"));
 
+    // Soft quiz gate: dropping into Approved with an unpassed quiz opens the
+    // comprehension check instead of committing immediately.
+    if (statusChanged && newStatus === "approved" && shouldGateApproval(task)) {
+      setQuizGateTask(task);
+      return;
+    }
+
     reorderTasks.mutate([
       {
         id: taskId,
@@ -198,6 +210,20 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       },
     ]);
   };
+
+  // Complete a gated approval: mark the quiz passed (for audit) if the user
+  // confirmed, then move the task to Approved.
+  const completeGatedApproval = useCallback(
+    (markPassed: boolean) => {
+      const task = quizGateTask;
+      setQuizGateTask(null);
+      if (!task) return;
+      const metadata = { ...(task.metadata ?? {}) };
+      if (markPassed) metadata.quizPassed = true;
+      updateTask.mutate({ id: task.id, input: { status: "approved", metadata } });
+    },
+    [quizGateTask, updateTask],
+  );
 
   const handleTaskClick = (task: Task) => {
     setSelectedTask(task);
@@ -509,6 +535,14 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         onOpenChange={setViewerOpen}
         task={selectedTask}
         onEdit={handleEditFromViewer}
+      />
+
+      <QuizDialog
+        projectId={projectId}
+        task={quizGateTask}
+        open={!!quizGateTask}
+        onOpenChange={(o) => !o && setQuizGateTask(null)}
+        onApprove={completeGatedApproval}
       />
 
       <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>

@@ -34,6 +34,9 @@ import {
   readArtifact,
   listGraphNodes,
   searchKnowledge,
+  createArtifactTool,
+  attachArtifactToTask,
+  recordRunDeviations,
   tools,
   toolMap,
 } from "./tools";
@@ -695,5 +698,154 @@ describe("MCP tools - searchKnowledge", () => {
     expect(result.results).toEqual([]);
     expect(result.totalChunks).toBe(0);
     expect(searchEmbedCalled).toBe(false);
+  });
+});
+
+describe("MCP tools - createArtifactTool", () => {
+  const createdArtifactIds: string[] = [];
+
+  afterAll(() => {
+    const db = getDb();
+    const dir = getProjectArtifactsDir(TEST_PROJECT_ID);
+    for (const id of createdArtifactIds) {
+      const row = db.query("SELECT filename FROM project_artifacts WHERE id = ?").get(id) as
+        | { filename: string }
+        | undefined;
+      if (row) {
+        const fp = path.join(dir, id + (path.extname(row.filename) || ".md"));
+        if (fs.existsSync(fp)) fs.rmSync(fp);
+      }
+      db.query("DELETE FROM project_artifacts WHERE id = ?").run(id);
+    }
+  });
+
+  test("creates an artifact, writes file to disk, and inserts the row", () => {
+    const result = createArtifactTool({
+      projectId: TEST_PROJECT_ID,
+      filename: "spec-note.md",
+      content: "# Spec\n\nSome notes.",
+      type: "spec",
+    }) as any;
+    createdArtifactIds.push(result.id);
+
+    expect(result.id).toBeDefined();
+    expect(result.filename).toBe("spec-note.md");
+    expect(result.type).toBe("spec");
+
+    const db = getDb();
+    const row = db.query("SELECT * FROM project_artifacts WHERE id = ?").get(result.id) as any;
+    expect(row).toBeDefined();
+    expect(row.mimeType).toBe("text/markdown");
+
+    const fp = path.join(getProjectArtifactsDir(TEST_PROJECT_ID), result.id + ".md");
+    expect(fs.existsSync(fp)).toBe(true);
+    expect(fs.readFileSync(fp, "utf-8")).toContain("Some notes.");
+  });
+
+  test("returns error when filename missing", () => {
+    const result = createArtifactTool({ projectId: TEST_PROJECT_ID }) as any;
+    expect(result.error).toBeDefined();
+  });
+});
+
+describe("MCP tools - attachArtifactToTask", () => {
+  let artifactId = "";
+
+  beforeAll(() => {
+    const created = createArtifactTool({
+      projectId: TEST_PROJECT_ID,
+      filename: "attach-me.md",
+      content: "x",
+    }) as any;
+    artifactId = created.id;
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    const fp = path.join(getProjectArtifactsDir(TEST_PROJECT_ID), artifactId + ".md");
+    if (fs.existsSync(fp)) fs.rmSync(fp);
+    db.query("DELETE FROM project_artifacts WHERE id = ?").run(artifactId);
+    // Reset the task's metadata mutated by these tests.
+    db.query("UPDATE tasks SET metadata = '{}' WHERE id = ?").run(TEST_TASK_ID);
+  });
+
+  test("records {id, role} on task.metadata.artifacts", () => {
+    const result = attachArtifactToTask({
+      taskId: TEST_TASK_ID,
+      artifactId,
+      role: "spec",
+    }) as any;
+    expect(result.artifacts).toEqual([{ id: artifactId, role: "spec" }]);
+
+    const db = getDb();
+    const row = db.query("SELECT metadata FROM tasks WHERE id = ?").get(TEST_TASK_ID) as any;
+    expect(JSON.parse(row.metadata).artifacts).toEqual([{ id: artifactId, role: "spec" }]);
+  });
+
+  test("is idempotent for the same (id, role)", () => {
+    attachArtifactToTask({ taskId: TEST_TASK_ID, artifactId, role: "spec" });
+    const result = attachArtifactToTask({ taskId: TEST_TASK_ID, artifactId, role: "spec" }) as any;
+    expect(result.artifacts).toHaveLength(1);
+  });
+
+  test("appends a distinct role for the same artifact", () => {
+    const result = attachArtifactToTask({ taskId: TEST_TASK_ID, artifactId, role: "quiz" }) as any;
+    expect(result.artifacts).toHaveLength(2);
+    expect(result.artifacts).toContainEqual({ id: artifactId, role: "quiz" });
+  });
+
+  test("errors on unknown task", () => {
+    const result = attachArtifactToTask({ taskId: "nope", artifactId }) as any;
+    expect(result.error).toBeDefined();
+  });
+
+  test("errors on unknown artifact", () => {
+    const result = attachArtifactToTask({ taskId: TEST_TASK_ID, artifactId: "nope" }) as any;
+    expect(result.error).toBeDefined();
+  });
+});
+
+describe("MCP tools - recordRunDeviations", () => {
+  const RUN_ID = crypto.randomUUID();
+
+  beforeAll(() => {
+    getDb()
+      .query("INSERT INTO task_ai_runs (id, taskId, projectId) VALUES (?, ?, ?)")
+      .run(RUN_ID, TEST_TASK_ID, TEST_PROJECT_ID);
+  });
+
+  afterAll(() => {
+    getDb().query("DELETE FROM task_ai_runs WHERE id = ?").run(RUN_ID);
+  });
+
+  test("requires a per-run context (runId)", () => {
+    const result = recordRunDeviations({ notes: "x" }) as any;
+    expect(result.error).toBeDefined();
+  });
+
+  test("errors when neither notes nor artifactId given", () => {
+    const result = recordRunDeviations({}, { runId: RUN_ID }) as any;
+    expect(result.error).toBeDefined();
+  });
+
+  test("errors on unknown run", () => {
+    const result = recordRunDeviations({ notes: "x" }, { runId: "nope" }) as any;
+    expect(result.error).toBeDefined();
+  });
+
+  test("persists {notes, artifactId} JSON onto the run row", () => {
+    const result = recordRunDeviations(
+      { notes: "swapped lib X for Y", artifactId: "art-1" },
+      { runId: RUN_ID },
+    ) as any;
+    expect(result.runId).toBe(RUN_ID);
+
+    const row = getDb()
+      .query("SELECT deviations FROM task_ai_runs WHERE id = ?")
+      .get(RUN_ID) as any;
+    expect(JSON.parse(row.deviations)).toEqual({
+      notes: "swapped lib X for Y",
+      artifactId: "art-1",
+    });
   });
 });

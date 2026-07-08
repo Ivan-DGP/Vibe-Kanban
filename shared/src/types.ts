@@ -109,6 +109,16 @@ export interface UpdateTaskInput {
   priority?: TaskPriority;
   milestoneId?: string | null;
   sortOrder?: number;
+  // Full-replace of the task's metadata JSON bag. Merge with the existing value
+  // client-side before sending — the server overwrites, it does not deep-merge.
+  metadata?: Record<string, unknown>;
+}
+
+/** A reference from a task to a knowledge artifact, stored in task.metadata.artifacts.
+ *  Roles: 'spec' | 'prototype' | 'impl-notes' | 'quiz' | 'reference' (free-form). */
+export interface TaskArtifactRef {
+  id: string;
+  role: string;
 }
 
 export interface AiPreflightResult {
@@ -160,6 +170,15 @@ export interface TaskAiRun {
   // O6: knowledge artifacts injected into this run's prompt. Empty when no
   // knowledge was grounded (embeddings disabled, no artifacts, or timeout).
   groundedArtifacts?: GroundedArtifact[];
+  // Per-run deviations log recorded by the resolve agent via the
+  // record_run_deviations MCP tool: how it diverged from the plan, plus the
+  // impl-notes artifact it authored. Null when the agent logged nothing.
+  deviations?: RunDeviations | null;
+}
+
+export interface RunDeviations {
+  notes?: string;
+  artifactId?: string;
 }
 
 export interface ProjectAiStats {

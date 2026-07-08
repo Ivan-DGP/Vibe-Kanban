@@ -853,6 +853,47 @@ function runMigrations(db: DatabaseHandle): void {
         );
       },
     },
+    {
+      version: 34,
+      name: "add-claude-sessions",
+      up: () => {
+        // Interactive Claude terminals VK has spawned. `id` is the Claude CLI
+        // --session-id UUID we pin at launch, so a picker can list past sessions
+        // and resume a specific one (`claude --resume <id>`). taskId is optional
+        // (a session may be project-scoped, not tied to a task).
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS claude_sessions (
+            id          TEXT PRIMARY KEY,
+            projectId   TEXT DEFAULT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            taskId      TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL,
+            model       TEXT DEFAULT NULL,
+            cwd         TEXT NOT NULL,
+            title       TEXT DEFAULT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            lastUsedAt  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_claude_sessions_projectId ON claude_sessions (projectId, lastUsedAt DESC);
+        `);
+      },
+    },
+    {
+      version: 35,
+      name: "add-task-ai-run-deviations",
+      up: () => {
+        // Per-run deviations log: a resolve agent records how it diverged from
+        // the plan (and the impl-notes artifact it authored) via the run-scoped
+        // record_run_deviations MCP tool. JSON {notes?, artifactId?}, keyed by
+        // runId for audit — complements the agent-authored artifact on the task.
+        const tableExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'")
+          .get();
+        if (!tableExists) return;
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "deviations")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN deviations TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

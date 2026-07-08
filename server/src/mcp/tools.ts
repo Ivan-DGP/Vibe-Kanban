@@ -11,14 +11,17 @@ import {
   isEmbeddingsDisabled,
 } from "../services/embeddings";
 import { embedTaskInBackground } from "../services/taskEmbedder";
-import type { McpToolDefinition } from "@vibe-kanban/shared";
+import { createArtifact, ArtifactError } from "../services/artifactService";
+import type { McpToolDefinition, ArtifactType } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
 
-/** Per-call context. `cwd` is set when the call arrives on a per-run MCP
- *  endpoint, pointing at that run's worktree. */
+/** Per-call context, set when the call arrives on a per-run MCP endpoint.
+ *  `cwd` points at that run's worktree; `runId` is the task_ai_runs id, which
+ *  run-scoped tools (e.g. record_run_deviations) key their writes on. */
 export interface ToolContext {
   cwd?: string;
+  runId?: string;
 }
 
 interface ToolHandler {
@@ -264,6 +267,91 @@ export function readArtifact(params: Record<string, unknown>): unknown {
     type: row.type,
     content: fs.readFileSync(filePath, "utf-8"),
   };
+}
+
+export function createArtifactTool(params: Record<string, unknown>): unknown {
+  const projectId = params.projectId as string;
+  const filename = params.filename as string;
+  if (!projectId || !filename) return { error: "projectId and filename required" };
+  try {
+    const artifact = createArtifact({
+      projectId,
+      filename,
+      type: params.type as ArtifactType | undefined,
+      description: (params.description as string | undefined) ?? null,
+      tags: Array.isArray(params.tags) ? (params.tags as string[]) : undefined,
+      content: (params.content as string | undefined) ?? "",
+    });
+    return { id: artifact.id, filename: artifact.filename, type: artifact.type };
+  } catch (e) {
+    if (e instanceof ArtifactError) return { error: e.message };
+    throw e;
+  }
+}
+
+/** Record an artifact reference on a task's metadata under `artifacts:[{id, role}]`.
+ *  Additive: preserves any existing metadata and de-dupes on (id, role). */
+export function attachArtifactToTask(params: Record<string, unknown>): unknown {
+  const db = getDb();
+  const taskId = params.taskId as string;
+  const artifactId = params.artifactId as string;
+  const role = (params.role as string) || "reference";
+  if (!taskId || !artifactId) return { error: "taskId and artifactId required" };
+
+  const task = db.query("SELECT id, metadata FROM tasks WHERE id = ?").get(taskId) as
+    | { id: string; metadata: string | null }
+    | undefined;
+  if (!task) return { error: "Task not found" };
+
+  const artifact = db.query("SELECT id FROM project_artifacts WHERE id = ?").get(artifactId) as
+    | { id: string }
+    | undefined;
+  if (!artifact) return { error: "Artifact not found" };
+
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = task.metadata ? (JSON.parse(task.metadata) as Record<string, unknown>) : {};
+  } catch {
+    metadata = {};
+  }
+  const artifacts = Array.isArray(metadata.artifacts)
+    ? (metadata.artifacts as Array<{ id: string; role: string }>)
+    : [];
+  if (!artifacts.some((a) => a.id === artifactId && a.role === role)) {
+    artifacts.push({ id: artifactId, role });
+  }
+  metadata.artifacts = artifacts;
+
+  db.query("UPDATE tasks SET metadata = ?, updatedAt = ? WHERE id = ?").run(
+    JSON.stringify(metadata),
+    new Date().toISOString(),
+    taskId,
+  );
+  return { taskId, artifacts };
+}
+
+/** Record the current run's deviations log into task_ai_runs.deviations.
+ *  Run-scoped: keys on ctx.runId, so it only works from a per-run MCP endpoint. */
+export function recordRunDeviations(params: Record<string, unknown>, ctx?: ToolContext): unknown {
+  const runId = ctx?.runId;
+  if (!runId) {
+    return { error: "record_run_deviations requires a per-run MCP endpoint (no runId in context)" };
+  }
+  const db = getDb();
+  const run = db.query("SELECT id FROM task_ai_runs WHERE id = ?").get(runId) as
+    | { id: string }
+    | undefined;
+  if (!run) return { error: "Run not found" };
+
+  const notes = typeof params.notes === "string" ? params.notes : undefined;
+  const artifactId = typeof params.artifactId === "string" ? params.artifactId : undefined;
+  if (!notes && !artifactId) return { error: "notes or artifactId required" };
+
+  db.query("UPDATE task_ai_runs SET deviations = ? WHERE id = ?").run(
+    JSON.stringify({ notes, artifactId }),
+    runId,
+  );
+  return { runId, recorded: { notes, artifactId } };
 }
 
 export function listGraphNodes(params: Record<string, unknown>): unknown {
@@ -570,6 +658,74 @@ export const tools: ToolHandler[] = [
       },
     },
     handler: readArtifact,
+  },
+  {
+    definition: {
+      name: "create_artifact",
+      description:
+        "Create a knowledge base artifact (spec, notes, prototype, quiz, doc) for a project. Content is written to disk, embedded for semantic search, and its [[wikilinks]] are resolved into the knowledge graph — so it auto-grounds future AI resolve runs. Use filename extensions like .md, .html, .json to set the type.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "Project ID" },
+          filename: {
+            type: "string",
+            description: "Filename incl. extension, e.g. 'auth-spec.md' or 'prototype.html'",
+          },
+          content: { type: "string", description: "Text content of the artifact" },
+          type: {
+            type: "string",
+            enum: ["document", "diagram", "image", "research", "spec", "other"],
+            description: "Artifact type (default 'document')",
+          },
+          description: { type: "string", description: "Optional one-line description" },
+          tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
+        },
+        required: ["projectId", "filename"],
+      },
+    },
+    handler: createArtifactTool,
+  },
+  {
+    definition: {
+      name: "attach_artifact_to_task",
+      description:
+        "Link an existing artifact to a task, recording it under the task's metadata.artifacts as {id, role}. Roles like 'spec', 'prototype', 'impl-notes', 'quiz' let downstream tooling find the right artifact for a task. Additive and idempotent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "Task ID" },
+          artifactId: { type: "string", description: "Artifact ID" },
+          role: {
+            type: "string",
+            description: "Relationship role, e.g. spec | prototype | impl-notes | quiz | reference",
+          },
+        },
+        required: ["taskId", "artifactId"],
+      },
+    },
+    handler: attachArtifactToTask,
+  },
+  {
+    definition: {
+      name: "record_run_deviations",
+      description:
+        "Record how this AI run diverged from its plan, for audit. Keyed to the current run automatically. Pass `notes` (free-text deviations log) and/or `artifactId` (the impl-notes artifact you authored via create_artifact). Call once near the end of a run, after logging deviations into an impl-notes artifact.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          notes: {
+            type: "string",
+            description: "Free-text summary of deviations from the original plan",
+          },
+          artifactId: {
+            type: "string",
+            description: "ID of the impl-notes artifact authored for this run",
+          },
+        },
+      },
+    },
+    handler: recordRunDeviations,
   },
   {
     definition: {

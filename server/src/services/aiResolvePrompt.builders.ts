@@ -395,6 +395,25 @@ Profile: ${effectiveProfile}${task.promptProfile === "auto" ? " (auto-detected)"
   // Profile-specific instructions
   parts.push(buildProfileInstructions(effectiveProfile, project, task, gitInstruction));
 
+  // Deviations protocol (shared): keep an impl-notes artifact and log how the
+  // real work diverged from the plan. The artifact grounds future runs (it's
+  // embedded + graph-linked); record_run_deviations keys the same info to this
+  // run for audit. Uses VK's MCP tools, available on the per-run endpoint.
+  parts.push(`## Keep an implementation-notes log (deviations)
+As you work, maintain a single impl-notes artifact for this task using VK's MCP tools:
+1. Create it once with \`create_artifact\` (projectId: "${project.id}", filename like "impl-notes-${task.id.slice(0, 8)}.md"). Structure it with sections: "## Approach", "## Key decisions", and "## Deviations".
+2. Under "## Deviations", log every point where the actual implementation departs from the task's stated plan/description — what you expected, what you found in the territory, and what you did instead. If nothing deviated, say so explicitly.
+3. Attach it with \`attach_artifact_to_task\` (taskId: "${task.id}", role: "impl-notes").
+4. Near the end, call \`record_run_deviations\` with a short \`notes\` summary of the deviations and the \`artifactId\` of that impl-notes artifact.
+Do this alongside the work, not as an afterthought — it is part of finishing.`);
+
+  // Comprehension quiz (shared): a short quiz the human answers before approving
+  // the task, so a review is a real understanding check rather than a rubber
+  // stamp. Attached with role 'quiz'; the UI soft-gates done→approved on it.
+  parts.push(`## Author a comprehension quiz (before marking done)
+Create one quiz artifact for this task with \`create_artifact\` (projectId: "${project.id}", filename like "quiz-${task.id.slice(0, 8)}.md"), then attach it with \`attach_artifact_to_task\` (taskId: "${task.id}", role: "quiz").
+Write 3–5 short questions that check real understanding of THIS change — why it was made, the key decision or trade-off, and what would break if it were wrong. Prefer "why/what-if" over "what line changed". End the file with an "## Answer key" section. Keep it under ~250 words.`);
+
   // Task update instructions (shared across all profiles)
   parts.push(`## IMPORTANT: When you start working
 If the task title or description is vague, first improve it. Update the task via the API:
