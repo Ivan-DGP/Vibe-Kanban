@@ -539,6 +539,52 @@ describe("POST /api/claude/interview/finalize", () => {
     await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
   });
 
+  test("preserves pre-existing task metadata when attaching the spec ref", async () => {
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Finalize Preserve", path: `/tmp/test-finalize-preserve-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Has metadata" },
+    });
+    const taskId = taskRes.json().id;
+
+    // Seed existing metadata: a quiz artifact ref and the quiz-passed gate flag.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        metadata: { quizPassed: true, artifacts: [{ id: "quiz-artifact-1", role: "quiz" }] },
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/interview/finalize",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: projId, taskId, answers: [{ question: "Q", answer: "A" }] },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const updatedTask = (await app.inject({ method: "GET", url: `/api/tasks/${taskId}` })).json();
+    // Pre-existing metadata survives (regression: metadata was a JSON string
+    // that got spread char-by-char, wiping the quiz ref and gate flag).
+    expect(updatedTask.metadata.quizPassed).toBe(true);
+    const roles = updatedTask.metadata.artifacts.map((a: { role: string }) => a.role);
+    expect(roles).toContain("quiz");
+    expect(roles).toContain("spec");
+
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+
   test("handles empty answers gracefully", async () => {
     const projRes = await app.inject({
       method: "POST",

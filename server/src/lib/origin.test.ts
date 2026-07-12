@@ -19,6 +19,8 @@ describe("isAllowedOrigin", () => {
     expect(isAllowedOrigin("https://anything.ts.net")).toBe(true);
     // Even when a reverse proxy rewrites Host to the loopback upstream.
     expect(isAllowedOrigin("https://vps.tail5ad8aa.ts.net", "127.0.0.1:8080")).toBe(true);
+    // A tailnet host served on a non-default port (suffix check must ignore port).
+    expect(isAllowedOrigin("https://vps.tail5ad8aa.ts.net:8443")).toBe(true);
   });
 
   test("accepts same-origin when Host matches (proxy that preserves Host)", () => {

@@ -27,9 +27,18 @@ function hostOf(origin: string): string | null {
   }
 }
 
+// Hostname without the port — used for suffix matching (port breaks endsWith).
+function hostnameOf(origin: string): string | null {
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return null;
+  }
+}
+
 // The app is deployed tailnet-only; Tailscale MagicDNS names live under *.ts.net.
 function isTailnetOrigin(origin: string): boolean {
-  const h = hostOf(origin);
+  const h = hostnameOf(origin);
   return !!h && (h === "ts.net" || h.endsWith(".ts.net"));
 }
 

@@ -7,6 +7,26 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import type { InterviewQa } from "@vibe-kanban/shared";
 
+type InterviewMessage = { type: "question"; text: string } | { type: "complete"; summary?: string };
+
+// The interviewer is prompted to emit bare JSON, but models often wrap it in
+// prose or a ```json fence. Try a direct parse, then the first {...} block.
+function extractJson(raw: string): InterviewMessage | null {
+  const text = raw.trim();
+  if (!text) return null;
+  const tryParse = (s: string): InterviewMessage | null => {
+    try {
+      return JSON.parse(s) as InterviewMessage;
+    } catch {
+      return null;
+    }
+  };
+  const direct = tryParse(text);
+  if (direct) return direct;
+  const match = text.match(/\{[\s\S]*\}/);
+  return match ? tryParse(match[0]) : null;
+}
+
 interface InterviewPanelProps {
   projectId: string;
   taskId: string;
@@ -43,50 +63,58 @@ export default function InterviewPanel({
 
     try {
       const response = await api.claude.interview.next(projectId, taskId, answers);
+      // Non-2xx responses come back as plain JSON, not an SSE stream.
+      if (!response.ok) {
+        let msg = `Interview request failed (${response.status})`;
+        try {
+          const body = await response.json();
+          if (body?.error) msg = body.error;
+        } catch {}
+        throw new Error(msg);
+      }
       const reader = response.body?.getReader();
-      if (!reader) return;
+      if (!reader) throw new Error("Interview stream had no body");
 
       let buffer = "";
+      let lineBuf = "";
       const decoder = new TextDecoder();
+      const consumeLine = (line: string) => {
+        if (!line.startsWith("data: ")) return;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === "delta" && data.text) buffer += data.text;
+        } catch {}
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "delta" && data.text) {
-                buffer += data.text;
-              }
-            } catch {}
-          }
-        }
+        // Accumulate across chunk boundaries; a data: frame may span reads.
+        lineBuf += decoder.decode(value, { stream: true });
+        const lines = lineBuf.split("\n");
+        lineBuf = lines.pop() ?? "";
+        for (const line of lines) consumeLine(line);
       }
+      if (lineBuf) consumeLine(lineBuf);
 
-      // Parse the accumulated JSON response
-      try {
-        const parsed = JSON.parse(buffer.trim());
-        if (parsed.type === "question") {
-          setCurrentQuestion(parsed.text);
-          setPhase("question");
-        } else if (parsed.type === "complete") {
-          setCurrentQuestion(parsed.summary || "Interview complete.");
-          setPhase("complete");
-        } else {
-          setCurrentQuestion(buffer.trim());
-          setPhase("question");
-        }
-      } catch {
-        // If parsing fails, treat the raw text as the question
-        setCurrentQuestion(buffer.trim());
+      const parsed = extractJson(buffer);
+      if (parsed?.type === "complete") {
+        setCurrentQuestion(parsed.summary || "Interview complete.");
+        setPhase("complete");
+      } else if (parsed?.type === "question" && parsed.text) {
+        setCurrentQuestion(parsed.text);
+        setPhase("question");
+      } else {
+        // Model returned something unstructured — show it as the question
+        // rather than hanging, but only if there's actually text.
+        const raw = buffer.trim();
+        if (!raw) throw new Error("Empty response from interviewer");
+        setCurrentQuestion(raw);
         setPhase("question");
       }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to get next question");
-      setPhase("complete");
+      // Return to an answerable state instead of stranding phase on 'loading'.
+      setPhase(qaList.length > 0 ? "complete" : "question");
     } finally {
       setStreaming(false);
     }

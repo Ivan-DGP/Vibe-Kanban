@@ -567,8 +567,19 @@ ${text}`;
       content: specContent,
     });
 
-    // Attach to task metadata
-    const metadata: Record<string, unknown> = task.metadata ? { ...task.metadata } : {};
+    // Attach to task metadata. The raw row stores metadata as a JSON string
+    // (SELECT * does not map it), so parse before spreading.
+    let metadata: Record<string, unknown> = {};
+    if (task.metadata) {
+      try {
+        metadata =
+          typeof task.metadata === "string"
+            ? (JSON.parse(task.metadata) as Record<string, unknown>)
+            : (task.metadata as Record<string, unknown>);
+      } catch {
+        metadata = {};
+      }
+    }
     const artifactRefs = Array.isArray(metadata.artifacts)
       ? [...(metadata.artifacts as Array<{ id: string; role: string }>)]
       : [];
