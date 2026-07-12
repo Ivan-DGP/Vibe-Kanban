@@ -348,7 +348,9 @@ describe("Graph write API (upsert + batch)", () => {
     expect(second.json().id).toBe(first.json().id);
 
     const graph = await app.inject({ method: "GET", url: `/api/projects/${pid}/graph` });
-    const matches = graph.json().nodes.filter((n: { label: string }) => /repeat concept/i.test(n.label));
+    const matches = graph
+      .json()
+      .nodes.filter((n: { label: string }) => /repeat concept/i.test(n.label));
     expect(matches.length).toBe(1);
   });
 

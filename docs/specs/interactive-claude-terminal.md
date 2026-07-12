@@ -38,6 +38,7 @@ not the Q&A chat panel. You can:
 ## Design
 
 ### New session type: `claude-interactive`
+
 Add to `TerminalSessionType` (shared) + a `spawnClaudeInteractive()` in terminalService
 that spawns **interactive `claude` with NO positional prompt** so it's a live REPL:
 
@@ -47,6 +48,7 @@ claude \
   [--resume <sessionId> | --continue] \
   --dangerously-skip-permissions
 ```
+
 - cwd = project path (or a checked-out branch, like AI Resolve).
 - Reuse the existing PTY + WS + scrollback path (no new transport).
 - Reuse the existing stdin→PTY forwarding so the user types directly into `claude`.
@@ -54,13 +56,15 @@ claude \
   resume/switch), OR capture it if the CLI can report it.
 
 ### Options (extend `CreateSessionOptions`)
+
 - `model?: string` → `--model`
 - `resumeSessionId?: string` → `--resume <id>`
 - `continueLast?: boolean` → `-c`
-Persist `model` + the claude session id on the session (and ideally a small
-`claude_sessions` table or reuse `task_ai_runs`) so a picker can list/switch them.
+  Persist `model` + the claude session id on the session (and ideally a small
+  `claude_sessions` table or reuse `task_ai_runs`) so a picker can list/switch them.
 
 ### Frontend
+
 - A **launcher** (button near AI Resolve / a "New Claude Terminal" action in the
   terminal panel) opening a small dialog:
   - **Model** dropdown (sonnet/opus/haiku/default),
@@ -71,12 +75,14 @@ Persist `model` + the claude session id on the session (and ideally a small
   in the tab header; a "switch session" control re-spawns with `--resume`.
 
 ### Session enumeration ("change the session")
+
 - MVP: New / Continue-last (`-c`) / Resume-by-id (paste or pick from ids VK has
   spawned, tracked in DB).
 - Later: enumerate real Claude sessions from `~/.claude` and list them with
   titles/timestamps.
 
 ## Edge cases / notes
+
 - **Auth:** relies on `claude` logged in as the service user (same as everything).
 - **cwd / branch:** mirror AI Resolve's `checkoutBranch` handling when a branch is given.
 - **Reconnect/scrollback:** already handled by the PTY session store — nothing new.
@@ -101,6 +107,7 @@ options: append the PTY stream to a per-run file under `VK_DATA_DIR/transcripts/
 the AI Runs panel. Applies to AI Resolve + the new interactive terminal.
 
 ## Acceptance criteria
+
 1. From a project, launch a **Claude Terminal**; a live `claude` REPL runs in the
    project cwd; typing works; output streams; reconnect restores scrollback.
 2. Model is selectable at launch and reflected in the running session.
@@ -110,6 +117,7 @@ the AI Runs panel. Applies to AI Resolve + the new interactive terminal.
 5. Works over the existing Tailscale-only web UI with no new transport.
 
 ## Rough implementation order
+
 1. shared `TerminalSessionType` + `CreateSessionOptions` fields.
 2. `spawnClaudeInteractive()` in terminalService (+ persist model/sessionId).
 3. WS/route: confirm the generic terminal path handles the new type (likely no change).
