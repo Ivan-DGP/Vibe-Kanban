@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { CreateTaskInput, UpdateTaskInput, TaskFilters } from "@vibe-kanban/shared";
 
+interface TaskRef {
+  projectId: string;
+  taskId: string;
+}
+
 export function useTasks(projectId: string | undefined, filters: TaskFilters = {}) {
   return useQuery({
     queryKey: ["tasks", projectId, filters],
@@ -109,4 +114,40 @@ export function useBulkImportTasks(projectId: string) {
     mutationFn: (tasks: CreateTaskInput[]) => api.tasks.bulkImport(projectId, tasks),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks", projectId] }),
   });
+}
+
+/** Break a task into subtasks. Creates rows → invalidate the project's tasks. */
+export function useDecomposeTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, taskId }: TaskRef) => api.tasks.decompose(projectId, taskId),
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ["tasks", projectId] });
+      qc.invalidateQueries({ queryKey: ["working-on"] });
+    },
+  });
+}
+
+/** Generate the AI-resolve prompt for a task (read-only, no cache impact). */
+export function useAiResolvePrompt() {
+  return useMutation({
+    mutationFn: ({ projectId, taskId }: TaskRef) => api.tasks.aiResolvePrompt(projectId, taskId),
+  });
+}
+
+/** Pre-flight check before AI resolve (read-only, no cache impact). */
+export function useAiPreflight() {
+  return useMutation({
+    mutationFn: ({ projectId, taskId }: TaskRef) => api.tasks.aiPreflight(projectId, taskId),
+  });
+}
+
+/**
+ * Imperative one-off fetch of all project tasks (limit 1000) for export /
+ * project-size analysis. Not a subscription — callers invoke on demand, so a
+ * plain helper fits better than a useQuery hook. Lives here so components don't
+ * import the api layer directly.
+ */
+export function fetchProjectTasks(projectId: string) {
+  return api.tasks.list(projectId, { limit: 1000 });
 }

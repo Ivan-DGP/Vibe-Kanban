@@ -894,6 +894,18 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 36,
+      name: "add-project-default-branch",
+      up: () => {
+        // Per-project integration branch (e.g. main/develop). Base for the
+        // ahead/behind divergence indicator; NULL falls back to main→master.
+        const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "defaultBranch")) {
+          db.exec("ALTER TABLE projects ADD COLUMN defaultBranch TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

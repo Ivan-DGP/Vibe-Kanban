@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import type { Task } from "@vibe-kanban/shared";
 import { safeFetch } from "../lib/ssrf-guard";
 
 export const APPS_SCRIPT_REGEX = /^https:\/\/script\.google\.com\/macros\/s\/.+$/;
@@ -19,7 +20,7 @@ async function readCappedJson(response: Response): Promise<unknown> {
 
 const syncRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/sync/push", async (request, reply) => {
-    const { url, tasks } = request.body as any;
+    const { url, tasks } = request.body as { url: string; tasks?: Task[] };
 
     if (!APPS_SCRIPT_REGEX.test(url)) {
       return reply.code(400).send({ error: "Invalid Google Apps Script URL" });
@@ -36,7 +37,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.post("/sync/pull", async (request, reply) => {
-    const { url } = request.body as any;
+    const { url } = request.body as { url: string };
 
     if (!APPS_SCRIPT_REGEX.test(url)) {
       return reply.code(400).send({ error: "Invalid Google Apps Script URL" });

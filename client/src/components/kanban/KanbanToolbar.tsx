@@ -25,7 +25,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { tasksToCSV, tasksToJSON, tasksToMarkdown, downloadFile } from "@/lib/task-export";
-import { api } from "@/lib/api";
+import { fetchProjectTasks } from "@/hooks/useTasks";
+import { claudeChat } from "@/hooks/useClaude";
 import TaskSortSelect from "@/components/tasks/TaskSortSelect";
 import MilestoneSelector from "./MilestoneSelector";
 import MilestoneManagerDialog from "./MilestoneManagerDialog";
@@ -70,7 +71,7 @@ export default function KanbanToolbar({
     setSizeError("");
     setSizeLoading(true);
     try {
-      const data = await api.tasks.list(projectId, { limit: 1000 });
+      const data = await fetchProjectTasks(projectId);
       const tasks = data.items;
       const summary = tasks
         .map(
@@ -104,7 +105,7 @@ Provide a concise project size assessment:
 
 Be direct and practical. Output plain text, no markdown headers.`;
 
-      const res = await api.claude.chat(prompt, projectId);
+      const res = await claudeChat(prompt, projectId);
       const reader = res.body?.getReader();
       if (!reader) return;
       const decoder = new TextDecoder();
@@ -177,7 +178,7 @@ Be direct and practical. Output plain text, no markdown headers.`;
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={async () => {
-                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  const data = await fetchProjectTasks(projectId);
                   downloadFile(tasksToCSV(data.items), `tasks-${projectId}.csv`, "text/csv");
                 }}
               >
@@ -185,7 +186,7 @@ Be direct and practical. Output plain text, no markdown headers.`;
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={async () => {
-                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  const data = await fetchProjectTasks(projectId);
                   downloadFile(
                     tasksToJSON(data.items),
                     `tasks-${projectId}.json`,
@@ -197,7 +198,7 @@ Be direct and practical. Output plain text, no markdown headers.`;
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={async () => {
-                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  const data = await fetchProjectTasks(projectId);
                   downloadFile(
                     tasksToMarkdown(data.items, projectName),
                     `tasks-${projectId}.md`,

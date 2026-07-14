@@ -264,6 +264,7 @@ describe("buildProfileInstructions", () => {
     techStack: ["TypeScript"],
     externalLinks: [],
     aiCommitMode: "stage",
+    defaultBranch: null,
     treeDepth: 3,
     aiInstructions: null,
     notionDatabaseId: null,

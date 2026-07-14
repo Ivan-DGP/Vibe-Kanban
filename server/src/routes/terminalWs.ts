@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { log } from "../lib/logger";
 import * as termService from "../services/terminalService";
 import { isAllowedOrigin } from "../lib/origin";
+import type { TerminalWsClientMessage } from "@vibe-kanban/shared";
 
 // Terminal dimensions must be positive bounded integers.
 function isValidDimension(n: unknown): n is number {
@@ -34,7 +35,9 @@ const terminalWsRoutes: FastifyPluginAsync = async (fastify) => {
 
     socket.on("message", (raw: Buffer | string) => {
       try {
-        const msg = JSON.parse(typeof raw === "string" ? raw : raw.toString());
+        const msg = JSON.parse(
+          typeof raw === "string" ? raw : raw.toString(),
+        ) as TerminalWsClientMessage;
         switch (msg.type) {
           case "input":
           case "binary":

@@ -18,18 +18,26 @@ import {
   MessageSquareText,
 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { claudeAnalyze, claudeChat } from "@/hooks/useClaude";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirm } from "@/hooks/useConfirm";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import PriorityBadge from "./PriorityBadge";
+import PriorityBadge from "@/components/ui/PriorityBadge";
 import GatherContextModal from "./GatherContextModal";
 import InterviewPanel from "@/components/ai/InterviewPanel";
 import TaskAiRuns from "./TaskAiRuns";
 import { STATUS_LABELS } from "@/lib/constants";
-import { useDeleteTask, useUpdateTask, useUploadArtifact, useUpdateArtifact } from "@/hooks";
+import {
+  useDeleteTask,
+  useUpdateTask,
+  useUploadArtifact,
+  useUpdateArtifact,
+  useAiResolvePrompt,
+  useAiPreflight,
+  useDecomposeTask,
+} from "@/hooks";
 import { useTasks } from "@/hooks/useTasks";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -77,6 +85,9 @@ export default function TaskViewerDialog({
   const { toggleTerminal, terminalVisible } = useAppStore();
   const uploadArtifact = useUploadArtifact(task?.projectId ?? "");
   const updateArtifact = useUpdateArtifact(task?.projectId ?? "");
+  const aiResolvePrompt = useAiResolvePrompt();
+  const aiPreflight = useAiPreflight();
+  const decomposeTask = useDecomposeTask();
 
   useEffect(() => {
     if (!open) setPastedArtifacts([]);
@@ -87,7 +98,7 @@ export default function TaskViewerDialog({
   const handleAnalyze = async () => {
     setAnalyzing(true);
     try {
-      const res = await api.claude.analyze(task.projectId, task.id);
+      const res = await claudeAnalyze(task.projectId, task.id);
       const reader = res.body?.getReader();
       if (!reader) return;
       let text = "";
@@ -129,7 +140,7 @@ export default function TaskViewerDialog({
       const timeout = setTimeout(() => controller.abort(), 30_000);
       let raw = "";
       try {
-        const res = await api.claude.chat(aiPrompt, task.projectId, controller.signal);
+        const res = await claudeChat(aiPrompt, task.projectId, controller.signal);
         if (!res.ok) throw new Error("AI request failed");
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No stream");
@@ -389,7 +400,10 @@ export default function TaskViewerDialog({
               setResolving(true);
               try {
                 // Run preflight check first
-                const pf = await api.tasks.aiPreflight(task.projectId, task.id);
+                const pf = await aiPreflight.mutateAsync({
+                  projectId: task.projectId,
+                  taskId: task.id,
+                });
                 setPreflight(pf);
 
                 // If there are warnings, confirm with user
@@ -408,7 +422,10 @@ export default function TaskViewerDialog({
                 if (!terminalVisible) toggleTerminal();
                 let prompt: string;
                 try {
-                  const result = await api.tasks.aiResolvePrompt(task.projectId, task.id);
+                  const result = await aiResolvePrompt.mutateAsync({
+                    projectId: task.projectId,
+                    taskId: task.id,
+                  });
                   prompt = result.prompt;
                 } catch {
                   const parts = [task.title];
@@ -453,7 +470,10 @@ export default function TaskViewerDialog({
             onClick={async () => {
               setDecomposing(true);
               try {
-                const result = await api.tasks.decompose(task.projectId, task.id);
+                const result = await decomposeTask.mutateAsync({
+                  projectId: task.projectId,
+                  taskId: task.id,
+                });
                 toast.success(`Created ${result.subtasks.length} subtasks`);
               } catch (e: any) {
                 toast.error(e.message || "Failed to decompose task");
@@ -476,7 +496,10 @@ export default function TaskViewerDialog({
             onClick={async () => {
               setCopying(true);
               try {
-                const result = await api.tasks.aiResolvePrompt(task.projectId, task.id);
+                const result = await aiResolvePrompt.mutateAsync({
+                  projectId: task.projectId,
+                  taskId: task.id,
+                });
                 await navigator.clipboard.writeText(result.prompt);
                 toast.success("Context copied to clipboard");
               } catch {

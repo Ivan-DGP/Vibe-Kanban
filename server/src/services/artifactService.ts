@@ -6,7 +6,12 @@ import { syncArtifactWikilinks, reresolvePendingForArtifact } from "./wikilinks"
 import { isEmbeddableMimeType } from "../lib/chunking";
 import fs from "node:fs";
 import path from "node:path";
-import type { Artifact, ArtifactType } from "@vibe-kanban/shared";
+import type {
+  Artifact,
+  ArtifactType,
+  CreateArtifactInput as SharedCreateArtifactInput,
+  UpdateArtifactInput as SharedUpdateArtifactInput,
+} from "@vibe-kanban/shared";
 
 export const MAX_ARTIFACT_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -109,13 +114,9 @@ export function inferArtifactType(mimeType: string): ArtifactType {
   return "other";
 }
 
-export interface CreateArtifactInput {
+// Server-side create input: the shared DTO plus the owning project id.
+export interface CreateArtifactInput extends SharedCreateArtifactInput {
   projectId: string;
-  filename: string;
-  type?: ArtifactType;
-  description?: string | null;
-  tags?: string[];
-  content?: string;
 }
 
 /**
@@ -174,14 +175,10 @@ export function createArtifact(input: CreateArtifactInput): Artifact {
   );
 }
 
-export interface UpdateArtifactInput {
+// Server-side update input: the shared DTO plus the target project + artifact id.
+export interface UpdateArtifactInput extends SharedUpdateArtifactInput {
   projectId: string;
   id: string;
-  filename?: string;
-  type?: ArtifactType;
-  description?: string | null;
-  tags?: string[];
-  content?: string;
 }
 
 /**

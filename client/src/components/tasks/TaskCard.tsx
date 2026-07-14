@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Zap, Sparkles, Pencil, Copy, Trash2, GitBranch } from "lucide-react";
-import PriorityBadge from "./PriorityBadge";
-import CIStatusBadge from "./CIStatusBadge";
+import PriorityBadge from "@/components/ui/PriorityBadge";
+import CIStatusBadge from "@/components/ui/CIStatusBadge";
 import type { Task, CICheckResult } from "@vibe-kanban/shared";
 
 interface TaskCardProps {

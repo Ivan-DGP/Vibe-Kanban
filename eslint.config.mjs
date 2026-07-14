@@ -81,6 +81,16 @@ const ANY_DEBT = [
   "server/src/services/terminalService.ts",
 ];
 
+// Components must reach the backend through hooks/ (TanStack Query) so cache
+// invalidation stays centralized — they may not import the raw api client.
+// This list ratchets: files here predate the rule and still import @/lib/api;
+// migrate each to a hook and drop it from the list.
+const API_IMPORT_DEBT = [
+  "client/src/components/dashboard/AddProjectDialog.tsx",
+  "client/src/components/editor/CodeEditorPanel.tsx",
+  "client/src/components/settings/DataExportSection.tsx",
+];
+
 export default tseslint.config(
   { ignores: ["**/dist/", "**/node_modules/", "data/", "**/*.js"] },
   js.configs.recommended,
@@ -116,6 +126,36 @@ export default tseslint.config(
     files: ["server/src/**/*.ts"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
+    files: ["client/src/components/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/api",
+              message:
+                "Don't import the raw api client in components. Use a hook in @/hooks (TanStack Query) so cache invalidation stays centralized.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["**/lib/api", "**/lib/api/*"],
+              message:
+                "Don't import the raw api client in components. Use a hook in @/hooks (TanStack Query) so cache invalidation stays centralized.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: API_IMPORT_DEBT,
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
   prettier,

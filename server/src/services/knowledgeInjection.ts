@@ -1,6 +1,11 @@
 import { getDb } from "../db";
 import { embed, cosineSimilarity, vectorFromBlob, isEmbeddingsDisabled } from "./embeddings";
 import { log } from "../lib/logger";
+import type { GroundedArtifact } from "@vibe-kanban/shared";
+
+// Re-export so modules importing GroundedArtifact from this service keep working;
+// the canonical definition lives in @vibe-kanban/shared.
+export type { GroundedArtifact };
 
 // ── Tunable constants ────────────────────────────────────────────────────────
 // Number of artifacts to inject. Env-overridable, clamped to 0..10.
@@ -43,12 +48,6 @@ export interface BuildKnowledgeBlockOpts {
   query: string;
   /** Injectable embedder — defaults to the real model. Tests pass a fake. */
   embedFn?: EmbedFn;
-}
-
-/** Identity of an artifact injected into a prompt. Persisted for audit (O6). */
-export interface GroundedArtifact {
-  id: string;
-  title: string;
 }
 
 /** Structured result of knowledge injection: the rendered block plus the

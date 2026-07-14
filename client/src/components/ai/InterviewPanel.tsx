@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Bot, User, Check, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { claudeInterviewNext, useFinalizeInterview } from "@/hooks/useClaude";
 import { toast } from "sonner";
 import type { InterviewQa } from "@vibe-kanban/shared";
 
@@ -48,6 +48,7 @@ export default function InterviewPanel({
   const [phase, setPhase] = useState<"loading" | "question" | "complete" | "finalizing">("loading");
   const [streaming, setStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const finalizeInterview = useFinalizeInterview(projectId);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -62,7 +63,7 @@ export default function InterviewPanel({
     setCurrentAnswer("");
 
     try {
-      const response = await api.claude.interview.next(projectId, taskId, answers);
+      const response = await claudeInterviewNext(projectId, taskId, answers);
       // Non-2xx responses come back as plain JSON, not an SSE stream.
       if (!response.ok) {
         let msg = `Interview request failed (${response.status})`;
@@ -133,7 +134,7 @@ export default function InterviewPanel({
   const handleFinalize = async () => {
     setPhase("finalizing");
     try {
-      const result = await api.claude.interview.finalize(projectId, taskId, qaList);
+      const result = await finalizeInterview.mutateAsync({ taskId, answers: qaList });
       if (result.ok) {
         toast.success("Interview saved as spec artifact");
         onFinalized?.();

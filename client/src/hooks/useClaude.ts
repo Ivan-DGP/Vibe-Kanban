@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { TaskAiRun } from "@vibe-kanban/shared";
+import type { TaskAiRun, InterviewQa } from "@vibe-kanban/shared";
 
 export function useClaudeStatus() {
   return useQuery({
@@ -53,4 +53,39 @@ export function useResumeRun(taskId?: string) {
       if (taskId) qc.invalidateQueries({ queryKey: ["task-ai-runs", taskId] });
     },
   });
+}
+
+/** Finalize an interview into a spec artifact → invalidate the artifact list. */
+export function useFinalizeInterview(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, answers }: { taskId: string; answers: InterviewQa[] }) =>
+      api.claude.interview.finalize(projectId, taskId, answers),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["artifacts", projectId] }),
+  });
+}
+
+// --- Streaming SSE endpoints ------------------------------------------------
+// These return the raw fetch Response so callers can read the stream directly.
+// Not cacheable via TanStack Query; exposed here only so components go through
+// the hooks layer instead of importing the api client.
+export function claudeChat(message: string, projectId?: string, signal?: AbortSignal) {
+  return api.claude.chat(message, projectId, signal);
+}
+
+export function claudeAnalyze(projectId: string, taskId: string, signal?: AbortSignal) {
+  return api.claude.analyze(projectId, taskId, signal);
+}
+
+export function claudeGatherContext(
+  taskTitle: string,
+  projectId: string,
+  taskDescription?: string,
+  signal?: AbortSignal,
+) {
+  return api.claude.gatherContext(taskTitle, projectId, taskDescription, signal);
+}
+
+export function claudeInterviewNext(projectId: string, taskId: string, answers: InterviewQa[]) {
+  return api.claude.interview.next(projectId, taskId, answers);
 }

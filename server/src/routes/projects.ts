@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { getDataDir } from "../lib/data-dir";
-import type { Project } from "@vibe-kanban/shared";
+import type { Project, CreateProjectInput, UpdateProjectInput } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -262,7 +262,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Create project
   fastify.post("/projects", async (request) => {
-    const { name, path: projectPath, category } = request.body as any;
+    const { name, path: projectPath, category } = request.body as CreateProjectInput;
     const id = uuid();
     const techStack = detectTechStack(projectPath);
     const ts = now();
@@ -281,7 +281,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
   // Update project
   fastify.patch("/projects/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const updates = request.body as any;
+    const updates = request.body as UpdateProjectInput;
 
     const existing = db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Project not found" });
@@ -304,6 +304,7 @@ const projectRoutes: FastifyPluginAsync = async (fastify) => {
           "name",
           "category",
           "aiCommitMode",
+          "defaultBranch",
           "notionDatabaseId",
           "treeDepth",
           "aiInstructions",

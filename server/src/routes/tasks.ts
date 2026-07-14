@@ -10,6 +10,7 @@ import {
   estimateComplexity,
 } from "../services/aiResolvePrompt";
 import { maybeSpawnForTask } from "../services/taskSpawner";
+import { rowToTask, applyTimestampCascade } from "../services/taskModel";
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import { discardWorktree, worktreeDirFor } from "../services/worktree";
 import fs from "node:fs";
@@ -19,6 +20,8 @@ import type {
   GroundedArtifact,
   TaskAiRun,
   RunDeviations,
+  CreateTaskInput,
+  UpdateTaskInput,
 } from "@vibe-kanban/shared";
 
 function uuid(): string {
@@ -58,50 +61,6 @@ export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
 
 function now(): string {
   return new Date().toISOString();
-}
-
-export function rowToTask(row: any): Task {
-  if (!row) return row;
-  return {
-    ...row,
-    metadata: row.metadata ? JSON.parse(row.metadata) : {},
-  };
-}
-
-export function applyTimestampCascade(
-  task: Partial<Task>,
-  newStatus: TaskStatus,
-): Record<string, string> {
-  const ts = now();
-  const updates: Record<string, string> = { updatedAt: ts };
-
-  if (newStatus === "backlog" || newStatus === "todo") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-  }
-  if (newStatus === "in_progress") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-  }
-  if (newStatus === "done") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-    if (!task.doneAt) updates.doneAt = ts;
-  }
-  if (newStatus === "approved") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-    if (!task.doneAt) updates.doneAt = ts;
-    if (!task.approvedAt) updates.approvedAt = ts;
-  }
-  if (newStatus === "archived") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-    if (!task.doneAt) updates.doneAt = ts;
-    if (!task.approvedAt) updates.approvedAt = ts;
-    if (!task.archivedAt) updates.archivedAt = ts;
-  }
-
-  return updates;
 }
 
 // Allowed enum values — must match the DB CHECK constraints (see db/index.ts).
@@ -285,7 +244,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       milestoneId,
       parentTaskId,
       metadata,
-    } = request.body as any;
+    } = request.body as CreateTaskInput;
 
     const id = uuid();
     const ts = now();
@@ -353,7 +312,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Update task
   fastify.patch("/tasks/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const updates = request.body as any;
+    const updates = request.body as UpdateTaskInput;
 
     const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
     if (!existing) return reply.code(404).send({ error: "Task not found" });
@@ -909,7 +868,20 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       durationMs,
       summary,
       groundedArtifacts,
-    } = request.body as any;
+    } = request.body as Partial<
+      Pick<
+        TaskAiRun,
+        | "sessionId"
+        | "profile"
+        | "complexity"
+        | "exitCode"
+        | "success"
+        | "filesChanged"
+        | "durationMs"
+        | "summary"
+        | "groundedArtifacts"
+      >
+    >;
 
     const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
     if (!task) return reply.code(404).send({ error: "Task not found" });

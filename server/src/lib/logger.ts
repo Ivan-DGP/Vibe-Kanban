@@ -1,25 +1,37 @@
 import type { LogLevel, LogCategory } from "@vibe-kanban/shared";
-import { getDb } from "../db";
 
-const SENSITIVE_KEY = /token|secret|password|apikey|api_key|authorization|cookie|bearer/i;
+export interface LogEntry {
+  level: LogLevel;
+  category: LogCategory;
+  message: string;
+  details?: unknown;
+}
 
-// Recursively replace values for sensitive keys with '[REDACTED]' before persisting.
-function redactSecrets(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (Array.isArray(value)) {
-    if (seen.has(value)) return value;
-    seen.add(value);
-    return value.map((v) => redactSecrets(v, seen));
+export type LogSink = (entry: LogEntry) => void;
+
+// Buffer entries emitted before a sink is registered (e.g. during early boot /
+// db migration) so they aren't lost. Capped to avoid unbounded growth if a sink
+// is never installed.
+const BUFFER_CAP = 1000;
+const buffer: LogEntry[] = [];
+let sink: LogSink | null = null;
+
+// Register the destination for log entries (composition root wires this to the
+// DB). Flushes anything buffered before registration.
+export function setLogSink(next: LogSink): void {
+  sink = next;
+  if (buffer.length) {
+    const pending = buffer.splice(0, buffer.length);
+    for (const entry of pending) dispatch(entry);
   }
-  if (value && typeof value === "object") {
-    if (seen.has(value as object)) return value;
-    seen.add(value as object);
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = SENSITIVE_KEY.test(k) ? "[REDACTED]" : redactSecrets(v, seen);
-    }
-    return out;
+}
+
+function dispatch(entry: LogEntry): void {
+  try {
+    sink!(entry);
+  } catch {
+    console.error(`[${entry.level}][${entry.category}] ${entry.message}`, entry.details);
   }
-  return value;
 }
 
 export function log(
@@ -28,13 +40,11 @@ export function log(
   message: string,
   details?: unknown,
 ): void {
-  try {
-    const db = getDb();
-    db.prepare(
-      "INSERT INTO system_logs (level, category, message, details) VALUES (?, ?, ?, ?)",
-    ).run(level, category, message, details ? JSON.stringify(redactSecrets(details)) : null);
-  } catch {
-    // Fallback to console if DB not ready
-    console.error(`[${level}][${category}] ${message}`, details);
+  const entry: LogEntry = { level, category, message, details };
+  if (!sink) {
+    if (buffer.length >= BUFFER_CAP) buffer.shift();
+    buffer.push(entry);
+    return;
   }
+  dispatch(entry);
 }

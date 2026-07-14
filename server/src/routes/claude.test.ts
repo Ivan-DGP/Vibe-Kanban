@@ -282,16 +282,17 @@ describe("POST /api/claude/analyze — additional validation", () => {
     await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
   });
 
-  test("returns 404 when both projectId and taskId are missing", async () => {
+  test("returns 400 when both projectId and taskId are missing", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/claude/analyze",
       headers: { "Content-Type": "application/json" },
       payload: {},
     });
-    // undefined projectId and taskId => db query finds nothing => 404
-    expect(res.statusCode).toBe(404);
-    expect(res.json().error).toBe("Task not found");
+    // Required body params are validated up front, so a missing projectId/taskId
+    // is a 400 Bad Request rather than a fall-through 404 "Task not found".
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("projectId and taskId are required");
   });
 });
 

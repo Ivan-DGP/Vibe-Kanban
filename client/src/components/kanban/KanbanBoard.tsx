@@ -17,6 +17,7 @@ import {
   useDeleteTask,
   useBatchCIStatus,
   useArchiveApproved,
+  useAiResolvePrompt,
 } from "@/hooks";
 import { shouldGateApproval } from "@/lib/taskArtifacts";
 import QuizDialog from "@/components/tasks/QuizDialog";
@@ -29,7 +30,6 @@ import {
 } from "@/hooks/useTerminal";
 import type { CICheckResult } from "@vibe-kanban/shared";
 import { useConfirm } from "@/hooks/useConfirm";
-import { api } from "@/lib/api";
 import { PAGE_SIZE } from "@/lib/constants";
 import { Loader2, Minus, Plus, GitBranch, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -242,6 +242,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   };
 
   const createTermSession = useCreateTerminalSession();
+  const aiResolvePrompt = useAiResolvePrompt();
   const batchResolve = useBatchResolve();
   const { data: batchStatus } = useBatchResolveStatus();
   const cancelBatch = useCancelBatchResolve();
@@ -291,7 +292,10 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
     if (!terminalVisible) toggleTerminal();
     let prompt: string;
     try {
-      const result = await api.tasks.aiResolvePrompt(task.projectId, task.id);
+      const result = await aiResolvePrompt.mutateAsync({
+        projectId: task.projectId,
+        taskId: task.id,
+      });
       prompt = result.prompt;
     } catch {
       const parts = [task.title];

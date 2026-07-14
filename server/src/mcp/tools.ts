@@ -2,7 +2,7 @@ import { getDb } from "../db";
 import { spawn } from "../lib/spawn";
 import { getProjectArtifactsDir } from "../lib/data-dir";
 import { maybeSpawnForTask } from "../services/taskSpawner";
-import { rowToTask } from "../routes/tasks";
+import { rowToTask } from "../services/taskModel";
 import {
   embed,
   cosineSimilarity,

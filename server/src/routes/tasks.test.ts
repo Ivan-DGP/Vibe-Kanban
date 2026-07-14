@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { applyTimestampCascade } from "./tasks";
+import { applyTimestampCascade } from "../services/taskModel";
 import type { Task, TaskStatus } from "@vibe-kanban/shared";
 
 /** Helper to build a partial task with optional pre-existing timestamps */

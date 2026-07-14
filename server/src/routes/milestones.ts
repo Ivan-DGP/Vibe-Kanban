@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import type { CreateMilestoneInput, UpdateMilestoneInput } from "@vibe-kanban/shared";
 import { getDb } from "../db";
 import { writeTaskSnapshot } from "../services/snapshot";
 
@@ -14,7 +15,7 @@ const milestoneRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/milestones", async (request) => {
     const { projectId } = request.params as any;
-    const { name } = request.body as any;
+    const { name } = request.body as CreateMilestoneInput;
     const id = crypto.randomUUID();
     const ts = new Date().toISOString();
 
@@ -30,7 +31,7 @@ const milestoneRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch("/milestones/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const { name, status, aiInstructions } = request.body as any;
+    const { name, status, aiInstructions } = request.body as UpdateMilestoneInput;
 
     const existing = db.prepare("SELECT * FROM milestones WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Milestone not found" });

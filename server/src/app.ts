@@ -5,15 +5,57 @@ import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
 import { getDb, closeDb } from "./db";
+import { setLogSink, type LogEntry } from "./lib/logger";
 import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
 import { markOrphans as markOrphanBenchRuns } from "./services/benchRunsRepo";
 import { markInterruptedRuns, cancelAllHeadlessRuns } from "./services/headlessClaude";
 import { startResumeScheduler, stopResumeScheduler } from "./services/resumeScheduler";
 
+const SENSITIVE_KEY = /token|secret|password|apikey|api_key|authorization|cookie|bearer/i;
+
+// Recursively replace values for sensitive keys with '[REDACTED]' before persisting.
+function redactSecrets(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return value;
+    seen.add(value);
+    return value.map((v) => redactSecrets(v, seen));
+  }
+  if (value && typeof value === "object") {
+    if (seen.has(value as object)) return value;
+    seen.add(value as object);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = SENSITIVE_KEY.test(k) ? "[REDACTED]" : redactSecrets(v, seen);
+    }
+    return out;
+  }
+  return value;
+}
+
+// Persist a log entry to SQLite. This is the composition-root sink for
+// lib/logger, keeping the db dependency out of the "lib" layer.
+function persistLog(entry: LogEntry): void {
+  try {
+    const db = getDb();
+    db.prepare(
+      "INSERT INTO system_logs (level, category, message, details) VALUES (?, ?, ?, ?)",
+    ).run(
+      entry.level,
+      entry.category,
+      entry.message,
+      entry.details ? JSON.stringify(redactSecrets(entry.details)) : null,
+    );
+  } catch {
+    // Fallback to console if DB not ready
+    console.error(`[${entry.level}][${entry.category}] ${entry.message}`, entry.details);
+  }
+}
+
 export async function buildApp(opts: { bodyLimit?: number } = {}) {
   const app = Fastify({ logger: true, bodyLimit: opts.bodyLimit });
 
   getDb();
+  setLogSink(persistLog);
 
   // bench_runs left 'running' across boot were killed mid-flight; mark failed before serving.
   markOrphanBenchRuns();

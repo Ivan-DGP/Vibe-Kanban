@@ -1,6 +1,3 @@
-import { getDb } from "../db";
-import { tryDecrypt } from "./crypto";
-
 export interface MappedGitHubAccount {
   token: string;
   username: string | null;
@@ -8,36 +5,10 @@ export interface MappedGitHubAccount {
   name: string;
 }
 
-export function getMappedGitHubAccount(
-  projectId: string,
-  subPath: string = "",
-): MappedGitHubAccount | null {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT a.token, a.username, a.email, a.name
-       FROM project_github_mappings m
-       JOIN github_accounts a ON m.githubAccountId = a.id
-       WHERE m.projectId = ? AND m.subPath = ?`,
-    )
-    .get(projectId, subPath) as
-    | { token: string; username: string | null; email: string | null; name: string }
-    | undefined;
-
-  if (!row) return null;
-
-  // Graceful: a malformed/legacy/tampered token must not throw an uncaught 500.
-  // Returning null makes git fall back to the user's ambient credentials.
-  const token = tryDecrypt(row.token);
-  if (token === null) return null;
-
-  return {
-    token,
-    username: row.username,
-    email: row.email,
-    name: row.name,
-  };
-}
+// The DB-backed lookup lives in the service layer (services/gitAuth) so this
+// "lib" module stays free of an upward dependency on db. Re-exported here to
+// preserve the existing "../lib/git-auth" import surface.
+export { getMappedGitHubAccount } from "../services/gitAuth";
 
 /**
  * Returns args to inject before "git <subcommand>" so HTTPS pushes/pulls to

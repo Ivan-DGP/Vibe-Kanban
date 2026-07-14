@@ -28,7 +28,7 @@ import {
 } from "@/hooks";
 import BranchSelector from "@/components/git/BranchSelector";
 import GatherContextModal from "./GatherContextModal";
-import { api } from "@/lib/api";
+import { claudeChat } from "@/hooks/useClaude";
 import type {
   Task,
   TaskStatus,
@@ -91,7 +91,7 @@ export default function TaskEditorDialog({
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
-      const res = await api.claude.chat(systemPrompt, projectId, controller.signal);
+      const res = await claudeChat(systemPrompt, projectId, controller.signal);
       if (!res.ok) throw new Error(`AI request failed (${res.status})`);
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");

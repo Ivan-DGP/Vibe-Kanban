@@ -199,7 +199,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
   // SSE streaming chat
   fastify.post("/claude/chat", async (request, reply) => {
-    const { message, projectId } = request.body as any;
+    const { message, projectId } = request.body as { message?: string; projectId?: string };
 
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -436,7 +436,11 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Analyze task with rich project context
   fastify.post("/claude/analyze", async (request, reply) => {
-    const { projectId, taskId } = request.body as any;
+    const { projectId, taskId } = request.body as { projectId?: string; taskId?: string };
+    if (!projectId || !taskId) {
+      reply.code(400);
+      return { error: "projectId and taskId are required" };
+    }
     const db = getDb();
 
     const task = db
@@ -453,7 +457,11 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Gather context for a task (may not exist yet)
   fastify.post("/claude/gather-context", async (request, reply) => {
-    const { taskTitle, taskDescription, projectId } = request.body as any;
+    const { taskTitle, taskDescription, projectId } = request.body as {
+      taskTitle?: string;
+      taskDescription?: string;
+      projectId?: string;
+    };
 
     if (!taskTitle || !projectId) {
       reply.code(400);
@@ -466,7 +474,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Bulk import - parse text into tasks
   fastify.post("/claude/bulk-import", async (request) => {
-    const { text } = request.body as any;
+    const { text } = request.body as { text?: string };
 
     const prompt = `Parse the following unstructured text into a JSON array of tasks. Each task should have: title (string), description (string or null), priority ("urgent"|"high"|"medium"|"low"), status ("backlog"). Return ONLY valid JSON, no other text.
 
@@ -513,7 +521,19 @@ ${text}`;
 
   // Task-scoped interactive interview: stream the next question via SSE
   fastify.post("/claude/interview/next", async (request, reply) => {
-    const { projectId, taskId, answers = [] } = request.body as any;
+    const {
+      projectId,
+      taskId,
+      answers = [],
+    } = request.body as {
+      projectId?: string;
+      taskId?: string;
+      answers?: Array<{ question: string; answer: string }>;
+    };
+    if (!projectId || !taskId) {
+      reply.code(400);
+      return { error: "projectId and taskId are required" };
+    }
 
     const db = getDb();
 
@@ -540,7 +560,19 @@ ${text}`;
 
   // Finalize interview: persist Q&A as a spec artifact + append to task.prompt
   fastify.post("/claude/interview/finalize", async (request, reply) => {
-    const { projectId, taskId, answers = [] } = request.body as any;
+    const {
+      projectId,
+      taskId,
+      answers = [],
+    } = request.body as {
+      projectId?: string;
+      taskId?: string;
+      answers?: Array<{ question: string; answer: string }>;
+    };
+    if (!projectId || !taskId) {
+      reply.code(400);
+      return { error: "projectId and taskId are required" };
+    }
 
     const db = getDb();
 

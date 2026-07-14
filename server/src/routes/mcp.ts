@@ -4,6 +4,13 @@ import { registerClient, issueToken, validateToken, isAuthRequired } from "../mc
 import { getRunCwd } from "../services/runContext";
 import { log } from "../lib/logger";
 
+type JsonRpcBody = {
+  jsonrpc: string;
+  method: string;
+  params?: Record<string, unknown>;
+  id?: string | number;
+};
+
 const mcpRoutes: FastifyPluginAsync = async (app) => {
   // Check if MCP is enabled
   function isMcpEnabled(): boolean {
@@ -62,16 +69,7 @@ const mcpRoutes: FastifyPluginAsync = async (app) => {
 
   // Shared JSON-RPC 2.0 dispatch. `ctx.cwd` is set for per-run endpoints so MCP
   // git tools operate on the run's worktree.
-  async function handleRpc(
-    body: {
-      jsonrpc: string;
-      method: string;
-      params?: Record<string, unknown>;
-      id?: string | number;
-    },
-    reply: any,
-    ctx: ToolContext,
-  ) {
+  async function handleRpc(body: JsonRpcBody, reply: any, ctx: ToolContext) {
     if (body.jsonrpc !== "2.0") {
       return reply.send({
         jsonrpc: "2.0",
@@ -177,7 +175,7 @@ const mcpRoutes: FastifyPluginAsync = async (app) => {
   app.post("/", async (request, reply) => {
     if (!isMcpEnabled()) return reply.code(404).send({ error: "MCP server is disabled" });
     if (!checkAuth(request)) return reply.code(401).send({ error: "Unauthorized" });
-    return handleRpc(request.body as any, reply, {});
+    return handleRpc(request.body as JsonRpcBody, reply, {});
   });
 
   // Per-run endpoint — git tools resolve to this run's worktree cwd.
@@ -186,7 +184,7 @@ const mcpRoutes: FastifyPluginAsync = async (app) => {
     if (!checkAuth(request)) return reply.code(401).send({ error: "Unauthorized" });
     const { runId } = request.params as { runId: string };
     const cwd = getRunCwd(runId) ?? undefined;
-    return handleRpc(request.body as any, reply, { cwd, runId });
+    return handleRpc(request.body as JsonRpcBody, reply, { cwd, runId });
   });
 
   // SSE endpoints for MCP

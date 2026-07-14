@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Loader2, Bot, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api } from "@/lib/api";
+import { claudeChat } from "@/hooks/useClaude";
 import type { ChatMessage } from "@vibe-kanban/shared";
 
 interface AIChatPanelProps {
@@ -31,7 +31,7 @@ export default function AIChatPanel({ projectId }: AIChatPanelProps) {
     setStreaming(true);
 
     try {
-      const response = await api.claude.chat(msg, projectId);
+      const response = await claudeChat(msg, projectId);
       const reader = response.body?.getReader();
       if (!reader) return;
 

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS projects (
   externalLinks TEXT NOT NULL DEFAULT '[]',
   aiCommitMode TEXT NOT NULL DEFAULT 'stage'
     CHECK (aiCommitMode IN ('commit', 'stage', 'none')),
+  defaultBranch TEXT DEFAULT NULL,
   treeDepth    INTEGER NOT NULL DEFAULT 3,
   aiInstructions TEXT DEFAULT NULL,
   createdAt    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),

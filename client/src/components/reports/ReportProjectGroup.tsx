@@ -10,7 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import PriorityBadge from "@/components/tasks/PriorityBadge";
+import PriorityBadge from "@/components/ui/PriorityBadge";
 import type { ReportEntry } from "@vibe-kanban/shared";
 
 interface ReportProjectGroupProps {
