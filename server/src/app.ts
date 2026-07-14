@@ -4,7 +4,7 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
-import { getDb, closeDb } from "./db";
+import { initDb, getDb, closeDb } from "./db";
 import { setLogSink, type LogEntry } from "./lib/logger";
 import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
 import { markOrphans as markOrphanBenchRuns } from "./services/benchRunsRepo";
@@ -54,7 +54,9 @@ function persistLog(entry: LogEntry): void {
 export async function buildApp(opts: { bodyLimit?: number } = {}) {
   const app = Fastify({ logger: true, bodyLimit: opts.bodyLimit });
 
-  getDb();
+  // Explicit startup ordering: open + migrate the DB here, before any route or
+  // service touches getDb(), so migrations aren't a hidden first-request effect.
+  initDb();
   setLogSink(persistLog);
 
   // bench_runs left 'running' across boot were killed mid-flight; mark failed before serving.

@@ -4,7 +4,13 @@ import { SCHEMA_SQL } from "./schema";
 
 let _db: DatabaseHandle | null = null;
 
-export function getDb(): DatabaseHandle {
+/**
+ * Open the database, apply pragmas, and run the migration ladder. Idempotent —
+ * returns the existing handle if already initialized. Call once at startup
+ * (see app.ts) so migrations run at a known point rather than as a hidden side
+ * effect of whichever getDb() happens to fire first inside a request.
+ */
+export function initDb(): DatabaseHandle {
   if (_db) return _db;
 
   const dbPath = getDbPath();
@@ -15,10 +21,18 @@ export function getDb(): DatabaseHandle {
   _db.exec("PRAGMA foreign_keys = ON");
   _db.exec("PRAGMA busy_timeout = 5000");
 
-  // Run initial schema
+  // Run initial schema + pending migrations
   runMigrations(_db);
 
   return _db;
+}
+
+/**
+ * Return the shared connection. Lazily initializes when startup didn't call
+ * initDb() first (tests, one-off scripts), so existing callers are unaffected.
+ */
+export function getDb(): DatabaseHandle {
+  return _db ?? initDb();
 }
 
 function runMigrations(db: DatabaseHandle): void {
