@@ -1,6 +1,8 @@
 import path from "node:path";
 import { generateDepGraph } from "./depGraph";
 import { runAgentOneShot } from "./aiAgent";
+import { getDb } from "../db";
+import { tryDecrypt } from "../lib/crypto";
 import type { DepGraph, DepGraphNode } from "@vibe-kanban/shared";
 
 // Turns the mechanical dependency graph into draft knowledge-graph content:
@@ -142,16 +144,7 @@ function isAiCommunityLabel(v: unknown): v is AiCommunityLabel {
   );
 }
 
-/**
- * Same as {@link depGraphToKnowledge}, then optionally re-label communities via
- * a one-shot agent call. On any failure keeps the heuristic labels.
- */
-export function depGraphToKnowledgeWithAI(
-  projectPath: string,
-  safeEnv: Record<string, string>,
-): DepKnowledge {
-  const knowledge = depGraphToKnowledge(projectPath);
-
+function buildLabelPrompt(knowledge: DepKnowledge): string {
   const listing = knowledge.communities
     .map((c) => {
       const basenames = c.files.map((f) => path.basename(f)).join(", ");
@@ -159,7 +152,7 @@ export function depGraphToKnowledgeWithAI(
     })
     .join("\n");
 
-  const prompt = `You label software subsystems from a dependency-graph community analysis.
+  return `You label software subsystems from a dependency-graph community analysis.
 For each community below, propose a short 2-4 word subsystem name and a one-sentence description.
 
 Communities:
@@ -167,17 +160,17 @@ ${listing}
 
 Return ONLY a JSON array (no markdown, no commentary):
 [{"index":<number>,"name":"<2-4 word subsystem name>","description":"<one sentence>"}]`;
+}
 
+/** Mutates `knowledge` in place, overwriting labels with any valid AI entries. */
+function applyAiLabels(knowledge: DepKnowledge, text: string): void {
   try {
-    const text = runAgentOneShot(prompt, safeEnv);
-    if (!text) return knowledge;
-
     let raw = text.trim();
     const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fence) raw = fence[1].trim();
 
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return knowledge;
+    if (!Array.isArray(parsed)) return;
 
     const byIndex = new Map(knowledge.communities.map((c) => [c.community, c]));
     for (const entry of parsed) {
@@ -190,6 +183,74 @@ Return ONLY a JSON array (no markdown, no commentary):
   } catch {
     /* keep heuristic labels */
   }
+}
 
+/** Read the configured Claude API key (settings, encrypted at rest) with env fallback. */
+function getClaudeApiKey(): string | null {
+  try {
+    const row = getDb().prepare("SELECT value FROM settings WHERE key = 'claudeApiKey'").get() as
+      | { value: string }
+      | undefined;
+    if (row) {
+      let value: string;
+      try {
+        value = JSON.parse(row.value);
+      } catch {
+        value = row.value;
+      }
+      if (typeof value === "string" && value) return tryDecrypt(value) ?? value;
+    }
+  } catch {
+    /* fall through to env */
+  }
+  return process.env.ANTHROPIC_API_KEY || null;
+}
+
+/** Label subsystems with Opus via the Anthropic Messages API (non-streaming). */
+async function labelWithOpus(prompt: string, apiKey: string): Promise<string | null> {
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-8",
+        max_tokens: 2048,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    return data.content?.find((b) => b.type === "text")?.text ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Same as {@link depGraphToKnowledge}, then re-label communities with AI.
+ * Prefers Opus via the Anthropic API (best labels); falls back to the configured
+ * CLI agent (claude/opencode/grok), then to the offline heuristic labels.
+ */
+export async function depGraphToKnowledgeWithAI(
+  projectPath: string,
+  safeEnv: Record<string, string>,
+): Promise<DepKnowledge> {
+  const knowledge = depGraphToKnowledge(projectPath);
+  if (knowledge.communities.length === 0) return knowledge;
+
+  const prompt = buildLabelPrompt(knowledge);
+
+  const apiKey = getClaudeApiKey();
+  let text = apiKey ? await labelWithOpus(prompt, apiKey) : null;
+  if (!text) text = runAgentOneShot(prompt, safeEnv);
+  if (!text) return knowledge;
+
+  applyAiLabels(knowledge, text);
   return knowledge;
 }
