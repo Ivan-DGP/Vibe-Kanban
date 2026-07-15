@@ -96,6 +96,14 @@ export type {
   BenchReport,
 };
 
+/** Blast-radius response from POST /projects/:id/impact */
+export interface ImpactResult {
+  files: string[];
+  directDependents: number;
+  transitiveDependents: number;
+  top: { file: string; dependents: number }[];
+}
+
 function toQuery(params: Record<string, unknown>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -479,6 +487,8 @@ export const api = {
         `/projects/${projectId}/graph/from-dependencies`,
         {},
       ),
+    impact: (projectId: string, files: string[]) =>
+      post<ImpactResult>(`/projects/${projectId}/impact`, { files }),
   },
 
   benchmarks: {

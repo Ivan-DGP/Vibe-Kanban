@@ -1,8 +1,9 @@
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { claudeAnalyze, claudeChat } from "@/hooks/useClaude";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
+import { useTaskImpact } from "@/hooks/useGraph";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirm } from "@/hooks/useConfirm";
 import GatherContextModal from "./GatherContextModal";
@@ -27,6 +28,45 @@ import {
 } from "@/hooks";
 import { toast } from "sonner";
 import type { Task, AiPreflightResult, Artifact } from "@vibe-kanban/shared";
+
+const FILE_PATH_RE = /[\w./-]+\.(?:tsx?|jsx?)/g;
+
+function extractCandidateFiles(task: Task): string[] {
+  const text = [task.title, task.description, task.prompt].filter(Boolean).join("\n");
+  const matches = text.match(FILE_PATH_RE) ?? [];
+  return [...new Set(matches)];
+}
+
+/** Compact blast-radius line for files mentioned in the task text. */
+function TaskImpactSection({ task }: { task: Task }) {
+  const files = useMemo(
+    () => extractCandidateFiles(task),
+    [task.title, task.description, task.prompt],
+  );
+  const { data } = useTaskImpact(task.projectId, files);
+  if (!data || data.transitiveDependents === 0) return null;
+
+  return (
+    <div className="text-xs text-muted-foreground">
+      <details>
+        <summary className="cursor-pointer hover:text-foreground list-none [&::-webkit-details-marker]:hidden">
+          Impact: {data.transitiveDependents} file{data.transitiveDependents === 1 ? "" : "s"}{" "}
+          depend on this ({data.directDependents} direct)
+        </summary>
+        {data.top.length > 0 && (
+          <ul className="mt-1 ml-1 space-y-0.5 border-l border-border pl-2">
+            {data.top.map((t) => (
+              <li key={t.file} className="font-mono truncate" title={t.file}>
+                {t.file}
+                {t.dependents > 0 ? ` · ${t.dependents}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+    </div>
+  );
+}
 
 function slugifyForFilename(s: string): string {
   return (
@@ -320,6 +360,8 @@ export default function TaskViewerDialog({
 
         {/* Timestamps */}
         <TaskViewerTimestamps task={task} />
+
+        <TaskImpactSection task={task} />
 
         {/* Subtasks */}
         <TaskViewerSubtasks projectId={task.projectId} parentTaskId={task.id} />

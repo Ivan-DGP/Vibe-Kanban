@@ -42,6 +42,15 @@ export function useGraphFromDeps(projectId: string) {
   });
 }
 
+/** Transitive blast-radius for a task's candidate source files. */
+export function useTaskImpact(projectId: string, files: string[]) {
+  return useQuery({
+    queryKey: ["impact", projectId, files],
+    queryFn: () => api.depGraph.impact(projectId, files),
+    enabled: !!projectId && files.length > 0,
+  });
+}
+
 export function useCreateGraphNode(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
