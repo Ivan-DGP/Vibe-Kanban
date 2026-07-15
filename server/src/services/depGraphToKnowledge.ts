@@ -1,4 +1,6 @@
+import path from "node:path";
 import { generateDepGraph } from "./depGraph";
+import { runAgentOneShot } from "./aiAgent";
 import type { DepGraph, DepGraphNode } from "@vibe-kanban/shared";
 
 // Turns the mechanical dependency graph into draft knowledge-graph content:
@@ -124,4 +126,70 @@ export function depGraphToKnowledge(projectPath: string): DepKnowledge {
   }
 
   return { communities, edges, fileCount: graph.fileCount };
+}
+
+interface AiCommunityLabel {
+  index: number;
+  name: string;
+  description: string;
+}
+
+function isAiCommunityLabel(v: unknown): v is AiCommunityLabel {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.index === "number" && typeof o.name === "string" && typeof o.description === "string"
+  );
+}
+
+/**
+ * Same as {@link depGraphToKnowledge}, then optionally re-label communities via
+ * a one-shot agent call. On any failure keeps the heuristic labels.
+ */
+export function depGraphToKnowledgeWithAI(
+  projectPath: string,
+  safeEnv: Record<string, string>,
+): DepKnowledge {
+  const knowledge = depGraphToKnowledge(projectPath);
+
+  const listing = knowledge.communities
+    .map((c) => {
+      const basenames = c.files.map((f) => path.basename(f)).join(", ");
+      return `- index=${c.community} label="${c.label}" files: ${basenames}`;
+    })
+    .join("\n");
+
+  const prompt = `You label software subsystems from a dependency-graph community analysis.
+For each community below, propose a short 2-4 word subsystem name and a one-sentence description.
+
+Communities:
+${listing}
+
+Return ONLY a JSON array (no markdown, no commentary):
+[{"index":<number>,"name":"<2-4 word subsystem name>","description":"<one sentence>"}]`;
+
+  try {
+    const text = runAgentOneShot(prompt, safeEnv);
+    if (!text) return knowledge;
+
+    let raw = text.trim();
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fence) raw = fence[1].trim();
+
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return knowledge;
+
+    const byIndex = new Map(knowledge.communities.map((c) => [c.community, c]));
+    for (const entry of parsed) {
+      if (!isAiCommunityLabel(entry)) continue;
+      const c = byIndex.get(entry.index);
+      if (!c) continue;
+      c.label = entry.name;
+      c.description = entry.description;
+    }
+  } catch {
+    /* keep heuristic labels */
+  }
+
+  return knowledge;
 }

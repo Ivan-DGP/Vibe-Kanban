@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
-import { depGraphToKnowledge } from "../services/depGraphToKnowledge";
+import { depGraphToKnowledgeWithAI } from "../services/depGraphToKnowledge";
+import { getSafeEnv } from "../services/terminalRegistry";
 
 interface ProjectParams {
   projectId: string;
@@ -27,7 +28,7 @@ const depGraphKnowledgeRoutes: FastifyPluginAsync = async (fastify) => {
 
       let result;
       try {
-        result = depGraphToKnowledge(project.path);
+        result = depGraphToKnowledgeWithAI(project.path, getSafeEnv());
       } catch (e) {
         const err = e as { statusCode?: number; message?: string };
         return reply

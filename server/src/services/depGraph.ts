@@ -333,6 +333,47 @@ export function generateDepGraph(projectPath: string): DepGraph {
   };
 }
 
+const NEIGHBOR_CAP = 15;
+
+/**
+ * For each input file (repo-relative id, or absolute path under projectPath),
+ * return direct imports (out-edges) and direct importers (in-edges), each capped
+ * at 15. Files not present in the graph are skipped.
+ */
+export function dependencyNeighborhood(
+  projectPath: string,
+  files: string[],
+): { file: string; imports: string[]; importedBy: string[] }[] {
+  const graph = generateDepGraph(projectPath);
+  const nodeIds = new Set(graph.nodes.map((n) => n.id));
+
+  const importsOf = new Map<string, string[]>();
+  const importedByOf = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    const outs = importsOf.get(e.source) ?? [];
+    outs.push(e.target);
+    importsOf.set(e.source, outs);
+    const ins = importedByOf.get(e.target) ?? [];
+    ins.push(e.source);
+    importedByOf.set(e.target, ins);
+  }
+
+  const results: { file: string; imports: string[]; importedBy: string[] }[] = [];
+  for (const f of files) {
+    let id = f;
+    if (path.isAbsolute(f)) {
+      id = path.relative(projectPath, f).split(path.sep).join("/");
+    }
+    if (!nodeIds.has(id)) continue;
+    results.push({
+      file: id,
+      imports: (importsOf.get(id) ?? []).slice(0, NEIGHBOR_CAP),
+      importedBy: (importedByOf.get(id) ?? []).slice(0, NEIGHBOR_CAP),
+    });
+  }
+  return results;
+}
+
 // ── Cycle detection: iterative Tarjan SCC (safe for large graphs) ──
 function detectCycles(ids: string[], edges: DepGraphEdge[]): string[][] {
   const adj = new Map<string, string[]>();

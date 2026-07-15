@@ -95,3 +95,36 @@ export function buildResolveArgs(agent: AiAgent, opts: ResolveArgsOptions): stri
   args.push(prompt);
   return args;
 }
+
+/**
+ * Non-interactive one-shot: run the agent CLI with a prompt, return stdout or null.
+ * claude: -p <prompt> | opencode: run <prompt> | grok: -p <prompt> --output-format plain
+ */
+export function runAgentOneShot(
+  prompt: string,
+  safeEnv: Record<string, string>,
+  agent?: AiAgent,
+): string | null {
+  const a = agent ?? getConfiguredAgent();
+  if (!isAgentAvailable(a, safeEnv)) return null;
+
+  let argv: string[];
+  if (a === "opencode") {
+    argv = ["run", prompt];
+  } else if (a === "grok") {
+    argv = ["-p", prompt, "--output-format", "plain"];
+  } else {
+    argv = ["-p", prompt];
+  }
+
+  try {
+    const result = spawnProcessSync([resolveAgentBinary(a, safeEnv), ...argv], {
+      env: safeEnv,
+      timeout: 120_000, // don't let a hung agent block the request
+    });
+    if (result.exitCode === 0) return result.stdout.trim();
+    return null;
+  } catch {
+    return null;
+  }
+}
