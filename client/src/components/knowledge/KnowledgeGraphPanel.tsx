@@ -1,10 +1,11 @@
 import { useState } from "react";
 import GraphTab from "./GraphTab";
 import DependencyGraphView from "./DependencyGraphView";
-import { useDepGraph, useRefreshDepGraph } from "@/hooks/useGraph";
+import { useDepGraph, useRefreshDepGraph, useGraphFromDeps } from "@/hooks/useGraph";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Loader2, RefreshCw, Network, GitFork, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
+import { Loader2, RefreshCw, Network, GitFork, AlertTriangle, Sparkles } from "lucide-react";
 
 interface Props {
   projectId: string;
@@ -18,6 +19,16 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
   const showDeps = mode === "dependencies";
   const { data: dep, isLoading, isError, error } = useDepGraph(projectId, showDeps);
   const refresh = useRefreshDepGraph(projectId);
+  const fromDeps = useGraphFromDeps(projectId);
+
+  const draftFromDeps = () =>
+    fromDeps.mutate(undefined, {
+      onSuccess: (r) =>
+        toast.success(
+          `Drafted ${r.nodes} subsystem${r.nodes === 1 ? "" : "s"} + ${r.edges} link${r.edges === 1 ? "" : "s"} as suggestions — review and confirm them.`,
+        ),
+      onError: () => toast.error("Couldn't draft the graph from dependencies."),
+    });
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -70,6 +81,24 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
               Refresh
             </Button>
           </>
+        )}
+
+        {!showDeps && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={draftFromDeps}
+            disabled={fromDeps.isPending}
+            title="Create suggested subsystem nodes + links in the knowledge graph from the code's import structure"
+          >
+            {fromDeps.isPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            Draft from dependencies
+          </Button>
         )}
       </div>
 

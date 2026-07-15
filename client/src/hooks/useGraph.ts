@@ -33,6 +33,15 @@ export function useRefreshDepGraph(projectId: string) {
   });
 }
 
+// Draft suggested knowledge-graph nodes/edges from the dependency graph.
+export function useGraphFromDeps(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.depGraph.toKnowledge(projectId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["graph", projectId] }),
+  });
+}
+
 export function useCreateGraphNode(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

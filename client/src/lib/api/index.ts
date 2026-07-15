@@ -474,6 +474,11 @@ export const api = {
   depGraph: {
     get: (projectId: string, refresh = false) =>
       get<DepGraph>(`/projects/${projectId}/dep-graph${refresh ? "?refresh=true" : ""}`),
+    toKnowledge: (projectId: string) =>
+      post<{ nodes: number; edges: number; fileCount: number }>(
+        `/projects/${projectId}/graph/from-dependencies`,
+        {},
+      ),
   },
 
   benchmarks: {
