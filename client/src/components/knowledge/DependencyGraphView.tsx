@@ -185,6 +185,18 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
       }
       ctx.stroke();
 
+      // cycle edges (both endpoints in an import cycle) — flagged red
+      ctx.strokeStyle = "rgba(248, 113, 113, 0.85)";
+      ctx.lineWidth = 1.6 / view.k;
+      ctx.beginPath();
+      for (const { s, t } of ls) {
+        if (s.inCycle && t.inCycle) {
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(t.x, t.y);
+        }
+      }
+      ctx.stroke();
+
       // highlight hovered node's edges
       if (hovered) {
         ctx.strokeStyle = colorFor(hovered.group);
@@ -215,6 +227,15 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.shadowBlur = 0;
+
+        // red ring for nodes caught in an import cycle
+        if (n.inCycle) {
+          ctx.strokeStyle = "#f87171";
+          ctx.lineWidth = 1.6 / view.k;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 2 / view.k, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
 
       // labels: hubs always, plus the hovered node's full path

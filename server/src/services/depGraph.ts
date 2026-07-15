@@ -265,7 +265,14 @@ export function generateDepGraph(projectPath: string): DepGraph {
   for (const file of files) {
     const id = rel(file);
     if (!nodes.has(id))
-      nodes.set(id, { id, label: path.basename(id), group: groupOf(id), degree: 0 });
+      nodes.set(id, {
+        id,
+        label: path.basename(id),
+        group: groupOf(id),
+        degree: 0,
+        community: 0,
+        inCycle: false,
+      });
   }
 
   for (const file of files) {
@@ -294,11 +301,166 @@ export function generateDepGraph(projectPath: string): DepGraph {
     if (n) n.degree = d;
   }
 
+  const ids = [...nodes.keys()];
+
+  // Cycles: strongly-connected components of the directed import graph.
+  const cycles = detectCycles(ids, edges);
+  const inCycle = new Set(cycles.flat());
+  for (const id of inCycle) {
+    const n = nodes.get(id);
+    if (n) n.inCycle = true;
+  }
+
+  // Communities: Louvain over the undirected import graph → subsystems.
+  const community = detectCommunities(ids, edges);
+  let communityCount = 0;
+  for (const id of ids) {
+    const n = nodes.get(id);
+    if (n) {
+      n.community = community.get(id) ?? 0;
+      communityCount = Math.max(communityCount, n.community + 1);
+    }
+  }
+
   return {
     nodes: [...nodes.values()],
     edges,
     fileCount: files.length,
     roots: roots.map(rel),
+    communityCount,
+    cycles,
     generatedAt: new Date().toISOString(),
   };
+}
+
+// ── Cycle detection: iterative Tarjan SCC (safe for large graphs) ──
+function detectCycles(ids: string[], edges: DepGraphEdge[]): string[][] {
+  const adj = new Map<string, string[]>();
+  for (const id of ids) adj.set(id, []);
+  for (const e of edges) adj.get(e.source)?.push(e.target);
+
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  let counter = 0;
+  const sccs: string[][] = [];
+
+  for (const start of ids) {
+    if (index.has(start)) continue;
+    // work stack of [node, neighbourCursor]
+    const work: { node: string; i: number }[] = [{ node: start, i: 0 }];
+    while (work.length) {
+      const frame = work[work.length - 1];
+      const { node } = frame;
+      if (frame.i === 0) {
+        index.set(node, counter);
+        low.set(node, counter);
+        counter++;
+        stack.push(node);
+        onStack.add(node);
+      }
+      const neighbours = adj.get(node)!;
+      if (frame.i < neighbours.length) {
+        const nb = neighbours[frame.i];
+        frame.i++;
+        if (!index.has(nb)) {
+          work.push({ node: nb, i: 0 });
+        } else if (onStack.has(nb)) {
+          low.set(node, Math.min(low.get(node)!, index.get(nb)!));
+        }
+      } else {
+        if (low.get(node) === index.get(node)) {
+          const comp: string[] = [];
+          let w: string;
+          do {
+            w = stack.pop()!;
+            onStack.delete(w);
+            comp.push(w);
+          } while (w !== node);
+          if (comp.length > 1) sccs.push(comp); // size >= 2 == a cycle
+        }
+        work.pop();
+        if (work.length) {
+          const parent = work[work.length - 1].node;
+          low.set(parent, Math.min(low.get(parent)!, low.get(node)!));
+        }
+      }
+    }
+  }
+  return sccs;
+}
+
+// ── Community detection: single-level Louvain (local moving) ──
+// Deterministic (fixed node order); treats imports as an undirected weighted graph.
+function detectCommunities(ids: string[], edges: DepGraphEdge[]): Map<string, number> {
+  const adj = new Map<string, Map<string, number>>();
+  for (const id of ids) adj.set(id, new Map());
+  const bump = (a: string, b: string) => {
+    const m = adj.get(a);
+    if (m) m.set(b, (m.get(b) ?? 0) + 1);
+  };
+  for (const e of edges) {
+    if (e.source === e.target) continue;
+    bump(e.source, e.target);
+    bump(e.target, e.source);
+  }
+
+  const k = new Map<string, number>(); // weighted degree
+  let m2 = 0; // 2m
+  for (const id of ids) {
+    let deg = 0;
+    for (const w of adj.get(id)!.values()) deg += w;
+    k.set(id, deg);
+    m2 += deg;
+  }
+  if (m2 === 0) return new Map(ids.map((id) => [id, 0]));
+
+  const comm = new Map<string, number>(ids.map((id, i) => [id, i]));
+  const sigmaTot = new Map<number, number>(ids.map((id, i) => [i, k.get(id)!]));
+
+  let improved = true;
+  let passes = 0;
+  while (improved && passes < 20) {
+    improved = false;
+    passes++;
+    for (const node of ids) {
+      const ki = k.get(node)!;
+      const cOld = comm.get(node)!;
+      sigmaTot.set(cOld, (sigmaTot.get(cOld) ?? 0) - ki);
+
+      // sum of weights from node to each neighbouring community
+      const toComm = new Map<number, number>();
+      for (const [nb, w] of adj.get(node)!) {
+        if (nb === node) continue;
+        const c = comm.get(nb)!;
+        toComm.set(c, (toComm.get(c) ?? 0) + w);
+      }
+
+      let bestComm = cOld;
+      let bestGain = (toComm.get(cOld) ?? 0) - ((sigmaTot.get(cOld) ?? 0) * ki) / m2;
+      for (const [c, kIn] of toComm) {
+        const gain = kIn - ((sigmaTot.get(c) ?? 0) * ki) / m2;
+        if (gain > bestGain) {
+          bestGain = gain;
+          bestComm = c;
+        }
+      }
+
+      comm.set(node, bestComm);
+      sigmaTot.set(bestComm, (sigmaTot.get(bestComm) ?? 0) + ki);
+      if (bestComm !== cOld) improved = true;
+    }
+  }
+
+  // Relabel to dense 0..n-1
+  const relabel = new Map<number, number>();
+  let next = 0;
+  const result = new Map<string, number>();
+  for (const id of ids) {
+    const c = comm.get(id)!;
+    if (!relabel.has(c)) relabel.set(c, next++);
+    result.set(id, relabel.get(c)!);
+  }
+  return result;
 }

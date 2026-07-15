@@ -4,7 +4,7 @@ import DependencyGraphView from "./DependencyGraphView";
 import { useDepGraph, useRefreshDepGraph } from "@/hooks/useGraph";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Loader2, RefreshCw, Network, GitFork } from "lucide-react";
+import { Loader2, RefreshCw, Network, GitFork, AlertTriangle } from "lucide-react";
 
 interface Props {
   projectId: string;
@@ -42,8 +42,19 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
         {showDeps && dep && (
           <>
             <span className="text-xs text-muted-foreground tabular-nums">
-              {dep.fileCount} files · {dep.nodes.length} nodes · {dep.edges.length} imports
+              {dep.fileCount} files · {dep.edges.length} imports · {dep.communityCount} subsystems
             </span>
+            {dep.cycles.length > 0 && (
+              <span
+                className="flex items-center gap-1 rounded bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive"
+                title={dep.cycles
+                  .map((c) => c.map((id) => id.split("/").pop()).join(" ↔ "))
+                  .join("\n")}
+              >
+                <AlertTriangle className="size-3.5" />
+                {dep.cycles.length} {dep.cycles.length === 1 ? "cycle" : "cycles"}
+              </span>
+            )}
             <Button
               size="sm"
               variant="outline"
