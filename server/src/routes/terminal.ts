@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import type { AiAgent } from "@vibe-kanban/shared";
 import * as termService from "../services/terminalService";
 import type { PtySession } from "../services/terminalService";
 import { readTranscript } from "../services/transcriptService";
@@ -69,6 +70,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
       model?: string;
       resumeSessionId?: string;
       continueLast?: boolean;
+      agent?: AiAgent;
     };
 
     const type = body.type || "shell";
@@ -90,6 +92,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         model: body.model,
         resumeSessionId: body.resumeSessionId,
         continueLast: body.continueLast,
+        agent: body.agent,
       });
 
       return toSessionInfo(session);
@@ -138,11 +141,12 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── REST: Batch AI Resolve ─────────────────────────────────
   fastify.post("/terminal/batch-resolve", async (request, reply) => {
-    const { projectId, taskIds, concurrency, overrideBranch } = request.body as {
+    const { projectId, taskIds, concurrency, overrideBranch, agent } = request.body as {
       projectId: string;
       taskIds: string[];
       concurrency?: number;
       overrideBranch?: string;
+      agent?: AiAgent;
     };
     if (!projectId || !taskIds?.length) {
       return reply.code(400).send({ error: "projectId and taskIds are required" });
@@ -153,6 +157,7 @@ const terminalRoutes: FastifyPluginAsync = async (fastify) => {
         taskIds,
         concurrency,
         overrideBranch,
+        agent,
       );
       return status;
     } catch (err: any) {

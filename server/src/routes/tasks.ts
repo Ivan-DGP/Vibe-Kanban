@@ -243,6 +243,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       priority = "medium",
       milestoneId,
       parentTaskId,
+      agent,
       metadata,
     } = request.body as CreateTaskInput;
 
@@ -267,8 +268,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const metadataJson = metadata && typeof metadata === "object" ? JSON.stringify(metadata) : "{}";
 
     db.prepare(
-      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, metadata, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, agent, metadata, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       projectId,
@@ -288,6 +289,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       cascaded.doneAt || null,
       cascaded.approvedAt || null,
       cascaded.archivedAt || null,
+      agent || null,
       metadataJson,
       ts,
       ts,
@@ -351,6 +353,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
           "status",
           "priority",
           "sortOrder",
+          "agent",
         ].includes(key)
       ) {
         fields.push(`${key} = ?`);

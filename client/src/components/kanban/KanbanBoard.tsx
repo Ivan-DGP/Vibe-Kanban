@@ -18,6 +18,7 @@ import {
   useBatchCIStatus,
   useArchiveApproved,
   useAiResolvePrompt,
+  useSettings,
 } from "@/hooks";
 import { shouldGateApproval } from "@/lib/taskArtifacts";
 import QuizDialog from "@/components/tasks/QuizDialog";
@@ -39,7 +40,7 @@ import BatchResolveDialog from "./BatchResolveDialog";
 import TaskCard from "@/components/tasks/TaskCard";
 import TaskEditorDialog from "@/components/tasks/TaskEditorDialog";
 import TaskViewerDialog from "@/components/tasks/TaskViewerDialog";
-import type { Task, TaskStatus, TaskFilters } from "@vibe-kanban/shared";
+import type { Task, TaskStatus, TaskFilters, AiAgent } from "@vibe-kanban/shared";
 
 interface KanbanBoardProps {
   projectId: string;
@@ -237,6 +238,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const batchResolve = useBatchResolve();
   const { data: batchStatus } = useBatchResolveStatus();
   const cancelBatch = useCancelBatchResolve();
+  const { data: settings } = useSettings();
   const { toggleTerminal, terminalVisible } = useAppStore();
 
   const confirm = useConfirm();
@@ -245,6 +247,9 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
   const [batchConcurrency, setBatchConcurrency] = useState(1);
   const [batchTaskIds, setBatchTaskIds] = useState<string[]>([]);
   const [batchOverrideBranch, setBatchOverrideBranch] = useState<string | null>(null);
+  // null = follow the global default; a value overrides it for this run only.
+  const [batchAgentOverride, setBatchAgentOverride] = useState<AiAgent | null>(null);
+  const effectiveBatchAgent: AiAgent = batchAgentOverride ?? settings?.aiAgent ?? "claude";
 
   const handleBatchResolve = () => {
     const taskIds = [...inboxTasks, ...ipTasks].map((t) => t.id);
@@ -261,6 +266,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
       taskIds: batchTaskIds,
       concurrency: batchConcurrency,
       overrideBranch: batchOverrideBranch ?? undefined,
+      agent: effectiveBatchAgent,
     });
   };
 
@@ -443,6 +449,8 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         branchGroups={batchBranchGroups}
         overrideBranch={batchOverrideBranch}
         onOverrideBranchChange={setBatchOverrideBranch}
+        agent={effectiveBatchAgent}
+        onAgentChange={setBatchAgentOverride}
         onConfirm={handleBatchConfirm}
       />
     </div>

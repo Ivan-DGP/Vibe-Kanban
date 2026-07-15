@@ -23,6 +23,7 @@ import type {
   PromptProfile,
   CreateTaskInput,
   Artifact,
+  AiAgent,
 } from "@vibe-kanban/shared";
 
 function slugifyForFilename(s: string): string {
@@ -57,6 +58,7 @@ export default function TaskEditorDialog({
   const [milestoneId, setMilestoneId] = useState<string>("none");
   const [branch, setBranch] = useState<string | null>(null);
   const [promptProfile, setPromptProfile] = useState<PromptProfile>("auto");
+  const [agent, setAgent] = useState<AiAgent | null>(null);
   const [spawnType, setSpawnType] = useState<"" | "qa-test" | "dev-fix">("dev-fix");
   const [qaTargetUrl, setQaTargetUrl] = useState("");
 
@@ -249,6 +251,7 @@ export default function TaskEditorDialog({
       setMilestoneId(task.milestoneId ?? "none");
       setBranch(task.branch ?? null);
       setPromptProfile(task.promptProfile ?? "auto");
+      setAgent(task.agent ?? null);
       const md = task.metadata ?? {};
       const t = (md as { type?: unknown }).type;
       setSpawnType(t === "qa-test" || t === "dev-fix" ? t : "");
@@ -266,6 +269,7 @@ export default function TaskEditorDialog({
       setMilestoneId("none");
       setBranch(null);
       setPromptProfile("auto");
+      setAgent(null);
       setSpawnType("dev-fix");
       setQaTargetUrl("");
     }
@@ -297,6 +301,7 @@ export default function TaskEditorDialog({
       priority,
       status,
       milestoneId: milestoneId === "none" ? null : milestoneId,
+      agent,
       metadata,
     };
 
@@ -360,6 +365,8 @@ export default function TaskEditorDialog({
             onBranchChange={setBranch}
             promptProfile={promptProfile}
             onPromptProfileChange={setPromptProfile}
+            agent={agent}
+            onAgentChange={setAgent}
           />
 
           <TaskEditorSpawnConfig

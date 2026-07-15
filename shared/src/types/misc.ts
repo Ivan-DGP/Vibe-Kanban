@@ -28,6 +28,9 @@ export interface SystemLog {
 // Settings
 // ============================================================
 
+// AI resolver agent — the CLI that drives AI Resolve / batch resolve.
+export type AiAgent = "claude" | "opencode" | "grok";
+
 export interface AppSettings {
   claudeApiKey?: string;
   notionApiKey?: string;
@@ -35,6 +38,7 @@ export interface AppSettings {
   mcpAuthRequired?: boolean;
   soundEnabled?: boolean;
   terminalShell?: "powershell" | "cmd" | "bash";
+  aiAgent?: AiAgent;
 }
 
 // ============================================================

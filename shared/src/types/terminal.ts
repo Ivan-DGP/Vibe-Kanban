@@ -2,6 +2,8 @@
 // Terminal
 // ============================================================
 
+import type { AiAgent } from "./misc";
+
 export type TerminalSessionType =
   | "shell"
   | "dev"
@@ -35,6 +37,8 @@ export interface CreateTerminalSessionInput {
   prompt?: string;
   branch?: string;
   devCommand?: string;
+  // ai-resolve: which agent CLI to run; falls back to the global aiAgent setting.
+  agent?: AiAgent;
   // claude-interactive options:
   model?: string; // → claude --model <model>
   resumeSessionId?: string; // → claude --resume <id>
@@ -107,6 +111,8 @@ export interface BatchResolveInput {
   taskIds: string[];
   concurrency?: number;
   overrideBranch?: string;
+  // Override the resolver agent for this run; falls back to the global aiAgent setting.
+  agent?: AiAgent;
 }
 
 export interface BatchResolveStatus {

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Zap, Sparkles, Pencil, Copy, Trash2, GitBranch } from "lucide-react";
+import { Zap, Sparkles, Pencil, Copy, Trash2, GitBranch, Bot } from "lucide-react";
 import PriorityBadge from "@/components/ui/PriorityBadge";
 import CIStatusBadge from "@/components/ui/CIStatusBadge";
 import type { Task, CICheckResult } from "@vibe-kanban/shared";
@@ -66,6 +66,14 @@ export default function TaskCard({
             {task.branch}
           </span>
           {ciResult && <CIStatusBadge ciResult={ciResult} className="ml-auto" />}
+        </div>
+      )}
+      {task.agent && (
+        <div className="flex items-center gap-1 mt-1">
+          <Bot className="h-3 w-3 text-muted-foreground/60" />
+          <span className="text-[10px] text-muted-foreground/60 font-mono capitalize">
+            {task.agent}
+          </span>
         </div>
       )}
 

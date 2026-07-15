@@ -480,8 +480,26 @@ describe("Batch Resolve", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.state).toBe("running");
-    // Verify overrideBranch was forwarded as the fourth argument
-    expect(spy).toHaveBeenCalledWith(projectId, ["task-x"], 2, "feature/override");
+    // Verify overrideBranch was forwarded as the fourth argument (agent 5th, omitted → undefined)
+    expect(spy).toHaveBeenCalledWith(projectId, ["task-x"], 2, "feature/override", undefined);
+
+    spy.mockRestore();
+  });
+
+  test("POST /api/terminal/batch-resolve — forwards the agent when provided", async () => {
+    const fakeStatus = { state: "running", totalTasks: 1, completedTasks: 0, taskResults: [] };
+    const spy = spyOn(termService, "startBatchResolve").mockResolvedValueOnce(fakeStatus as any);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/terminal/batch-resolve",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId, taskIds: ["task-x"], agent: "opencode" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // agent is the fifth argument to startBatchResolve
+    expect(spy).toHaveBeenCalledWith(projectId, ["task-x"], undefined, undefined, "opencode");
 
     spy.mockRestore();
   });

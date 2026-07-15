@@ -250,6 +250,7 @@ describe("buildProfileInstructions", () => {
     approvedAt: null,
     archivedAt: null,
     notionPageId: null,
+    agent: null,
     metadata: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

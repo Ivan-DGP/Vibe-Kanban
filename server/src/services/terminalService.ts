@@ -9,7 +9,14 @@ import type {
   BatchResolveStatus,
   GroundedArtifact,
   Task,
+  AiAgent,
 } from "@vibe-kanban/shared";
+import {
+  getConfiguredAgent,
+  resolveAgentBinary,
+  buildResolveArgs,
+  isAgentAvailable,
+} from "./aiAgent";
 import {
   sessions,
   emitData,
@@ -103,31 +110,64 @@ function spawnAiResolve(
   opts: CreateSessionOptions,
 ): void {
   const { id } = session;
-  const claudeCmd = resolveClaudeCmd(safeEnv);
-  const autoResume = isAutoResumeEnabled();
-  // A known session id we can later resume with `claude -p --resume <id>`. The CLI
-  // never surfaces the auto-generated id, so we pin it up front.
-  const claudeSessionId = crypto.randomUUID();
-  const parkRunId = crypto.randomUUID();
+  const agent: AiAgent = opts.agent ?? getConfiguredAgent();
   const startedAt = new Date().toISOString();
 
   session.transcriptStream = openTranscript(
     id,
-    `\n===== ai-resolve · session ${id} · ${startedAt} =====\n`,
+    `\n===== ai-resolve · session ${id} · agent ${agent} · ${startedAt} =====\n`,
   );
 
-  log("info", "terminal", `AI resolve [${id}]: spawning ${claudeCmd} with prompt as argument`);
+  // Fail fast with a clear message when the chosen agent isn't installed, rather
+  // than letting the PTY spawn fail opaquely.
+  if (!isAgentAvailable(agent, safeEnv)) {
+    log("error", "terminal", `AI resolve [${id}]: agent "${agent}" not found on PATH`);
+    emitData(
+      session,
+      `\r\n\x1b[31m✖ AI resolver agent "${agent}" is not installed or not on PATH. ` +
+        `Install it or pick a different agent in Settings.\x1b[0m\r\n`,
+    );
+    session.alive = false;
+    session.transcriptStream?.end();
+    if (session.taskId && session.projectId) {
+      try {
+        const db = getDb();
+        db.prepare(
+          `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, groundedArtifacts)
+           VALUES (?, ?, ?, ?, 'auto', 'medium', 1, 0, ?)`,
+        ).run(
+          crypto.randomUUID(),
+          session.taskId,
+          session.projectId,
+          session.id,
+          JSON.stringify(session.groundedArtifacts ?? []),
+        );
+      } catch (e) {
+        log("warn", "terminal", `Failed to record AI run: ${e}`);
+      }
+    }
+    emitExit(session, 127);
+    sessions.delete(id);
+    return;
+  }
 
-  const pty = runtimeSpawnPty(
-    claudeCmd,
-    ["--session-id", claudeSessionId, "--dangerously-skip-permissions", prompt],
-    {
-      cwd: session.cwd,
-      env: safeEnv,
-      cols: opts.cols ?? 80,
-      rows: opts.rows ?? 24,
-    },
-  );
+  const agentCmd = resolveAgentBinary(agent, safeEnv);
+  // Usage-limit auto-resume relies on pinning Claude's session id up front and
+  // resuming it headlessly. OpenCode can't pin an id, so parking is claude-only.
+  const autoResume = agent === "claude" && isAutoResumeEnabled();
+  // A known session id we can later resume with `claude -p --resume <id>`. The CLI
+  // never surfaces the auto-generated id, so we pin it up front (claude only).
+  const claudeSessionId = crypto.randomUUID();
+  const parkRunId = crypto.randomUUID();
+
+  log("info", "terminal", `AI resolve [${id}]: spawning ${agentCmd} (${agent}) with prompt`);
+
+  const pty = runtimeSpawnPty(agentCmd, buildResolveArgs(agent, { prompt, claudeSessionId }), {
+    cwd: session.cwd,
+    env: safeEnv,
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+  });
 
   // Watch the stream for a usage-limit hit so we can park + auto-resume instead of
   // ending the run. Interactive claude may sit at the prompt after the limit, so we
@@ -471,6 +511,8 @@ export interface CreateSessionOptions {
   model?: string; // → claude --model <model>
   resumeSessionId?: string; // → claude --resume <id>
   continueLast?: boolean; // → claude --continue
+  // Resolver agent for ai-resolve; falls back to the global aiAgent setting.
+  agent?: AiAgent;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<PtySession> {
@@ -593,10 +635,13 @@ export async function startBatchResolve(
   taskIds: string[],
   concurrency: number = 1,
   overrideBranch?: string,
+  agent?: AiAgent,
 ): Promise<BatchResolveStatus> {
   if (batchState.state === "running") {
     throw new Error("A batch resolve is already running");
   }
+
+  const resolvedAgent: AiAgent = agent ?? getConfiguredAgent();
 
   const db = getDb();
   const port = parseInt(process.env.PORT || "3001", 10);
@@ -640,15 +685,22 @@ export async function startBatchResolve(
     ...Array.from(branchGroups.entries()).filter(([k]) => k !== null),
   ];
 
-  processQueueWithBranches(groups, projectId, port, effectiveConcurrency).catch((err) => {
-    log("error", "terminal", `Batch resolve error: ${String(err)}`);
-    batchState.state = "completed";
-  });
+  processQueueWithBranches(groups, projectId, port, effectiveConcurrency, resolvedAgent).catch(
+    (err) => {
+      log("error", "terminal", `Batch resolve error: ${String(err)}`);
+      batchState.state = "completed";
+    },
+  );
 
   return getBatchResolveStatus();
 }
 
-async function processSingleTask(task: Task, projectId: string, port: number): Promise<void> {
+async function processSingleTask(
+  task: Task,
+  projectId: string,
+  port: number,
+  agent: AiAgent,
+): Promise<void> {
   if (batchState.state === "cancelled") return;
 
   try {
@@ -674,7 +726,8 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
       "UPDATE tasks SET status = 'in_progress', inProgressAt = ?, updatedAt = ? WHERE id = ?",
     ).run(ts, ts, task.id);
 
-    // Create the AI resolve session
+    // Create the AI resolve session. Per-task agent overrides the batch/global
+    // choice; null falls back to the resolved batch agent.
     const session = await createSession({
       type: "ai-resolve",
       projectId,
@@ -682,6 +735,7 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
       name: task.title,
       prompt,
       groundedArtifacts,
+      agent: task.agent ?? agent,
     });
 
     // Track active task
@@ -740,6 +794,7 @@ async function processQueueWithBranches(
   projectId: string,
   port: number,
   concurrency: number,
+  agent: AiAgent,
 ): Promise<void> {
   const projectPath = resolveCwd(projectId);
 
@@ -775,7 +830,7 @@ async function processQueueWithBranches(
     }
 
     // Process tasks in this branch group with concurrency
-    await processQueue(tasks, projectId, port, concurrency);
+    await processQueue(tasks, projectId, port, concurrency, agent);
   }
 
   batchState.state = batchState.state === "cancelled" ? "cancelled" : "completed";
@@ -791,6 +846,7 @@ async function processQueue(
   projectId: string,
   port: number,
   concurrency: number = 1,
+  agent: AiAgent = "claude",
 ): Promise<void> {
   if (concurrency <= 1) {
     // Sequential processing (original behavior)
@@ -799,7 +855,7 @@ async function processQueue(
         log("info", "terminal", "Batch resolve cancelled");
         break;
       }
-      await processSingleTask(task, projectId, port);
+      await processSingleTask(task, projectId, port, agent);
     }
   } else {
     // Concurrent processing with a pool
@@ -807,7 +863,7 @@ async function processQueue(
     const next = async (): Promise<void> => {
       while (index < tasks.length && batchState.state !== "cancelled") {
         const task = tasks[index++];
-        await processSingleTask(task, projectId, port);
+        await processSingleTask(task, projectId, port, agent);
       }
     };
     const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => next());

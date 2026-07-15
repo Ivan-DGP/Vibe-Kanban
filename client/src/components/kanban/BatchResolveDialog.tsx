@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Minus, Plus, GitBranch } from "lucide-react";
+import type { AiAgent } from "@vibe-kanban/shared";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,6 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import BranchSelector from "@/components/git/BranchSelector";
 
 interface BatchResolveDialogProps {
@@ -21,6 +29,8 @@ interface BatchResolveDialogProps {
   branchGroups: Map<string, number>;
   overrideBranch: string | null;
   onOverrideBranchChange: (branch: string | null) => void;
+  agent: AiAgent;
+  onAgentChange: (agent: AiAgent) => void;
   onConfirm: () => void;
 }
 
@@ -34,6 +44,8 @@ export default function BatchResolveDialog({
   branchGroups,
   overrideBranch,
   onOverrideBranchChange,
+  agent,
+  onAgentChange,
   onConfirm,
 }: BatchResolveDialogProps) {
   return (
@@ -45,6 +57,20 @@ export default function BatchResolveDialog({
             Start AI Resolve for {taskCount} task{taskCount !== 1 ? "s" : ""}.
           </DialogDescription>
         </DialogHeader>
+        <div className="flex items-center justify-between py-2">
+          <label className="text-sm font-medium">Agent</label>
+          <Select value={agent} onValueChange={(v) => onAgentChange(v as AiAgent)}>
+            <SelectTrigger className="w-[140px] h-7">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="claude">Claude</SelectItem>
+              <SelectItem value="opencode">OpenCode</SelectItem>
+              <SelectItem value="grok">Grok</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex items-center justify-between py-2">
           <label className="text-sm font-medium">Concurrency</label>
           <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { GroundedArtifact } from "./artifact";
+import type { AiAgent } from "./misc";
 
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "done" | "approved" | "archived";
 export type TaskPriority = "urgent" | "high" | "medium" | "low";
@@ -28,6 +29,8 @@ export interface Task {
   approvedAt: string | null;
   archivedAt: string | null;
   notionPageId: string | null;
+  // Per-task resolver override; null = inherit batch/global default.
+  agent: AiAgent | null;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -43,6 +46,7 @@ export interface CreateTaskInput {
   priority?: TaskPriority;
   milestoneId?: string | null;
   parentTaskId?: string | null;
+  agent?: AiAgent | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -55,6 +59,7 @@ export interface UpdateTaskInput {
   status?: TaskStatus;
   priority?: TaskPriority;
   milestoneId?: string | null;
+  agent?: AiAgent | null;
   sortOrder?: number;
   // Full-replace of the task's metadata JSON bag. Merge with the existing value
   // client-side before sending — the server overwrites, it does not deep-merge.

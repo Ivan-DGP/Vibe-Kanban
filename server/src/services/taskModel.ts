@@ -36,6 +36,7 @@ export function rowToTask(row: Record<string, unknown> | null | undefined): Task
     approvedAt: (row.approvedAt ?? null) as string | null,
     archivedAt: (row.archivedAt ?? null) as string | null,
     notionPageId: (row.notionPageId ?? null) as string | null,
+    agent: (row.agent ?? null) as Task["agent"],
     metadata: row.metadata ? (JSON.parse(row.metadata as string) as Record<string, unknown>) : {},
     createdAt: row.createdAt as string,
     updatedAt: row.updatedAt as string,

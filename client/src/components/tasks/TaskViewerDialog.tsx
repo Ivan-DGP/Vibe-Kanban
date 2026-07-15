@@ -267,6 +267,8 @@ export default function TaskViewerDialog({
         prompt,
         taskId: task.id,
         branch: task.branch ?? undefined,
+        // Per-task agent; undefined lets the server fall back to the global setting.
+        agent: task.agent ?? undefined,
       });
       onOpenChange(false);
     } catch (e: any) {

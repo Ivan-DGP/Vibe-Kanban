@@ -78,6 +78,44 @@ describe("Task CRUD", () => {
     expect(task.updatedAt).toBeDefined();
   });
 
+  test("POST + PATCH /api/tasks - per-task agent persists and clears", async () => {
+    // create with agent set
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Grok task", agent: "grok" },
+    });
+    expect(created.statusCode).toBe(200);
+    const task = created.json();
+    expect(task.agent).toBe("grok");
+
+    // GET reflects it
+    const got = await app.inject({ method: "GET", url: `/api/tasks/${task.id}` });
+    expect(got.json().agent).toBe("grok");
+
+    // PATCH clears it back to inherit (null)
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${task.id}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { agent: null },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().agent).toBeNull();
+  });
+
+  test("POST /api/projects/:projectId/tasks - defaults agent to null (inherit)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "No agent task" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent).toBeNull();
+  });
+
   test("POST /api/projects/:projectId/tasks - defaults status to backlog and priority to medium", async () => {
     const res = await app.inject({
       method: "POST",

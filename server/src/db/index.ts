@@ -920,6 +920,18 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 37,
+      name: "add-task-agent",
+      up: () => {
+        // Per-task resolver agent override (claude/opencode/grok). NULL = inherit
+        // the batch-dialog choice, then the global aiAgent setting, then claude.
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "agent")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN agent TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {

@@ -31,6 +31,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     milestoneId: null,
     parentTaskId: null,
     notionPageId: null,
+    agent: null,
     metadata: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
