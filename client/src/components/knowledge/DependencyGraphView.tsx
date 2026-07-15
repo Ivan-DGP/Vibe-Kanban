@@ -72,6 +72,11 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [nodes]);
 
+  const hotspots = useMemo(
+    () => [...nodes].sort((a, b) => b.degree - a.degree).slice(0, 8),
+    [nodes],
+  );
+
   // (Re)build the simulation whenever the graph data changes.
   useEffect(() => {
     const w = containerRef.current?.clientWidth ?? 800;
@@ -236,6 +241,17 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
           ctx.arc(n.x, n.y, r + 2 / view.k, 0, Math.PI * 2);
           ctx.stroke();
         }
+
+        // dashed grey ring for isolated files (no internal imports either way)
+        if (n.degree === 0) {
+          ctx.strokeStyle = "rgba(148, 163, 184, 0.65)";
+          ctx.setLineDash([2, 2]);
+          ctx.lineWidth = 1 / view.k;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 2.5 / view.k, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
 
       // labels: hubs always, plus the hovered node's full path
@@ -276,6 +292,16 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
       if ((n.x - x) ** 2 + (n.y - y) ** 2 <= r * r) hit = n; // last match = topmost
     }
     return hit;
+  }
+  // Centre the view on a node and highlight it (used by the Hotspots list).
+  function focusNode(id: string) {
+    const n = nodesRef.current.find((x) => x.id === id);
+    const c = containerRef.current;
+    if (!n || !c) return;
+    const v = viewRef.current;
+    v.x = c.clientWidth / 2 - n.x * v.k;
+    v.y = c.clientHeight / 2 - n.y * v.k;
+    hoverRef.current = n;
   }
 
   return (
@@ -342,6 +368,25 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
             {group} <span className="text-slate-400">{count}</span>
           </span>
         ))}
+      </div>
+
+      {/* hotspots — most-depended-on files; click to centre */}
+      <div className="absolute right-2 top-2 w-52 rounded-md bg-black/40 p-2 text-[11px] backdrop-blur">
+        <div className="mb-1 px-1 font-medium text-slate-300">Hotspots</div>
+        <div className="flex flex-col">
+          {hotspots.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => focusNode(n.id)}
+              title={n.id}
+              className="flex items-center justify-between gap-2 rounded px-1.5 py-0.5 text-left text-slate-300 hover:bg-white/10"
+            >
+              <span className="truncate">{n.label}</span>
+              <span className="tabular-nums text-slate-500">{n.degree}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

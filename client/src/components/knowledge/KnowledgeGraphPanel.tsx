@@ -21,6 +21,8 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
   const refresh = useRefreshDepGraph(projectId);
   const fromDeps = useGraphFromDeps(projectId);
 
+  const isolated = dep ? dep.nodes.filter((n) => n.degree === 0).length : 0;
+
   const draftFromDeps = () =>
     fromDeps.mutate(undefined, {
       onSuccess: (r) =>
@@ -54,6 +56,7 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
           <>
             <span className="text-xs text-muted-foreground tabular-nums">
               {dep.fileCount} files · {dep.edges.length} imports · {dep.communityCount} subsystems
+              {isolated > 0 && ` · ${isolated} isolated`}
             </span>
             {dep.cycles.length > 0 && (
               <span
