@@ -1,7 +1,7 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ArtifactsTab from "./ArtifactsTab";
 import RoadmapTab from "./RoadmapTab";
-import GraphTab from "./GraphTab";
+import KnowledgeGraphPanel from "./KnowledgeGraphPanel";
 import SearchTab from "./SearchTab";
 
 interface KnowledgePanelProps {
@@ -27,7 +27,7 @@ export default function KnowledgePanel({ projectId }: KnowledgePanelProps) {
         <RoadmapTab projectId={projectId} />
       </TabsContent>
       <TabsContent value="graph" className="flex-1 mt-4 overflow-hidden">
-        <GraphTab projectId={projectId} />
+        <KnowledgeGraphPanel projectId={projectId} />
       </TabsContent>
     </Tabs>
   );

@@ -108,6 +108,7 @@ export async function buildApp(opts: { bodyLimit?: number } = {}) {
   await app.register(import("./routes/artifacts"), { prefix: "/api" });
   await app.register(import("./routes/roadmap"), { prefix: "/api" });
   await app.register(import("./routes/graph"), { prefix: "/api" });
+  await app.register(import("./routes/depGraph"), { prefix: "/api" });
   await app.register(import("./routes/knowledge"), { prefix: "/api" });
   await app.register(import("./routes/terminal"), { prefix: "/api" });
   await app.register(import("./routes/benchmarks"), { prefix: "/api" });

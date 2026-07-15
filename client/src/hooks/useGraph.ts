@@ -14,6 +14,25 @@ export function useGraph(projectId: string | undefined) {
   });
 }
 
+// Dependency (import) graph — extraction is a filesystem walk, so it's fetched
+// lazily and only recomputed when the user explicitly refreshes.
+export function useDepGraph(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["dep-graph", projectId],
+    queryFn: () => api.depGraph.get(projectId!),
+    enabled: !!projectId && enabled,
+    staleTime: Infinity,
+  });
+}
+
+export function useRefreshDepGraph(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.depGraph.get(projectId, true),
+    onSuccess: (data) => qc.setQueryData(["dep-graph", projectId], data),
+  });
+}
+
 export function useCreateGraphNode(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

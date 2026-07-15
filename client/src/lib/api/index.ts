@@ -56,6 +56,7 @@ import type {
   CreateRoadmapItemInput,
   UpdateRoadmapItemInput,
   ProjectGraph,
+  DepGraph,
   GraphNode,
   GraphEdge,
   CreateGraphNodeInput,
@@ -469,6 +470,10 @@ export const api = {
         `/projects/${projectId}/graph/confirm`,
         input,
       ),
+  },
+  depGraph: {
+    get: (projectId: string, refresh = false) =>
+      get<DepGraph>(`/projects/${projectId}/dep-graph${refresh ? "?refresh=true" : ""}`),
   },
 
   benchmarks: {
