@@ -28,7 +28,7 @@ const depGraphKnowledgeRoutes: FastifyPluginAsync = async (fastify) => {
 
       let result;
       try {
-        result = await depGraphToKnowledgeWithAI(project.path, getSafeEnv());
+        result = depGraphToKnowledgeWithAI(project.path, getSafeEnv());
       } catch (e) {
         const err = e as { statusCode?: number; message?: string };
         return reply

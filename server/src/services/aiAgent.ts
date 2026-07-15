@@ -98,12 +98,13 @@ export function buildResolveArgs(agent: AiAgent, opts: ResolveArgsOptions): stri
 
 /**
  * Non-interactive one-shot: run the agent CLI with a prompt, return stdout or null.
- * claude: -p <prompt> | opencode: run <prompt> | grok: -p <prompt> --output-format plain
+ * claude: -p <prompt> [--model <m>] | opencode: run <prompt> [-m <m>] | grok: -p <prompt> --output-format plain [-m <m>]
  */
 export function runAgentOneShot(
   prompt: string,
   safeEnv: Record<string, string>,
   agent?: AiAgent,
+  model?: string,
 ): string | null {
   const a = agent ?? getConfiguredAgent();
   if (!isAgentAvailable(a, safeEnv)) return null;
@@ -111,10 +112,13 @@ export function runAgentOneShot(
   let argv: string[];
   if (a === "opencode") {
     argv = ["run", prompt];
+    if (model) argv.push("-m", model);
   } else if (a === "grok") {
     argv = ["-p", prompt, "--output-format", "plain"];
+    if (model) argv.push("-m", model);
   } else {
     argv = ["-p", prompt];
+    if (model) argv.push("--model", model);
   }
 
   try {

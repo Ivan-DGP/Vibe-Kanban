@@ -1,8 +1,6 @@
 import path from "node:path";
 import { generateDepGraph } from "./depGraph";
 import { runAgentOneShot } from "./aiAgent";
-import { getDb } from "../db";
-import { tryDecrypt } from "../lib/crypto";
 import type { DepGraph, DepGraphNode } from "@vibe-kanban/shared";
 
 // Turns the mechanical dependency graph into draft knowledge-graph content:
@@ -185,70 +183,19 @@ function applyAiLabels(knowledge: DepKnowledge, text: string): void {
   }
 }
 
-/** Read the configured Claude API key (settings, encrypted at rest) with env fallback. */
-function getClaudeApiKey(): string | null {
-  try {
-    const row = getDb().prepare("SELECT value FROM settings WHERE key = 'claudeApiKey'").get() as
-      | { value: string }
-      | undefined;
-    if (row) {
-      let value: string;
-      try {
-        value = JSON.parse(row.value);
-      } catch {
-        value = row.value;
-      }
-      if (typeof value === "string" && value) return tryDecrypt(value) ?? value;
-    }
-  } catch {
-    /* fall through to env */
-  }
-  return process.env.ANTHROPIC_API_KEY || null;
-}
-
-/** Label subsystems with Opus via the Anthropic Messages API (non-streaming). */
-async function labelWithOpus(prompt: string, apiKey: string): Promise<string | null> {
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-opus-4-8",
-        max_tokens: 2048,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as {
-      content?: Array<{ type: string; text?: string }>;
-    };
-    return data.content?.find((b) => b.type === "text")?.text ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Same as {@link depGraphToKnowledge}, then re-label communities with AI.
- * Prefers Opus via the Anthropic API (best labels); falls back to the configured
- * CLI agent (claude/opencode/grok), then to the offline heuristic labels.
+ * Same as {@link depGraphToKnowledge}, then re-label communities via the
+ * configured CLI agent, pinned to Opus. On any failure keeps the heuristic labels.
  */
-export async function depGraphToKnowledgeWithAI(
+export function depGraphToKnowledgeWithAI(
   projectPath: string,
   safeEnv: Record<string, string>,
-): Promise<DepKnowledge> {
+): DepKnowledge {
   const knowledge = depGraphToKnowledge(projectPath);
   if (knowledge.communities.length === 0) return knowledge;
 
   const prompt = buildLabelPrompt(knowledge);
-
-  const apiKey = getClaudeApiKey();
-  let text = apiKey ? await labelWithOpus(prompt, apiKey) : null;
-  if (!text) text = runAgentOneShot(prompt, safeEnv);
+  const text = runAgentOneShot(prompt, safeEnv, undefined, "opus");
   if (!text) return knowledge;
 
   applyAiLabels(knowledge, text);
