@@ -39,7 +39,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 36 on a blank database", () => {
+  test("runs all migrations from version 1 to 37 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -55,7 +55,7 @@ describe("fresh database: real runMigrations", () => {
       version: number;
       name: string;
     }[];
-    expect(rows.length).toBe(36);
+    expect(rows.length).toBe(37);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
@@ -126,6 +126,8 @@ describe("fresh database: real runMigrations", () => {
         targetNodeId TEXT NOT NULL REFERENCES project_graph_nodes(id) ON DELETE CASCADE,
         label TEXT, type TEXT NOT NULL DEFAULT 'related', createdAt TEXT
       );
+      -- Minimal tasks table so later migrations that ALTER it (e.g. v37 add-task-agent) run.
+      CREATE TABLE tasks (id TEXT PRIMARY KEY);
     `);
     for (let v = 1; v <= 32; v++) {
       old.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(v, `seed-${v}`);
@@ -156,7 +158,7 @@ describe("fresh database: real runMigrations", () => {
     expect(edge.status).toBe("confirmed");
 
     const maxV = old.prepare("SELECT MAX(version) v FROM _migrations").get() as { v: number };
-    expect(maxV.v).toBe(36);
+    expect(maxV.v).toBe(37);
   });
 
   test("tasks table has all columns from all migrations", () => {
@@ -297,8 +299,8 @@ describe("runMigrations idempotency", () => {
       db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
     ).c;
 
-    expect(countAfterFirst).toBe(36);
-    expect(countAfterSecond).toBe(36);
+    expect(countAfterFirst).toBe(37);
+    expect(countAfterSecond).toBe(37);
   });
 });
 
@@ -324,7 +326,7 @@ describe("migration from completely empty database", () => {
     const finalVersion = (
       db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }
     ).v;
-    expect(finalVersion).toBe(36);
+    expect(finalVersion).toBe(37);
   });
 });
 
@@ -384,7 +386,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(36);
+    expect(max).toBe(37);
   });
 });
 
@@ -409,7 +411,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(36);
+    expect(max).toBe(37);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -817,7 +819,7 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(36);
+    expect(max).toBe(37);
   });
 });
 
