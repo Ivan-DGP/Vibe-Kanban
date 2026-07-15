@@ -31,23 +31,14 @@ import {
 import type { CICheckResult } from "@vibe-kanban/shared";
 import { useConfirm } from "@/hooks/useConfirm";
 import { PAGE_SIZE } from "@/lib/constants";
-import { Loader2, Minus, Plus, GitBranch, Archive } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import KanbanColumn from "./KanbanColumn";
 import KanbanToolbar from "./KanbanToolbar";
 import ListView from "./ListView";
+import KanbanBoardColumns from "./KanbanBoardColumns";
+import BatchStatusBanner from "./BatchStatusBanner";
+import BatchResolveDialog from "./BatchResolveDialog";
 import TaskCard from "@/components/tasks/TaskCard";
 import TaskEditorDialog from "@/components/tasks/TaskEditorDialog";
 import TaskViewerDialog from "@/components/tasks/TaskViewerDialog";
-import BranchSelector from "@/components/git/BranchSelector";
 import type { Task, TaskStatus, TaskFilters } from "@vibe-kanban/shared";
 
 interface KanbanBoardProps {
@@ -373,53 +364,7 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         projectName={projectName}
       />
 
-      {batchStatus && batchStatus.state === "running" && (
-        <div className="flex items-center gap-3 rounded-lg border border-purple-500/20 bg-purple-500/5 px-4 py-2.5">
-          <div className="h-6 w-6 rounded-full bg-purple-500/15 flex items-center justify-center">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium">
-              Resolving {batchStatus.completedTasks}/{batchStatus.totalTasks}
-              {(batchStatus.concurrency ?? 1) > 1 && (
-                <span className="text-muted-foreground font-normal ml-1.5">
-                  ({batchStatus.activeTasks?.length ?? 0} active)
-                </span>
-              )}
-            </div>
-            {(batchStatus.concurrency ?? 1) <= 1 && batchStatus.currentTaskTitle && (
-              <div className="text-xs text-muted-foreground truncate">
-                {batchStatus.currentTaskTitle}
-              </div>
-            )}
-            {(batchStatus.concurrency ?? 1) > 1 &&
-              batchStatus.activeTasks &&
-              batchStatus.activeTasks.length > 0 && (
-                <div className="text-xs text-muted-foreground truncate">
-                  {batchStatus.activeTasks.map((t) => t.taskTitle).join(", ")}
-                </div>
-              )}
-          </div>
-          <div className="w-32 h-1.5 rounded-full bg-secondary overflow-hidden">
-            <div
-              className="h-full bg-purple-500 rounded-full transition-all"
-              style={{ width: `${(batchStatus.completedTasks / batchStatus.totalTasks) * 100}%` }}
-            />
-          </div>
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCancelBatch}>
-            Cancel
-          </Button>
-        </div>
-      )}
-
-      {batchStatus && batchStatus.state === "completed" && batchStatus.totalTasks > 0 && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/5 px-4 py-2 text-sm">
-          <span className="text-green-400">Batch resolve complete:</span>
-          <span>
-            {batchStatus.completedTasks}/{batchStatus.totalTasks} tasks processed
-          </span>
-        </div>
-      )}
+      <BatchStatusBanner status={batchStatus} onCancel={handleCancelBatch} />
 
       {listView ? (
         <ListView tasks={allTasks} onTaskClick={handleTaskClick} />
@@ -430,91 +375,30 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="flex gap-5 overflow-x-auto pb-4">
-            <KanbanColumn
-              id="inbox"
-              title="Inbox"
-              tasks={inboxTasks}
-              total={inboxTotal}
-              projectId={projectId}
-              defaultStatus="backlog"
-              ciResults={ciMap}
-              onTaskClick={handleTaskClick}
-              onAIResolve={handleAIResolve}
-              onAnalyze={handleAnalyze}
-              onEdit={handleEditCard}
-              onClone={handleClone}
-              onDelete={handleDelete}
-              hasMore={inboxTasks.length < inboxTotal}
-              onLoadMore={() => setInboxLimit((l) => l + PAGE_SIZE)}
-            />
-            <KanbanColumn
-              id="in_progress"
-              title="In Progress"
-              tasks={ipTasks}
-              total={ipData?.total ?? 0}
-              projectId={projectId}
-              defaultStatus="in_progress"
-              ciResults={ciMap}
-              onTaskClick={handleTaskClick}
-              onAIResolve={handleAIResolve}
-              onAnalyze={handleAnalyze}
-              onEdit={handleEditCard}
-              onClone={handleClone}
-              onDelete={handleDelete}
-              hasMore={ipTasks.length < (ipData?.total ?? 0)}
-              onLoadMore={() => setIpLimit((l) => l + PAGE_SIZE)}
-            />
-            <KanbanColumn
-              id="done"
-              title="Done"
-              tasks={doneTasks}
-              total={doneData?.total ?? 0}
-              projectId={projectId}
-              defaultStatus="done"
-              ciResults={ciMap}
-              onTaskClick={handleTaskClick}
-              onAIResolve={handleAIResolve}
-              onAnalyze={handleAnalyze}
-              onEdit={handleEditCard}
-              onClone={handleClone}
-              onDelete={handleDelete}
-              hasMore={doneTasks.length < (doneData?.total ?? 0)}
-              onLoadMore={() => setDoneLimit((l) => l + PAGE_SIZE)}
-            />
-            <KanbanColumn
-              id="approved"
-              title="Approved"
-              tasks={approvedTasks}
-              total={approvedData?.total ?? 0}
-              projectId={projectId}
-              defaultStatus="approved"
-              ciResults={ciMap}
-              headerAction={
-                (approvedData?.total ?? 0) > 0 ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground ml-1"
-                    onClick={handleArchiveApproved}
-                    disabled={archiveApproved.isPending}
-                    title="Archive all approved tasks"
-                  >
-                    <Archive className="h-3 w-3 mr-1" />
-                    Archive
-                  </Button>
-                ) : undefined
-              }
-              onTaskClick={handleTaskClick}
-              onAIResolve={handleAIResolve}
-              onAnalyze={handleAnalyze}
-              onEdit={handleEditCard}
-              onClone={handleClone}
-              onDelete={handleDelete}
-              hasMore={approvedTasks.length < (approvedData?.total ?? 0)}
-              onLoadMore={() => setApprovedLimit((l) => l + PAGE_SIZE)}
-            />
-          </div>
+          <KanbanBoardColumns
+            projectId={projectId}
+            ciMap={ciMap}
+            inboxTasks={inboxTasks}
+            inboxTotal={inboxTotal}
+            ipTasks={ipTasks}
+            ipTotal={ipData?.total ?? 0}
+            doneTasks={doneTasks}
+            doneTotal={doneData?.total ?? 0}
+            approvedTasks={approvedTasks}
+            approvedTotal={approvedData?.total ?? 0}
+            onTaskClick={handleTaskClick}
+            onAIResolve={handleAIResolve}
+            onAnalyze={handleAnalyze}
+            onEdit={handleEditCard}
+            onClone={handleClone}
+            onDelete={handleDelete}
+            onArchiveApproved={handleArchiveApproved}
+            archiveApprovedPending={archiveApproved.isPending}
+            onLoadMoreInbox={() => setInboxLimit((l) => l + PAGE_SIZE)}
+            onLoadMoreIp={() => setIpLimit((l) => l + PAGE_SIZE)}
+            onLoadMoreDone={() => setDoneLimit((l) => l + PAGE_SIZE)}
+            onLoadMoreApproved={() => setApprovedLimit((l) => l + PAGE_SIZE)}
+          />
 
           <DragOverlay>
             {activeTask && (
@@ -549,86 +433,18 @@ export default function KanbanBoard({ projectId, projectName }: KanbanBoardProps
         onApprove={completeGatedApproval}
       />
 
-      <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Batch AI Resolve</DialogTitle>
-            <DialogDescription>
-              Start AI Resolve for {batchTaskIds.length} task{batchTaskIds.length !== 1 ? "s" : ""}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center justify-between py-2">
-            <label className="text-sm font-medium">Concurrency</label>
-            <div className="flex items-center gap-2">
-              <Button
-                size="icon"
-                variant="outline"
-                className="h-7 w-7"
-                onClick={() => setBatchConcurrency((c) => Math.max(1, c - 1))}
-                disabled={batchConcurrency <= 1}
-              >
-                <Minus className="h-3 w-3" />
-              </Button>
-              <span className="w-8 text-center text-sm font-mono">{batchConcurrency}</span>
-              <Button
-                size="icon"
-                variant="outline"
-                className="h-7 w-7"
-                onClick={() => setBatchConcurrency((c) => Math.min(10, c + 1))}
-                disabled={batchConcurrency >= 10}
-              >
-                <Plus className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {batchConcurrency === 1
-              ? "Tasks will be processed one at a time."
-              : `Up to ${batchConcurrency} tasks will be processed in parallel.`}
-          </p>
-
-          {/* Branch groups summary */}
-          {batchBranchGroups.size > 1 && !batchOverrideBranch && (
-            <div className="space-y-1.5 py-1">
-              <label className="text-sm font-medium flex items-center gap-1.5">
-                <GitBranch className="h-3.5 w-3.5" />
-                Branch Groups
-              </label>
-              {Array.from(batchBranchGroups).map(([branch, count]) => (
-                <div key={branch} className="flex items-center justify-between text-xs px-1">
-                  <span className="font-mono truncate">{branch}</span>
-                  <span className="text-muted-foreground">
-                    {count} task{count !== 1 ? "s" : ""}
-                  </span>
-                </div>
-              ))}
-              <p className="text-[11px] text-muted-foreground">
-                Tasks processed branch-by-branch. Only same-branch tasks run concurrently.
-              </p>
-            </div>
-          )}
-
-          {/* Override branch for all */}
-          <div className="space-y-1.5 py-1">
-            <label className="text-sm font-medium">Override branch (optional)</label>
-            <BranchSelector
-              projectId={projectId}
-              value={batchOverrideBranch}
-              onSelect={setBatchOverrideBranch}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Run all tasks on a specific branch instead of their assigned branches.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBatchDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleBatchConfirm}>Start</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BatchResolveDialog
+        open={batchDialogOpen}
+        onOpenChange={setBatchDialogOpen}
+        projectId={projectId}
+        taskCount={batchTaskIds.length}
+        concurrency={batchConcurrency}
+        onConcurrencyChange={setBatchConcurrency}
+        branchGroups={batchBranchGroups}
+        overrideBranch={batchOverrideBranch}
+        onOverrideBranchChange={setBatchOverrideBranch}
+        onConfirm={handleBatchConfirm}
+      />
     </div>
   );
 }
