@@ -142,6 +142,57 @@ export default function TerminalPanel() {
     });
   };
 
+  // Bulk-close a set of session ids, then reconcile active/split tabs against
+  // whatever survives. Used by "close all", "close others", "close to the
+  // right/left" — mirrors browser/IDE tab menus.
+  const killSessions = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const toKill = new Set(ids);
+      for (const id of ids) killSession.mutate(id);
+      setTabState((prev) => {
+        const survivors = serverSessions.filter((s) => !toKill.has(s.id));
+        const newActive =
+          prev.activeSessionId && toKill.has(prev.activeSessionId)
+            ? (survivors[survivors.length - 1]?.id ?? null)
+            : prev.activeSessionId;
+        const newSplit =
+          prev.splitSessionId && toKill.has(prev.splitSessionId) ? null : prev.splitSessionId;
+        return { activeSessionId: newActive, splitSessionId: newSplit };
+      });
+    },
+    [serverSessions, killSession],
+  );
+
+  const handleCloseAll = useCallback(
+    () => killSessions(serverSessions.map((s) => s.id)),
+    [killSessions, serverSessions],
+  );
+
+  const handleCloseOthers = useCallback(
+    (keepId: string) =>
+      killSessions(serverSessions.filter((s) => s.id !== keepId).map((s) => s.id)),
+    [killSessions, serverSessions],
+  );
+
+  const handleCloseToRight = useCallback(
+    (fromId: string) => {
+      const idx = serverSessions.findIndex((s) => s.id === fromId);
+      if (idx < 0) return;
+      killSessions(serverSessions.slice(idx + 1).map((s) => s.id));
+    },
+    [killSessions, serverSessions],
+  );
+
+  const handleCloseToLeft = useCallback(
+    (fromId: string) => {
+      const idx = serverSessions.findIndex((s) => s.id === fromId);
+      if (idx <= 0) return;
+      killSessions(serverSessions.slice(0, idx).map((s) => s.id));
+    },
+    [killSessions, serverSessions],
+  );
+
   const handleSetActive = useCallback((id: string) => {
     setTabState((prev) => ({ ...prev, activeSessionId: id }));
   }, []);
@@ -201,6 +252,10 @@ export default function TerminalPanel() {
           onNewSession={handleNewSession}
           onNewDevSession={project ? handleNewDevSession : undefined}
           onNewClaudeSession={handleNewClaudeSession}
+          onCloseAll={handleCloseAll}
+          onCloseOthers={handleCloseOthers}
+          onCloseToRight={handleCloseToRight}
+          onCloseToLeft={handleCloseToLeft}
         />
       </div>
 
