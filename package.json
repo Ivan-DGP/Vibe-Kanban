@@ -18,6 +18,7 @@
     "start": "bun run --cwd server start",
     "start:node": "npx tsx server/src/index.ts",
     "check": "bun run --cwd client typecheck && bun run --cwd server typecheck",
+    "graphs": "bash scripts/graphify/run.sh",
     "lint": "eslint client/src server/src shared/src",
     "lint:fix": "eslint --fix client/src server/src shared/src",
     "format": "prettier --write \"**/*.{ts,tsx,json,css,md}\"",
