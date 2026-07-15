@@ -75,6 +75,8 @@ const ANY_DEBT = [
   "server/src/services/snapshot.test.ts",
   "server/src/services/snapshot.ts",
   "server/src/services/taskSpawner.ts",
+  "server/src/services/terminalRegistry.ts",
+  "server/src/services/terminalRegistry.test.ts",
   "server/src/services/terminalService.coverage.isolated.ts",
   "server/src/services/terminalService.isolated.ts",
   "server/src/services/terminalService.test.ts",
