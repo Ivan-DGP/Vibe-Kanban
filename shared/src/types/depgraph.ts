@@ -16,6 +16,14 @@ export interface DepGraphEdge {
   target: string; // imported node id
 }
 
+/** An edge that violates the intended layer order (foundational → higher-level). */
+export interface LayerViolation {
+  source: string;
+  target: string;
+  fromLayer: string;
+  toLayer: string;
+}
+
 export interface DepGraph {
   nodes: DepGraphNode[];
   edges: DepGraphEdge[];
@@ -23,5 +31,6 @@ export interface DepGraph {
   roots: string[]; // source roots that were scanned (repo-relative)
   communityCount: number; // number of detected subsystems
   cycles: string[][]; // import cycles (each a list of node ids, size >= 2)
+  layerViolations: LayerViolation[]; // edges that cross layers the wrong way
   generatedAt: string; // ISO timestamp of extraction
 }

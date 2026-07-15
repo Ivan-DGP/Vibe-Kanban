@@ -1,5 +1,5 @@
 import { useRef, useEffect, useMemo } from "react";
-import type { DepGraphNode, DepGraphEdge } from "@vibe-kanban/shared";
+import type { DepGraphNode, DepGraphEdge, LayerViolation } from "@vibe-kanban/shared";
 
 // Read-only canvas force-graph for a project's import/dependency structure.
 // Mirrors the visual style of the knowledge GraphTab (dark canvas, glow on
@@ -43,15 +43,17 @@ function radius(degree: number): number {
 interface Props {
   nodes: DepGraphNode[];
   edges: DepGraphEdge[];
+  violations?: LayerViolation[];
 }
 
-export default function DependencyGraphView({ nodes, edges }: Props) {
+export default function DependencyGraphView({ nodes, edges, violations = [] }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animRef = useRef(0);
 
   const nodesRef = useRef<SimNode[]>([]);
   const linksRef = useRef<{ s: SimNode; t: SimNode }[]>([]);
+  const violationKeysRef = useRef<Set<string>>(new Set());
   const coolingRef = useRef(1);
   const viewRef = useRef({ x: 0, y: 0, k: 1 });
   const dragRef = useRef<SimNode | null>(null);
@@ -99,9 +101,10 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
     linksRef.current = edges
       .map((e) => ({ s: byId.get(e.source), t: byId.get(e.target) }))
       .filter((l): l is { s: SimNode; t: SimNode } => !!l.s && !!l.t);
+    violationKeysRef.current = new Set(violations.map((v) => `${v.source}>${v.target}`));
     coolingRef.current = 1;
     viewRef.current = { x: 0, y: 0, k: 1 };
-  }, [nodes, edges]);
+  }, [nodes, edges, violations]);
 
   // Simulation + render loop (reads refs; never re-subscribes).
   useEffect(() => {
@@ -201,6 +204,21 @@ export default function DependencyGraphView({ nodes, edges }: Props) {
         }
       }
       ctx.stroke();
+
+      // layer-order violation edges — amber
+      const vKeys = violationKeysRef.current;
+      if (vKeys.size > 0) {
+        ctx.strokeStyle = "rgba(245, 158, 11, 0.85)";
+        ctx.lineWidth = 1.6 / view.k;
+        ctx.beginPath();
+        for (const { s, t } of ls) {
+          if (vKeys.has(`${s.id}>${t.id}`)) {
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(t.x, t.y);
+          }
+        }
+        ctx.stroke();
+      }
 
       // highlight hovered node's edges
       if (hovered) {

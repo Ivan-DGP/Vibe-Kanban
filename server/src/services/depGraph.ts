@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { DepGraph, DepGraphNode, DepGraphEdge } from "@vibe-kanban/shared";
+import type { DepGraph, DepGraphNode, DepGraphEdge, LayerViolation } from "@vibe-kanban/shared";
 
 // Native TS/JS import-dependency graph extractor. Walks a project's source
 // roots, parses each file's imports, resolves relative + tsconfig-alias +
@@ -243,6 +243,39 @@ function groupOf(rel: string): string {
   return seg[0] || "root";
 }
 
+// Layer order top→down (index = depth). Lower may import higher-index, not reverse.
+const LAYER_NAMES = ["route", "service", "infra"] as const;
+type LayerIndex = 0 | 1 | 2;
+
+/** Derive architectural layer from a repo-relative path, or null if unmatched. */
+function layerOf(id: string): LayerIndex | null {
+  const p = id.toLowerCase();
+  if (p.includes("/routes/") || p.includes("/controllers/") || p.includes("/pages/")) return 0;
+  if (p.includes("/services/")) return 1;
+  if (p.includes("/db/") || p.includes("/lib/") || p.includes("/runtime") || p.includes("/dal/"))
+    return 2;
+  return null;
+}
+
+/** Edges where a more-foundational module imports a higher-level one. O(edges). */
+function detectLayerViolations(edges: DepGraphEdge[]): LayerViolation[] {
+  const out: LayerViolation[] = [];
+  for (const e of edges) {
+    const from = layerOf(e.source);
+    const to = layerOf(e.target);
+    if (from === null || to === null) continue;
+    if (from > to) {
+      out.push({
+        source: e.source,
+        target: e.target,
+        fromLayer: LAYER_NAMES[from],
+        toLayer: LAYER_NAMES[to],
+      });
+    }
+  }
+  return out;
+}
+
 export function generateDepGraph(projectPath: string): DepGraph {
   if (!fs.existsSync(projectPath)) {
     throw Object.assign(new Error("Project path does not exist"), { statusCode: 404 });
@@ -322,6 +355,8 @@ export function generateDepGraph(projectPath: string): DepGraph {
     }
   }
 
+  const layerViolations = detectLayerViolations(edges);
+
   return {
     nodes: [...nodes.values()],
     edges,
@@ -329,6 +364,7 @@ export function generateDepGraph(projectPath: string): DepGraph {
     roots: roots.map(rel),
     communityCount,
     cycles,
+    layerViolations,
     generatedAt: new Date().toISOString(),
   };
 }

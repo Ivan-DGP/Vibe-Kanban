@@ -69,6 +69,20 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
                 {dep.cycles.length} {dep.cycles.length === 1 ? "cycle" : "cycles"}
               </span>
             )}
+            {dep.layerViolations.length > 0 && (
+              <span
+                className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
+                title={dep.layerViolations
+                  .map(
+                    (v) =>
+                      `${v.source.split("/").pop()} (${v.fromLayer}) → ${v.target.split("/").pop()} (${v.toLayer})`,
+                  )
+                  .join("\n")}
+              >
+                <AlertTriangle className="size-3.5" />
+                {dep.layerViolations.length} layering
+              </span>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -123,7 +137,11 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
             </Button>
           </Centered>
         ) : dep && dep.nodes.length > 0 ? (
-          <DependencyGraphView nodes={dep.nodes} edges={dep.edges} />
+          <DependencyGraphView
+            nodes={dep.nodes}
+            edges={dep.edges}
+            violations={dep.layerViolations}
+          />
         ) : (
           <Centered>No source files found for this project.</Centered>
         )}
