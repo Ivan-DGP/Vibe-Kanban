@@ -728,11 +728,17 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
         body: JSON.stringify({
           model: "claude-sonnet-5",
           max_tokens: 4096,
+          // Sonnet 5 runs adaptive thinking by default when `thinking` is omitted,
+          // which shares the max_tokens budget and prepends a thinking block to
+          // content. Disable it: this is a plain JSON extraction, so preserve the
+          // full 4096 for output and keep the response a single text block.
+          thinking: { type: "disabled" },
           messages: [{ role: "user", content: prompt }],
         }),
       });
       const data = (await res.json()) as any;
-      responseText = data.content?.[0]?.text || "";
+      // Scan for the text block rather than assuming content[0] is text.
+      responseText = data.content?.find((b: any) => b.type === "text")?.text || "";
     }
 
     // Parse JSON array from response
