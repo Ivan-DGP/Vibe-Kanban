@@ -105,6 +105,7 @@ export function runAgentOneShot(
   safeEnv: Record<string, string>,
   agent?: AiAgent,
   model?: string,
+  timeoutMs = 120_000,
 ): string | null {
   const a = agent ?? getConfiguredAgent();
   if (!isAgentAvailable(a, safeEnv)) return null;
@@ -124,7 +125,7 @@ export function runAgentOneShot(
   try {
     const result = spawnProcessSync([resolveAgentBinary(a, safeEnv), ...argv], {
       env: safeEnv,
-      timeout: 120_000, // don't let a hung agent block the request
+      timeout: timeoutMs, // don't let a hung agent block the request
     });
     if (result.exitCode === 0) return result.stdout.trim();
     return null;

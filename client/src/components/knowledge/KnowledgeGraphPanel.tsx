@@ -25,10 +25,17 @@ export default function KnowledgeGraphPanel({ projectId }: Props) {
 
   const draftFromDeps = () =>
     fromDeps.mutate(undefined, {
-      onSuccess: (r) =>
+      onSuccess: (r) => {
+        if (r.nodes === 0) {
+          toast.info(
+            "No subsystems found — project may be too small or have few internal imports.",
+          );
+          return;
+        }
         toast.success(
           `Drafted ${r.nodes} subsystem${r.nodes === 1 ? "" : "s"} + ${r.edges} link${r.edges === 1 ? "" : "s"} as suggestions — review and confirm them.`,
-        ),
+        );
+      },
       onError: () => toast.error("Couldn't draft the graph from dependencies."),
     });
 

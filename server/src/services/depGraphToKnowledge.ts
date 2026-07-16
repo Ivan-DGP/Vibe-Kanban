@@ -183,19 +183,29 @@ function applyAiLabels(knowledge: DepKnowledge, text: string): void {
   }
 }
 
+// AI labelling is a nice-to-have refinement, not core to the draft. Cap it well
+// below runAgentOneShot's 120s default so a slow CLI can't hang the POST request
+// for two minutes — on timeout the heuristic (dir-based) labels are kept.
+// Future improvement: fully background the drafting so labelling never blocks
+// the request at all (return the heuristic draft immediately, refine async).
+const AI_LABEL_TIMEOUT_MS = 45_000;
+
 /**
  * Same as {@link depGraphToKnowledge}, then re-label communities via the
- * configured CLI agent, pinned to Opus. On any failure keeps the heuristic labels.
+ * configured CLI agent, pinned to Opus. On any failure (unavailable CLI,
+ * timeout, non-JSON output) keeps the heuristic labels, so the returned
+ * {@link DepKnowledge} is always valid.
  */
 export function depGraphToKnowledgeWithAI(
   projectPath: string,
   safeEnv: Record<string, string>,
+  timeoutMs: number = AI_LABEL_TIMEOUT_MS,
 ): DepKnowledge {
   const knowledge = depGraphToKnowledge(projectPath);
   if (knowledge.communities.length === 0) return knowledge;
 
   const prompt = buildLabelPrompt(knowledge);
-  const text = runAgentOneShot(prompt, safeEnv, undefined, "opus");
+  const text = runAgentOneShot(prompt, safeEnv, undefined, "opus", timeoutMs);
   if (!text) return knowledge;
 
   applyAiLabels(knowledge, text);

@@ -183,6 +183,7 @@ Every project gets a dedicated knowledge layer, stored in Vibe-Kanban's data dir
 - Six node types with distinct colors: concept (blue), system (purple), person (green), decision (amber), technology (cyan), risk (red)
 - Six edge types: related, depends_on, implements, extends, conflicts, owned_by
 - Click to edit, drag to reposition, right-click for context menu
+- **Draft from dependencies:** analyzes the project's import structure, groups files into subsystem communities, and creates suggested `system` nodes + `depends_on` edges that you confirm through the existing suggestions flow. Idempotent — re-running replaces prior dep-graph suggestions. Subsystem labels come from the configured AI agent pinned to the Opus model, falling back to directory-based heuristic labels when the agent is unavailable.
 
 ### Semantic Search
 
