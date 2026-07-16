@@ -44,6 +44,77 @@ import {
 } from "./aiResolvePrompt.classify";
 import { buildKnowledgeContext, type GroundedArtifact } from "./knowledgeInjection";
 
+// Architecture-context caps: keep the injected subsystem map bounded on large
+// projects so it never dominates the prompt.
+const MAX_SUBSYSTEMS = 24;
+const MAX_DEPS_PER_SUBSYSTEM = 8;
+const ARCH_DESC_MAX = 140;
+
+/**
+ * Render the confirmed architecture layer of the knowledge graph (`system`
+ * nodes + `depends_on` edges) as a compact context block, so the agent knows
+ * where a change belongs and what depends on what. Only CONFIRMED nodes/edges
+ * are injected — unvetted `suggested` drafts are excluded. Bigger subsystems
+ * (by member file count) come first so the cap keeps the most significant ones.
+ * Returns null when there is no confirmed architecture.
+ */
+function buildArchitectureContext(db: ReturnType<typeof getDb>, projectId: string): string | null {
+  const nodes = db
+    .prepare(
+      "SELECT id, label, description, metadata FROM project_graph_nodes WHERE projectId = ? AND type = 'system' AND status = 'confirmed'",
+    )
+    .all(projectId) as {
+    id: string;
+    label: string;
+    description: string | null;
+    metadata: string | null;
+  }[];
+  if (nodes.length === 0) return null;
+
+  const edges = db
+    .prepare(
+      "SELECT sourceNodeId, targetNodeId FROM project_graph_edges WHERE projectId = ? AND type = 'depends_on' AND status = 'confirmed'",
+    )
+    .all(projectId) as { sourceNodeId: string; targetNodeId: string }[];
+
+  const labelById = new Map(nodes.map((n) => [n.id, n.label]));
+  const depsBySource = new Map<string, string[]>();
+  for (const e of edges) {
+    const target = labelById.get(e.targetNodeId);
+    if (!target || !labelById.has(e.sourceNodeId)) continue;
+    const arr = depsBySource.get(e.sourceNodeId) ?? [];
+    if (!arr.includes(target)) arr.push(target);
+    depsBySource.set(e.sourceNodeId, arr);
+  }
+
+  const fileCountOf = (m: string | null): number => {
+    if (!m) return 0;
+    try {
+      const parsed = JSON.parse(m) as { fileCount?: number };
+      return typeof parsed.fileCount === "number" ? parsed.fileCount : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const sorted = [...nodes].sort((a, b) => fileCountOf(b.metadata) - fileCountOf(a.metadata));
+
+  const lines: string[] = [];
+  for (const n of sorted.slice(0, MAX_SUBSYSTEMS)) {
+    const fc = fileCountOf(n.metadata);
+    const size = fc > 0 ? ` (${fc} files)` : "";
+    const desc = n.description ? `: ${n.description.slice(0, ARCH_DESC_MAX)}` : "";
+    const deps = (depsBySource.get(n.id) ?? []).slice(0, MAX_DEPS_PER_SUBSYSTEM);
+    const dependsOn = deps.length > 0 ? ` — depends on: ${deps.join(", ")}` : "";
+    lines.push(`- ${n.label}${size}${desc}${dependsOn}`);
+  }
+  const omitted = sorted.length - Math.min(sorted.length, MAX_SUBSYSTEMS);
+  if (omitted > 0) lines.push(`- …and ${omitted} more subsystems`);
+
+  const intro =
+    "Confirmed subsystem map from the project knowledge graph. Use it to locate where a change belongs and what depends on what before editing.";
+  return `  <architecture>\n${intro}\n${lines.join("\n")}\n  </architecture>`;
+}
+
 export async function buildAnalyzePrompt(task: Task, projectId: string): Promise<string> {
   const db = getDb();
 
@@ -330,6 +401,11 @@ Profile: ${effectiveProfile}${task.promptProfile === "auto" ? " (auto-detected)"
       `  <milestone_ai_instructions>\n${milestoneInstructions}\n  </milestone_ai_instructions>`,
     );
   }
+
+  // Confirmed subsystem map from the knowledge graph — high-level orientation
+  // before the file tree. Only present once the user confirms drafted nodes.
+  const architecture = buildArchitectureContext(db, projectId);
+  if (architecture) contextParts.push(architecture);
 
   if (tree) {
     contextParts.push(`  <project_tree>\n${tree}\n  </project_tree>`);
