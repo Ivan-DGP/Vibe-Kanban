@@ -20,7 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Link2, Unlink, Network, Check, CheckCheck, X } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Link2,
+  Unlink,
+  Network,
+  Check,
+  CheckCheck,
+  X,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+} from "lucide-react";
 import type { GraphNode, GraphEdge, GraphNodeType } from "@vibe-kanban/shared";
 
 const NODE_COLORS: Record<GraphNodeType, string> = {
@@ -85,6 +97,14 @@ export default function GraphTab({ projectId }: GraphTabProps) {
   const hoveredNodeRef = useRef<string | null>(null);
   const linkingFromRef = useRef<string | null>(null);
   const offsetRef = useRef({ x: 0, y: 0 });
+
+  // View transform (pan x/y in screen px, zoom k) — mutated by wheel / pan / buttons.
+  const viewRef = useRef({ x: 0, y: 0, k: 1 });
+  const panRef = useRef<{ x: number; y: number } | null>(null);
+  const [zoomPct, setZoomPct] = useState(100);
+
+  const MIN_K = 0.2;
+  const MAX_K = 4;
 
   // Keep refs in sync with state for values the render loop needs
   useEffect(() => {
@@ -208,8 +228,12 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         coolingRef.current *= COOLING_DECAY;
       }
 
-      // Draw
+      // Draw — clear in screen space, then apply the pan/zoom view transform
+      const view = viewRef.current;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
+      ctx.translate(view.x, view.y);
+      ctx.scale(view.k, view.k);
 
       const currentSelected = selectedNodeRef.current;
       const currentHovered = hoveredNodeRef.current;
@@ -347,12 +371,18 @@ export default function GraphTab({ projectId }: GraphTabProps) {
     });
   }, []);
 
+  // Convert a screen-space pointer position to graph/world coordinates.
+  const toWorld = useCallback((clientX: number, clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const v = viewRef.current;
+    const sx = clientX - (rect?.left ?? 0);
+    const sy = clientY - (rect?.top ?? 0);
+    return { x: (sx - v.x) / v.k, y: (sy - v.y) / v.k };
+  }, []);
+
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const { x, y } = toWorld(e.clientX, e.clientY);
       const node = findNode(x, y);
 
       if (linkingFromRef.current && node && node.id !== linkingFromRef.current) {
@@ -367,19 +397,26 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         offsetRef.current = { x: x - (node.x ?? 0), y: y - (node.y ?? 0) };
         coolingRef.current = 1.0; // Reset cooling on drag start
       } else {
+        // Empty background — start panning the view.
         setSelectedNode(null);
         setLinkingFrom(null);
+        const v = viewRef.current;
+        panRef.current = { x: e.clientX - v.x, y: e.clientY - v.y };
       }
     },
-    [findNode, createEdge],
+    [findNode, createEdge, toWorld],
   );
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      // Pan takes precedence — dragging the empty canvas moves the view.
+      if (panRef.current) {
+        viewRef.current.x = e.clientX - panRef.current.x;
+        viewRef.current.y = e.clientY - panRef.current.y;
+        return;
+      }
+
+      const { x, y } = toWorld(e.clientX, e.clientY);
 
       const hovered = findNode(x, y);
       const hovId = hovered?.id ?? null;
@@ -399,10 +436,11 @@ export default function GraphTab({ projectId }: GraphTabProps) {
         }
       }
     },
-    [findNode],
+    [findNode, toWorld],
   );
 
   const onMouseUp = useCallback(() => {
+    panRef.current = null;
     const currentDragging = draggingRef.current;
     if (currentDragging) {
       const node = nodesRef.current.find((n) => n.id === currentDragging);
@@ -415,6 +453,39 @@ export default function GraphTab({ projectId }: GraphTabProps) {
       setNodes([...nodesRef.current]);
     }
   }, [updateNode]);
+
+  // Zoom toward a screen anchor point (defaults to canvas centre).
+  const zoomAt = useCallback((factor: number, anchorX?: number, anchorY?: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const v = viewRef.current;
+    const ax = anchorX ?? rect.width / 2;
+    const ay = anchorY ?? rect.height / 2;
+    const k = Math.min(MAX_K, Math.max(MIN_K, v.k * factor));
+    v.x = ax - ((ax - v.x) * k) / v.k;
+    v.y = ay - ((ay - v.y) * k) / v.k;
+    v.k = k;
+    setZoomPct(Math.round(k * 100));
+  }, []);
+
+  // Native non-passive wheel listener so we can preventDefault the page scroll.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
+    };
+    canvas.addEventListener("wheel", handler, { passive: false });
+    return () => canvas.removeEventListener("wheel", handler);
+  }, [zoomAt]);
+
+  const resetView = useCallback(() => {
+    viewRef.current = { x: 0, y: 0, k: 1 };
+    setZoomPct(100);
+  }, []);
 
   const selectedNodeData = nodes.find((n) => n.id === selectedNode);
 
@@ -518,6 +589,39 @@ export default function GraphTab({ projectId }: GraphTabProps) {
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
         />
+
+        {/* Zoom controls */}
+        {nodes.length > 0 && (
+          <div className="absolute bottom-2 right-2 flex flex-col overflow-hidden rounded-md border border-border bg-background/80 backdrop-blur">
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title="Zoom in"
+              onClick={() => zoomAt(1.2)}
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <div className="px-1 py-0.5 text-center text-[10px] tabular-nums text-muted-foreground">
+              {zoomPct}%
+            </div>
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title="Zoom out"
+              onClick={() => zoomAt(1 / 1.2)}
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center border-t border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title="Reset view"
+              onClick={resetView}
+            >
+              <Maximize className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {nodes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
             <div className="text-center">

@@ -1,4 +1,5 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState, useCallback } from "react";
+import { ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import type { DepGraphNode, DepGraphEdge, LayerViolation } from "@vibe-kanban/shared";
 
 // Read-only canvas force-graph for a project's import/dependency structure.
@@ -60,6 +61,10 @@ export default function DependencyGraphView({ nodes, edges, violations = [] }: P
   const panRef = useRef<{ x: number; y: number } | null>(null);
   const pointerRef = useRef({ x: 0, y: 0, down: false });
   const hoverRef = useRef<SimNode | null>(null);
+  const [zoomPct, setZoomPct] = useState(100);
+
+  const MIN_K = 0.15;
+  const MAX_K = 4;
 
   const colorFor = useMemo(() => {
     const groups = [...new Set(nodes.map((n) => n.group))].sort();
@@ -104,6 +109,7 @@ export default function DependencyGraphView({ nodes, edges, violations = [] }: P
     violationKeysRef.current = new Set(violations.map((v) => `${v.source}>${v.target}`));
     coolingRef.current = 1;
     viewRef.current = { x: 0, y: 0, k: 1 };
+    setZoomPct(100);
   }, [nodes, edges, violations]);
 
   // Simulation + render loop (reads refs; never re-subscribes).
@@ -311,6 +317,39 @@ export default function DependencyGraphView({ nodes, edges, violations = [] }: P
     }
     return hit;
   }
+  // Zoom toward a screen anchor (defaults to canvas centre).
+  const zoomAt = useCallback((factor: number, anchorX?: number, anchorY?: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const v = viewRef.current;
+    const ax = anchorX ?? rect.width / 2;
+    const ay = anchorY ?? rect.height / 2;
+    const k = Math.min(MAX_K, Math.max(MIN_K, v.k * factor));
+    v.x = ax - ((ax - v.x) * k) / v.k;
+    v.y = ay - ((ay - v.y) * k) / v.k;
+    v.k = k;
+    setZoomPct(Math.round(k * 100));
+  }, []);
+
+  const resetView = useCallback(() => {
+    viewRef.current = { x: 0, y: 0, k: 1 };
+    setZoomPct(100);
+  }, []);
+
+  // Native non-passive wheel listener so we can preventDefault the page scroll.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
+    };
+    canvas.addEventListener("wheel", handler, { passive: false });
+    return () => canvas.removeEventListener("wheel", handler);
+  }, [zoomAt]);
+
   // Centre the view on a node and highlight it (used by the Hotspots list).
   function focusNode(id: string) {
     const n = nodesRef.current.find((x) => x.id === id);
@@ -363,18 +402,38 @@ export default function DependencyGraphView({ nodes, edges, violations = [] }: P
         onPointerLeave={() => {
           hoverRef.current = null;
         }}
-        onWheel={(e) => {
-          const v = viewRef.current;
-          const rect = canvasRef.current!.getBoundingClientRect();
-          const mx = e.clientX - rect.left;
-          const my = e.clientY - rect.top;
-          const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-          const k = Math.min(4, Math.max(0.15, v.k * factor));
-          v.x = mx - ((mx - v.x) * k) / v.k;
-          v.y = my - ((my - v.y) * k) / v.k;
-          v.k = k;
-        }}
       />
+
+      {/* Zoom controls */}
+      <div className="absolute bottom-2 right-2 flex flex-col overflow-hidden rounded-md border border-white/10 bg-black/40 backdrop-blur">
+        <button
+          type="button"
+          className="flex h-7 w-7 items-center justify-center text-slate-300 hover:bg-white/10 hover:text-white"
+          title="Zoom in"
+          onClick={() => zoomAt(1.2)}
+        >
+          <ZoomIn className="h-4 w-4" />
+        </button>
+        <div className="px-1 py-0.5 text-center text-[10px] tabular-nums text-slate-400">
+          {zoomPct}%
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 items-center justify-center text-slate-300 hover:bg-white/10 hover:text-white"
+          title="Zoom out"
+          onClick={() => zoomAt(1 / 1.2)}
+        >
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          className="flex h-7 w-7 items-center justify-center border-t border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
+          title="Reset view"
+          onClick={resetView}
+        >
+          <Maximize className="h-4 w-4" />
+        </button>
+      </div>
       {/* legend */}
       <div className="pointer-events-none absolute bottom-2 left-2 flex flex-wrap gap-x-3 gap-y-1 rounded-md bg-black/40 px-2.5 py-1.5 text-[11px] backdrop-blur">
         {legend.map(([group, count]) => (
