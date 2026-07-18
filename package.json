@@ -29,6 +29,8 @@
     "bench": "bun run benchmarks/harness/run.ts",
     "bench:dry": "bun run benchmarks/harness/run.ts --dry-run",
     "bench:calibrate": "bun run benchmarks/harness/run.ts calibrate",
+    "bench:perf": "bun run benchmarks/perf/run.ts",
+    "bench:perf:quick": "bun run benchmarks/perf/run.ts --quick",
     "prepare": "husky"
   },
   "devDependencies": {
