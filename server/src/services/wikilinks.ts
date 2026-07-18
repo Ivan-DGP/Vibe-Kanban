@@ -119,6 +119,9 @@ export function mirrorArtifactToNode(
     now,
     now,
   );
+  // Not embedded for knowledge search: mirror nodes duplicate the artifact,
+  // which is already indexed on its own. They are excluded from indexing/stats
+  // (see knowledge route's MIRROR_NODE_EXCLUSION).
   return { nodeId: id, created: true };
 }
 

@@ -28,6 +28,14 @@ interface ProjectParams {
   projectId: string;
 }
 
+// Artifact-mirror graph nodes (metadata.kind === 'artifact') are stand-ins for
+// artifacts, which are already embedded on their own. Indexing them too would
+// pollute search with filename-only near-duplicates, so they are excluded from
+// knowledge indexing, stats, and search. Reference the project_graph_nodes row
+// as `n` where this fragment is used. `metadata` is unqualified here because
+// graph_node_embeddings has no such column (no ambiguity in the join queries).
+const MIRROR_NODE_EXCLUSION = "COALESCE(json_extract(n.metadata, '$.kind'), '') != 'artifact'";
+
 interface SearchBody {
   query?: string;
   k?: number;
@@ -188,7 +196,7 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
                 n.label, n.type, n.description, n.updatedAt
          FROM graph_node_embeddings e
          JOIN project_graph_nodes n ON n.id = e.nodeId
-         WHERE e.projectId = ?`,
+         WHERE e.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
           )
           .all(projectId) as GraphNodeEmbeddingJoinRow[];
 
@@ -258,15 +266,19 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         projectId,
       );
       const graphNodeCount = count(
-        "SELECT COUNT(*) as n FROM project_graph_nodes WHERE projectId = ?",
+        `SELECT COUNT(*) as n FROM project_graph_nodes n WHERE n.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
         projectId,
       );
       const embeddedGraphNodes = count(
-        "SELECT COUNT(DISTINCT nodeId) as n FROM graph_node_embeddings WHERE projectId = ?",
+        `SELECT COUNT(DISTINCT e.nodeId) as n FROM graph_node_embeddings e
+         JOIN project_graph_nodes n ON n.id = e.nodeId
+         WHERE e.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
         projectId,
       );
       const graphNodeChunkCount = count(
-        "SELECT COUNT(*) as n FROM graph_node_embeddings WHERE projectId = ?",
+        `SELECT COUNT(*) as n FROM graph_node_embeddings e
+         JOIN project_graph_nodes n ON n.id = e.nodeId
+         WHERE e.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
         projectId,
       );
 
@@ -311,7 +323,10 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       }[];
 
       const graphNodes = db
-        .prepare("SELECT id, label, type, description FROM project_graph_nodes WHERE projectId = ?")
+        .prepare(
+          `SELECT n.id, n.label, n.type, n.description FROM project_graph_nodes n
+           WHERE n.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
+        )
         .all(projectId) as {
         id: string;
         label: string;

@@ -3,6 +3,7 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { depGraphToKnowledgeWithAI } from "../services/depGraphToKnowledge";
 import { getSafeEnv } from "../services/terminalRegistry";
+import { embedGraphNodeInBackground } from "../services/graphNodeEmbedder";
 
 interface ProjectParams {
   projectId: string;
@@ -37,6 +38,9 @@ const depGraphKnowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const now = new Date().toISOString();
+      // Collected during the write txn; embedded after it commits (below) so
+      // dep-graph nodes are searchable without a manual backfill.
+      const insertedNodes: { id: string; label: string; description: string }[] = [];
       const write = db.transaction(() => {
         // Clear prior dep-graph suggestions (edges first — FK-free but keep order sane).
         db.prepare("DELETE FROM project_graph_edges WHERE projectId = ? AND origin = ?").run(
@@ -57,6 +61,7 @@ const depGraphKnowledgeRoutes: FastifyPluginAsync = async (fastify) => {
         for (const c of result.communities) {
           const id = crypto.randomUUID();
           nodeIdByCommunity.set(c.community, id);
+          insertedNodes.push({ id, label: c.label, description: c.description });
           insertNode.run(
             id,
             projectId,
@@ -91,6 +96,17 @@ const depGraphKnowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       const counts = write();
+      // Auto-embed the freshly inserted nodes (fire-and-forget) so they show up
+      // in semantic search. type is always 'system' for dep-graph nodes.
+      for (const n of insertedNodes) {
+        embedGraphNodeInBackground({
+          projectId,
+          nodeId: n.id,
+          label: n.label,
+          type: "system",
+          description: n.description,
+        });
+      }
       log("info", "server", `Knowledge graph drafted from dependencies for ${projectId}`, {
         ...counts,
         files: result.fileCount,
