@@ -298,6 +298,8 @@ export const api = {
   reports: {
     get: (params: { period: string; from?: string; to?: string }) =>
       get<Report>(`/reports${toQuery(params)}`),
+    generateSummary: (taskId: string) =>
+      post<{ summary: string }>(`/reports/summaries/${encodeURIComponent(taskId)}`),
   },
 
   github: {

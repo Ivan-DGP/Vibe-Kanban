@@ -49,6 +49,7 @@ export interface ReportEntry {
   task: Task;
   projectName: string;
   hours: number;
+  summary?: string | null;
 }
 
 export interface Report {
