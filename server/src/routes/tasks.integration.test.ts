@@ -1284,7 +1284,7 @@ describe("AI decompose endpoint", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = mock(async (_url: string, _opts: any) => ({
       json: async () => ({
-        content: [{ text: subtaskJson }],
+        content: [{ type: "text", text: subtaskJson }],
       }),
     })) as any;
 
