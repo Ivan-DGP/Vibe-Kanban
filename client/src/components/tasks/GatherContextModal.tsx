@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, XCircle, FileSearch, Copy, Check } from "lucide-react";
-import { api } from "@/lib/api";
+import { claudeGatherContext } from "@/hooks/useClaude";
 
 type Phase = "connecting" | "streaming" | "done" | "error";
 
@@ -47,7 +47,7 @@ export default function GatherContextModal({
     const timeout = setTimeout(() => controller.abort(), 90_000);
 
     try {
-      const res = await api.claude.gatherContext(
+      const res = await claudeGatherContext(
         taskTitle,
         projectId,
         taskDescription || undefined,

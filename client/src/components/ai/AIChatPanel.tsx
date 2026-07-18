@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Loader2, Bot, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api } from "@/lib/api";
+import { claudeChat } from "@/hooks/useClaude";
 import type { ChatMessage } from "@vibe-kanban/shared";
 
 interface AIChatPanelProps {
@@ -31,7 +31,7 @@ export default function AIChatPanel({ projectId }: AIChatPanelProps) {
     setStreaming(true);
 
     try {
-      const response = await api.claude.chat(msg, projectId);
+      const response = await claudeChat(msg, projectId);
       const reader = response.body?.getReader();
       if (!reader) return;
 
@@ -39,12 +39,17 @@ export default function AIChatPanel({ projectId }: AIChatPanelProps) {
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       const decoder = new TextDecoder();
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        // Buffer across reads: a single SSE `data:` frame (the CLI emits its
+        // whole answer at once) is routinely split across chunk boundaries.
+        // Parsing per-chunk would drop the frame on a partial-line parse error.
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {

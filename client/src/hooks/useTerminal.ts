@@ -24,12 +24,41 @@ export function useTerminalSessions(projectId?: string) {
   });
 }
 
+// Known Claude interactive sessions VK has spawned (for the resume picker).
+export function useClaudeSessions(projectId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["terminal", "claude-sessions", projectId],
+    queryFn: () => api.terminal.claudeSessions(projectId),
+    enabled,
+    staleTime: 10_000,
+  });
+}
+
+// A session's persisted transcript (available after it exits). Only fetched
+// when `enabled` (e.g. a viewer dialog is open).
+export function useTranscript(sessionId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["terminal", "transcript", sessionId],
+    queryFn: () => api.terminal.transcript(sessionId as string),
+    enabled: enabled && !!sessionId,
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
 export function useCreateTerminalSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateTerminalSessionInput) => api.terminal.create(input),
-    onSuccess: () => {
+    onSuccess: (created) => {
+      // Optimistically seed the new session into the cached lists so the panel's
+      // reconcile effect doesn't briefly see a stale-empty list and unmount the
+      // just-mounted terminal (which would churn the WS and drop early input).
+      qc.setQueriesData<TerminalSessionInfo[]>({ queryKey: ["terminal", "sessions"] }, (old) =>
+        old ? (old.some((s) => s.id === created.id) ? old : [...old, created]) : [created],
+      );
       qc.invalidateQueries({ queryKey: ["terminal", "sessions"] });
+      qc.invalidateQueries({ queryKey: ["terminal", "claude-sessions"] });
     },
   });
 }

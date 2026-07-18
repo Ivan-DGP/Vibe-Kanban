@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { AiAgent } from "@vibe-kanban/shared";
 import { useSettings, useUpdateSettings } from "@/hooks";
 import ProjectScanSection from "@/components/settings/ProjectScanSection";
 import ClaudeConfigSection from "@/components/settings/ClaudeConfigSection";
@@ -43,6 +44,28 @@ export default function Settings() {
 
         <TabsContent value="ai" className="mt-6 space-y-6">
           <ClaudeConfigSection />
+          <Separator />
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>AI Resolver Agent</Label>
+              <p className="text-xs text-muted-foreground">
+                CLI used for AI Resolve &amp; Resolve All. OpenCode must be installed on PATH.
+              </p>
+            </div>
+            <Select
+              value={settings?.aiAgent ?? "claude"}
+              onValueChange={(v) => updateSettings.mutate({ aiAgent: v as AiAgent })}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="opencode">OpenCode</SelectItem>
+                <SelectItem value="grok">Grok</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Separator />
           <div className="space-y-3">
             <div className="flex items-center justify-between">

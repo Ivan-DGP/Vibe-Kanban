@@ -131,7 +131,7 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   // Write file
   fastify.put("/projects/:projectId/files/write", async (request, reply) => {
     const { projectId } = request.params as any;
-    const { path: filePath, content } = request.body as any;
+    const { path: filePath, content } = request.body as { path?: string; content?: string };
     if (typeof filePath !== "string" || filePath.trim() === "")
       return reply.code(400).send({ error: "path required" });
     const projectPath = getProjectPath(projectId);
@@ -148,7 +148,7 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   // Create file or directory
   fastify.post("/projects/:projectId/files/create", async (request, reply) => {
     const { projectId } = request.params as any;
-    const { path: filePath, type } = request.body as any;
+    const { path: filePath, type } = request.body as { path?: string; type?: string };
     if (typeof filePath !== "string" || filePath.trim() === "")
       return reply.code(400).send({ error: "path required" });
     const projectPath = getProjectPath(projectId);
@@ -168,7 +168,7 @@ const fileRoutes: FastifyPluginAsync = async (fastify) => {
   // Rename file
   fastify.post("/projects/:projectId/files/rename", async (request, reply) => {
     const { projectId } = request.params as any;
-    const { oldPath, newPath } = request.body as any;
+    const { oldPath, newPath } = request.body as { oldPath?: string; newPath?: string };
     if (
       typeof oldPath !== "string" ||
       typeof newPath !== "string" ||

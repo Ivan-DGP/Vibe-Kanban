@@ -13,6 +13,7 @@ const WRITABLE_KEYS = new Set([
   "mcpAuthRequired",
   "soundEnabled",
   "terminalShell",
+  "aiAgent",
 ]);
 
 function readSettings(db: any, redact = true): Record<string, unknown> {

@@ -2,156 +2,39 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { buildAiResolvePromptWithGrounding, buildAiTestPrompt } from "./aiResolvePrompt";
 import { spawnPty as runtimeSpawnPty, spawnProcessSync } from "../lib/runtime";
+import * as tmux from "./tmuxBackend";
 import { parseRateLimit, isAutoResumeEnabled, getResumeFallbackMs } from "./headlessClaude";
-import type { PtyHandle } from "../lib/runtime";
+import { openTranscript } from "./transcriptService";
 import type {
   TerminalSessionType,
   BatchResolveStatus,
   GroundedArtifact,
+  Task,
+  AiAgent,
 } from "@vibe-kanban/shared";
-import type { Task } from "@vibe-kanban/shared";
+import {
+  getConfiguredAgent,
+  resolveAgentBinary,
+  buildResolveArgs,
+  isAgentAvailable,
+} from "./aiAgent";
+import {
+  sessions,
+  emitData,
+  emitExit,
+  generateSessionId,
+  resolveCwd,
+  getSafeEnv,
+  killSession,
+  MAX_LIVE_SESSIONS,
+  persistTerminalRow,
+  wireShellPty,
+  type PtySession,
+} from "./terminalRegistry";
 
-// ── Types ──────────────────────────────────────────────────────
-
-// Maximum scrollback to retain per session (in characters).
-// This allows reconnecting clients to see recent terminal output.
-export const MAX_SCROLLBACK_CHARS = 100_000;
-
-export interface PtySession {
-  id: string;
-  proc: PtyHandle | null;
-  cwd: string;
-  type: TerminalSessionType;
-  projectId?: string;
-  taskId?: string;
-  name?: string;
-  alive: boolean;
-  ws: any | null; // active WebSocket connection
-  outputBuffer: string[]; // buffers output until WS attaches
-  exitBuffer: number | null; // buffers exit code until WS attaches
-  scrollback: string; // rolling scrollback buffer for reconnection
-  // O6: knowledge artifacts injected into this session's prompt, persisted on
-  // the run row written when the session exits. Empty when none grounded.
-  groundedArtifacts?: GroundedArtifact[];
-}
-
-// ── Safe environment ───────────────────────────────────────────
-
-export const SAFE_ENV_KEYS = new Set([
-  "PATH",
-  "HOME",
-  "HOMEDRIVE",
-  "HOMEPATH",
-  "USERPROFILE",
-  "USER",
-  "USERNAME",
-  "SHELL",
-  "TERM",
-  "LANG",
-  "LC_ALL",
-  "TMPDIR",
-  "TEMP",
-  "TMP",
-  "NODE_ENV",
-  "EDITOR",
-  "SYSTEMROOT",
-  "WINDIR",
-  "COMSPEC",
-  "PSModulePath",
-  "APPDATA",
-  "LOCALAPPDATA",
-  "PROGRAMFILES",
-  "PROGRAMDATA",
-]);
-
-export function getSafeEnv(): Record<string, string> {
-  const safe: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value && (SAFE_ENV_KEYS.has(key) || key.startsWith("LC_"))) {
-      safe[key] = value;
-    }
-  }
-  return safe;
-}
-
-// ── Session store ──────────────────────────────────────────────
-
-export const sessions = new Map<string, PtySession>();
-export let idCounter = 0;
-
-export function generateId(): string {
-  return `term-${++idCounter}-${Date.now().toString(36)}`;
-}
-
-/** Reset id counter (for testing) */
-export function _resetIdCounter(): void {
-  idCounter = 0;
-}
-
-// Cryptographically-random session id (unguessable → resists WS hijack).
-// Clients always use this server-issued id, so no client change needed.
-export function generateSessionId(): string {
-  return `term-${crypto.randomUUID()}`;
-}
-
-// Cap on concurrent live sessions to prevent unbounded resource use.
-export const MAX_LIVE_SESSIONS = 50;
-
-// Max bytes buffered per slow WS before we skip sending (backpressure guard).
-const WS_BACKPRESSURE_LIMIT = 1_000_000;
-
-// ── Resolve CWD from projectId or fallback ─────────────────────
-
-export function resolveCwd(projectId?: string): string {
-  if (projectId) {
-    const db = getDb();
-    const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as any;
-    if (project) return project.path;
-  }
-  return process.cwd();
-}
-
-// ── Output routing: send to WS or buffer ───────────────────────
-
-// Skip sends when a slow client's socket has too much buffered, so output
-// from a fast PTY can't make the server buffer unbounded memory.
-function wsBackpressured(ws: any): boolean {
-  const buffered = ws?.bufferedAmount;
-  return typeof buffered === "number" && buffered > WS_BACKPRESSURE_LIMIT;
-}
-
-export function emitData(session: PtySession, data: string) {
-  // Always append to scrollback for reconnection support
-  session.scrollback += data;
-  if (session.scrollback.length > MAX_SCROLLBACK_CHARS) {
-    session.scrollback = session.scrollback.slice(-MAX_SCROLLBACK_CHARS);
-  }
-
-  if (session.ws && session.ws.readyState === 1) {
-    // Drop chunk if the socket is congested — scrollback still has it for replay.
-    if (wsBackpressured(session.ws)) return;
-    session.ws.send(JSON.stringify({ type: "output", data }));
-  } else {
-    session.outputBuffer.push(data);
-    // Cap detached buffer so it can't grow unbounded with no WS attached.
-    let total = 0;
-    for (let i = session.outputBuffer.length - 1; i >= 0; i--) {
-      total += session.outputBuffer[i].length;
-      if (total > MAX_SCROLLBACK_CHARS) {
-        session.outputBuffer.splice(0, i);
-        break;
-      }
-    }
-  }
-}
-
-export function emitExit(session: PtySession, exitCode: number) {
-  if (session.ws && session.ws.readyState === 1) {
-    session.ws.send(JSON.stringify({ type: "exit", exitCode }));
-  } else {
-    session.exitBuffer = exitCode;
-  }
-}
+// Re-export the session registry + I/O plumbing so `import * as termService`
+// consumers (routes/terminal.ts, routes/terminalWs.ts) resolve every name here.
+export * from "./terminalRegistry";
 
 // ── Branch checkout helper ────────────────────────────────────
 
@@ -183,26 +66,26 @@ function spawnShellPty(
   safeEnv: Record<string, string>,
   opts: CreateSessionOptions,
 ): void {
-  const { id } = session;
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  // Back the shell with a detached tmux session when possible, so it survives a
+  // server restart. Only when tmux is available AND the session is actually
+  // created — otherwise fall back to a raw PTY so terminals never fail to open.
+  const useTmux =
+    tmux.isTmuxAvailable(safeEnv) &&
+    tmux.tmuxEnsureSession(session.id, shell, shellArgs, safeEnv, cols, rows);
 
-  const pty = runtimeSpawnPty(shell, shellArgs, {
-    cwd: session.cwd,
-    env: safeEnv,
-    cols: opts.cols ?? 80,
-    rows: opts.rows ?? 24,
-  });
+  const pty = useTmux
+    ? runtimeSpawnPty("tmux", tmux.tmuxAttachArgs(session.id), {
+        cwd: session.cwd,
+        env: tmux.clientEnv(safeEnv),
+        cols,
+        rows,
+      })
+    : runtimeSpawnPty(shell, shellArgs, { cwd: session.cwd, env: safeEnv, cols, rows });
 
-  pty.onData((data) => emitData(session, data));
-  pty.onExit((exitCode) => {
-    log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
-    session.alive = false;
-    session.proc = null;
-    emitExit(session, exitCode ?? 0);
-    // Remove exited session from the map so it doesn't leak.
-    sessions.delete(id);
-  });
-
-  session.proc = pty;
+  if (useTmux) persistTerminalRow(session);
+  wireShellPty(session, pty, useTmux, safeEnv);
 }
 
 // ── AI Resolve via PTY ──────────────────────────────────────────
@@ -230,26 +113,64 @@ function spawnAiResolve(
   opts: CreateSessionOptions,
 ): void {
   const { id } = session;
-  const claudeCmd = resolveClaudeCmd(safeEnv);
-  const autoResume = isAutoResumeEnabled();
-  // A known session id we can later resume with `claude -p --resume <id>`. The CLI
-  // never surfaces the auto-generated id, so we pin it up front.
-  const claudeSessionId = crypto.randomUUID();
-  const parkRunId = crypto.randomUUID();
+  const agent: AiAgent = opts.agent ?? getConfiguredAgent();
   const startedAt = new Date().toISOString();
 
-  log("info", "terminal", `AI resolve [${id}]: spawning ${claudeCmd} with prompt as argument`);
-
-  const pty = runtimeSpawnPty(
-    claudeCmd,
-    ["--session-id", claudeSessionId, "--dangerously-skip-permissions", prompt],
-    {
-      cwd: session.cwd,
-      env: safeEnv,
-      cols: opts.cols ?? 80,
-      rows: opts.rows ?? 24,
-    },
+  session.transcriptStream = openTranscript(
+    id,
+    `\n===== ai-resolve · session ${id} · agent ${agent} · ${startedAt} =====\n`,
   );
+
+  // Fail fast with a clear message when the chosen agent isn't installed, rather
+  // than letting the PTY spawn fail opaquely.
+  if (!isAgentAvailable(agent, safeEnv)) {
+    log("error", "terminal", `AI resolve [${id}]: agent "${agent}" not found on PATH`);
+    emitData(
+      session,
+      `\r\n\x1b[31m✖ AI resolver agent "${agent}" is not installed or not on PATH. ` +
+        `Install it or pick a different agent in Settings.\x1b[0m\r\n`,
+    );
+    session.alive = false;
+    session.transcriptStream?.end();
+    if (session.taskId && session.projectId) {
+      try {
+        const db = getDb();
+        db.prepare(
+          `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, groundedArtifacts)
+           VALUES (?, ?, ?, ?, 'auto', 'medium', 1, 0, ?)`,
+        ).run(
+          crypto.randomUUID(),
+          session.taskId,
+          session.projectId,
+          session.id,
+          JSON.stringify(session.groundedArtifacts ?? []),
+        );
+      } catch (e) {
+        log("warn", "terminal", `Failed to record AI run: ${e}`);
+      }
+    }
+    emitExit(session, 127);
+    sessions.delete(id);
+    return;
+  }
+
+  const agentCmd = resolveAgentBinary(agent, safeEnv);
+  // Usage-limit auto-resume relies on pinning Claude's session id up front and
+  // resuming it headlessly. OpenCode can't pin an id, so parking is claude-only.
+  const autoResume = agent === "claude" && isAutoResumeEnabled();
+  // A known session id we can later resume with `claude -p --resume <id>`. The CLI
+  // never surfaces the auto-generated id, so we pin it up front (claude only).
+  const claudeSessionId = crypto.randomUUID();
+  const parkRunId = crypto.randomUUID();
+
+  log("info", "terminal", `AI resolve [${id}]: spawning ${agentCmd} (${agent}) with prompt`);
+
+  const pty = runtimeSpawnPty(agentCmd, buildResolveArgs(agent, { prompt, claudeSessionId }), {
+    cwd: session.cwd,
+    env: safeEnv,
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+  });
 
   // Watch the stream for a usage-limit hit so we can park + auto-resume instead of
   // ending the run. Interactive claude may sit at the prompt after the limit, so we
@@ -280,6 +201,7 @@ function spawnAiResolve(
   pty.onExit((exitCode) => {
     log("info", "terminal", `AI resolve [${id}]: exited with code ${exitCode}`);
     session.alive = false;
+    session.transcriptStream?.end();
     emitExit(session, exitCode ?? 1);
 
     // Record AI run result
@@ -394,6 +316,11 @@ function spawnAiTest(
   const { id } = session;
   const claudeCmd = resolveClaudeCmd(safeEnv);
 
+  session.transcriptStream = openTranscript(
+    id,
+    `\n===== ai-test · session ${id} · ${new Date().toISOString()} =====\n`,
+  );
+
   log("info", "terminal", `AI test [${id}]: spawning ${claudeCmd}`);
 
   const pty = runtimeSpawnPty(claudeCmd, ["--dangerously-skip-permissions", prompt], {
@@ -407,6 +334,7 @@ function spawnAiTest(
   pty.onExit((exitCode) => {
     log("info", "terminal", `AI test [${id}]: exited with code ${exitCode}`);
     session.alive = false;
+    session.transcriptStream?.end();
     emitExit(session, exitCode ?? 1);
 
     // Record test run
@@ -438,20 +366,134 @@ function spawnAiTest(
   session.proc = pty;
 }
 
+// ── Interactive Claude REPL via PTY ─────────────────────────────
+
+// Models offered in the launcher. Free-form strings are also accepted (the CLI
+// validates), but these are the vetted defaults surfaced in the UI.
+export const CLAUDE_MODELS = ["default", "sonnet", "opus", "haiku"] as const;
+
+/** Persist (or touch) a Claude session VK spawned so a picker can resume it. */
+function recordClaudeSession(session: PtySession): void {
+  if (!session.claudeSessionId) return; // `--continue` sessions have no known id
+  try {
+    const db = getDb();
+    const now = new Date().toISOString();
+    // Upsert: resuming an existing id just bumps lastUsedAt (+ model if changed).
+    db.prepare(
+      `INSERT INTO claude_sessions (id, projectId, taskId, model, cwd, title, createdAt, lastUsedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         lastUsedAt = excluded.lastUsedAt,
+         model = COALESCE(excluded.model, claude_sessions.model),
+         title = COALESCE(excluded.title, claude_sessions.title)`,
+    ).run(
+      session.claudeSessionId,
+      session.projectId ?? null,
+      session.taskId ?? null,
+      session.model ?? null,
+      session.cwd,
+      session.name ?? null,
+      now,
+      now,
+    );
+  } catch (e) {
+    log("warn", "terminal", `Failed to record claude session: ${e}`);
+  }
+}
+
+/** List Claude sessions VK has spawned (most recently used first). */
+export function listClaudeSessions(projectId?: string): any[] {
+  try {
+    const db = getDb();
+    const rows = projectId
+      ? db
+          .prepare(
+            "SELECT * FROM claude_sessions WHERE projectId = ? ORDER BY lastUsedAt DESC LIMIT 100",
+          )
+          .all(projectId)
+      : db.prepare("SELECT * FROM claude_sessions ORDER BY lastUsedAt DESC LIMIT 100").all();
+    return rows as any[];
+  } catch {
+    return [];
+  }
+}
+
+// Spawn `claude` as a live interactive REPL (NO positional prompt) so the user
+// types directly into it — distinct from ai-resolve (autonomous, one-shot).
+function spawnClaudeInteractive(
+  session: PtySession,
+  safeEnv: Record<string, string>,
+  opts: CreateSessionOptions,
+): void {
+  const { id } = session;
+  const claudeCmd = resolveClaudeCmd(safeEnv);
+
+  // Session selection: resume a specific id, continue the most recent, or start
+  // fresh. New sessions pin a --session-id UUID so we always know the id for a
+  // later resume/switch; --continue can't also pin one (CLI picks the latest).
+  const args: string[] = [];
+  if (opts.model && opts.model !== "default") {
+    args.push("--model", opts.model);
+    session.model = opts.model;
+  }
+
+  if (opts.resumeSessionId) {
+    args.push("--resume", opts.resumeSessionId);
+    session.claudeSessionId = opts.resumeSessionId;
+  } else if (opts.continueLast) {
+    args.push("--continue");
+  } else {
+    const newId = crypto.randomUUID();
+    args.push("--session-id", newId);
+    session.claudeSessionId = newId;
+  }
+
+  args.push("--dangerously-skip-permissions");
+
+  log(
+    "info",
+    "terminal",
+    `Claude interactive [${id}]: spawning ${claudeCmd} ${args.join(" ")} (cwd=${session.cwd})`,
+  );
+
+  session.transcriptStream = openTranscript(
+    id,
+    `\n===== claude-interactive · session ${id}` +
+      `${session.model ? " · model " + session.model : ""}` +
+      `${session.claudeSessionId ? " · claude " + session.claudeSessionId : ""}` +
+      ` · ${new Date().toISOString()} =====\n`,
+  );
+
+  const pty = runtimeSpawnPty(claudeCmd, args, {
+    cwd: session.cwd,
+    env: safeEnv,
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+  });
+
+  // Persist the session id now so it survives even if the REPL is short-lived.
+  recordClaudeSession(session);
+
+  pty.onData((data) => emitData(session, data));
+  pty.onExit((exitCode) => {
+    log("info", "terminal", `Claude interactive [${id}]: exited with code ${exitCode}`);
+    session.alive = false;
+    session.proc = null;
+    session.transcriptStream?.end();
+    emitExit(session, exitCode ?? 0);
+    // User-driven session: no task_ai_runs finalization (see spec). Touch the
+    // session row so lastUsedAt reflects the end of the conversation.
+    recordClaudeSession(session);
+    sessions.delete(id);
+  });
+
+  session.proc = pty;
+}
+
 // ── Public API ─────────────────────────────────────────────────
 
 export async function isAvailable(): Promise<boolean> {
   return true;
-}
-
-export function listSessions(projectId?: string): PtySession[] {
-  const all = Array.from(sessions.values());
-  if (projectId) return all.filter((s) => s.projectId === projectId);
-  return all;
-}
-
-export function getSession(id: string): PtySession | undefined {
-  return sessions.get(id);
 }
 
 export interface CreateSessionOptions {
@@ -468,6 +510,12 @@ export interface CreateSessionOptions {
   // O6: knowledge artifacts grounded into the prompt for this AI-resolve
   // session, threaded through to the persisted run row.
   groundedArtifacts?: GroundedArtifact[];
+  // claude-interactive options (see spawnClaudeInteractive):
+  model?: string; // → claude --model <model>
+  resumeSessionId?: string; // → claude --resume <id>
+  continueLast?: boolean; // → claude --continue
+  // Resolver agent for ai-resolve; falls back to the global aiAgent setting.
+  agent?: AiAgent;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<PtySession> {
@@ -500,12 +548,22 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
 
   sessions.set(id, session);
 
-  // Checkout target branch before AI resolve
-  if (opts.type === "ai-resolve" && opts.branch) {
+  // Checkout target branch before AI resolve / interactive claude
+  if ((opts.type === "ai-resolve" || opts.type === "claude-interactive") && opts.branch) {
     const checkout = await checkoutBranch(cwd, opts.branch);
     if (!checkout.ok) {
       log("warn", "terminal", `Branch checkout failed for "${opts.branch}": ${checkout.error}`);
     }
+  }
+
+  // Claude interactive: live REPL running `claude` with no positional prompt
+  if (opts.type === "claude-interactive") {
+    spawnClaudeInteractive(session, safeEnv, opts);
+    log("info", "terminal", `Session created: ${id}`, {
+      type: "claude-interactive",
+      backend: "bun-terminal",
+    });
+    return session;
   }
 
   // AI Resolve: interactive PTY running claude CLI
@@ -558,88 +616,6 @@ export async function createSession(opts: CreateSessionOptions): Promise<PtySess
   return session;
 }
 
-export function writeToSession(id: string, data: string): boolean {
-  const session = sessions.get(id);
-  if (!session?.alive || !session.proc) return false;
-  try {
-    session.proc.write(data);
-    return true;
-  } catch (err) {
-    log("warn", "terminal", `Write failed for ${id}: ${String(err)}`);
-    return false;
-  }
-}
-
-export function resizeSession(id: string, cols: number, rows: number): boolean {
-  const session = sessions.get(id);
-  if (!session?.alive || !session.proc) return false;
-  try {
-    session.proc.resize(cols, rows);
-    return true;
-  } catch (err) {
-    log("warn", "terminal", `Resize failed for ${id}: ${String(err)}`);
-    return false;
-  }
-}
-
-export function killSession(id: string): boolean {
-  const session = sessions.get(id);
-  if (!session) return false;
-  try {
-    session.proc?.kill();
-  } catch {}
-  // Close the WebSocket so the client knows immediately
-  try {
-    if (session.ws && session.ws.readyState === 1) {
-      session.ws.send(JSON.stringify({ type: "exit", exitCode: 0 }));
-      session.ws.close();
-    }
-  } catch {}
-  session.alive = false;
-  sessions.delete(id);
-  log("info", "terminal", `Session killed: ${id}`);
-  return true;
-}
-
-export function attachWs(id: string, ws: any): boolean {
-  const session = sessions.get(id);
-  if (!session) return false;
-
-  // Replace old WS connection (allows reconnection)
-  session.ws = ws;
-
-  // Send scrollback history so reconnecting clients see previous output
-  if (session.scrollback.length > 0 && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: "output", data: session.scrollback }));
-  }
-
-  // Flush buffered output that arrived before WS connected
-  if (session.outputBuffer.length > 0) {
-    for (const data of session.outputBuffer) {
-      if (ws.readyState === 1 && !wsBackpressured(ws)) {
-        ws.send(JSON.stringify({ type: "output", data }));
-      }
-    }
-    session.outputBuffer = [];
-  }
-
-  // Flush buffered exit
-  if (session.exitBuffer !== null) {
-    if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "exit", exitCode: session.exitBuffer }));
-    }
-    session.exitBuffer = null;
-  }
-
-  return true;
-}
-
-export function detachWs(id: string): void {
-  const session = sessions.get(id);
-  if (!session) return;
-  session.ws = null;
-}
-
 // ── Batch AI Resolve Queue ──────────────────────────────────
 
 export let batchState: BatchResolveStatus = {
@@ -662,10 +638,13 @@ export async function startBatchResolve(
   taskIds: string[],
   concurrency: number = 1,
   overrideBranch?: string,
+  agent?: AiAgent,
 ): Promise<BatchResolveStatus> {
   if (batchState.state === "running") {
     throw new Error("A batch resolve is already running");
   }
+
+  const resolvedAgent: AiAgent = agent ?? getConfiguredAgent();
 
   const db = getDb();
   const port = parseInt(process.env.PORT || "3001", 10);
@@ -709,15 +688,22 @@ export async function startBatchResolve(
     ...Array.from(branchGroups.entries()).filter(([k]) => k !== null),
   ];
 
-  processQueueWithBranches(groups, projectId, port, effectiveConcurrency).catch((err) => {
-    log("error", "terminal", `Batch resolve error: ${String(err)}`);
-    batchState.state = "completed";
-  });
+  processQueueWithBranches(groups, projectId, port, effectiveConcurrency, resolvedAgent).catch(
+    (err) => {
+      log("error", "terminal", `Batch resolve error: ${String(err)}`);
+      batchState.state = "completed";
+    },
+  );
 
   return getBatchResolveStatus();
 }
 
-async function processSingleTask(task: Task, projectId: string, port: number): Promise<void> {
+async function processSingleTask(
+  task: Task,
+  projectId: string,
+  port: number,
+  agent: AiAgent,
+): Promise<void> {
   if (batchState.state === "cancelled") return;
 
   try {
@@ -743,7 +729,8 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
       "UPDATE tasks SET status = 'in_progress', inProgressAt = ?, updatedAt = ? WHERE id = ?",
     ).run(ts, ts, task.id);
 
-    // Create the AI resolve session
+    // Create the AI resolve session. Per-task agent overrides the batch/global
+    // choice; null falls back to the resolved batch agent.
     const session = await createSession({
       type: "ai-resolve",
       projectId,
@@ -751,6 +738,7 @@ async function processSingleTask(task: Task, projectId: string, port: number): P
       name: task.title,
       prompt,
       groundedArtifacts,
+      agent: task.agent ?? agent,
     });
 
     // Track active task
@@ -809,6 +797,7 @@ async function processQueueWithBranches(
   projectId: string,
   port: number,
   concurrency: number,
+  agent: AiAgent,
 ): Promise<void> {
   const projectPath = resolveCwd(projectId);
 
@@ -844,7 +833,7 @@ async function processQueueWithBranches(
     }
 
     // Process tasks in this branch group with concurrency
-    await processQueue(tasks, projectId, port, concurrency);
+    await processQueue(tasks, projectId, port, concurrency, agent);
   }
 
   batchState.state = batchState.state === "cancelled" ? "cancelled" : "completed";
@@ -860,6 +849,7 @@ async function processQueue(
   projectId: string,
   port: number,
   concurrency: number = 1,
+  agent: AiAgent = "claude",
 ): Promise<void> {
   if (concurrency <= 1) {
     // Sequential processing (original behavior)
@@ -868,7 +858,7 @@ async function processQueue(
         log("info", "terminal", "Batch resolve cancelled");
         break;
       }
-      await processSingleTask(task, projectId, port);
+      await processSingleTask(task, projectId, port, agent);
     }
   } else {
     // Concurrent processing with a pool
@@ -876,7 +866,7 @@ async function processQueue(
     const next = async (): Promise<void> => {
       while (index < tasks.length && batchState.state !== "cancelled") {
         const task = tasks[index++];
-        await processSingleTask(task, projectId, port);
+        await processSingleTask(task, projectId, port, agent);
       }
     };
     const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => next());

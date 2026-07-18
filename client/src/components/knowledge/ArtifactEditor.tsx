@@ -39,6 +39,7 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
   const isImage = artifact.mimeType.startsWith("image/");
   const isMarkdown = artifact.mimeType === "text/markdown";
   const isJson = artifact.mimeType === "application/json";
+  const isHtml = artifact.mimeType === "text/html";
 
   const handleSave = useCallback(() => {
     updateArtifact.mutate(
@@ -201,6 +202,15 @@ export default function ArtifactEditor({ projectId, artifact, onBack }: Artifact
               className="max-w-full max-h-full object-contain"
             />
           </div>
+        ) : preview && isHtml ? (
+          // Sandboxed: no scripts, no same-origin — untrusted artifact HTML
+          // cannot reach VK's origin, cookies, or network.
+          <iframe
+            title={artifact.filename}
+            srcDoc={content}
+            sandbox=""
+            className="w-full h-full border-0 bg-white"
+          />
         ) : preview && isMarkdown ? (
           <div className="p-4 prose prose-invert prose-sm max-w-none overflow-auto h-full">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>

@@ -7,7 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 import { useProjects, useSearchTasks } from "@/hooks";
-import PriorityBadge from "@/components/tasks/PriorityBadge";
+import PriorityBadge from "@/components/ui/PriorityBadge";
 import type { Task } from "@vibe-kanban/shared";
 
 export default function GlobalSearch() {

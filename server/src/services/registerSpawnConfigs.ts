@@ -1,5 +1,10 @@
 import { registerSpawnConfig, _resetSpawnRegistry } from "./taskSpawnRegistry";
-import { buildQaTestPrompt, buildDevFixPrompt, buildBenchCodebasePrompt } from "./spawnPrompts";
+import {
+  buildQaTestPrompt,
+  buildDevFixPrompt,
+  buildBenchCodebasePrompt,
+  buildBlindspotPrompt,
+} from "./spawnPrompts";
 
 /**
  * Register the spawn configs the system knows how to dispatch.
@@ -29,5 +34,12 @@ export function registerSpawnConfigs(): void {
     mcpServers: ["vibe-kanban"],
     profile: "bench-codebase",
     buildPrompt: buildBenchCodebasePrompt,
+  });
+
+  registerSpawnConfig({
+    type: "blindspot",
+    mcpServers: ["vibe-kanban"],
+    profile: "blindspot",
+    buildPrompt: buildBlindspotPrompt,
   });
 }

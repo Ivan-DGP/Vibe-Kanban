@@ -282,16 +282,17 @@ describe("POST /api/claude/analyze — additional validation", () => {
     await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
   });
 
-  test("returns 404 when both projectId and taskId are missing", async () => {
+  test("returns 400 when both projectId and taskId are missing", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/claude/analyze",
       headers: { "Content-Type": "application/json" },
       payload: {},
     });
-    // undefined projectId and taskId => db query finds nothing => 404
-    expect(res.statusCode).toBe(404);
-    expect(res.json().error).toBe("Task not found");
+    // Required body params are validated up front, so a missing projectId/taskId
+    // is a 400 Bad Request rather than a fall-through 404 "Task not found".
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("projectId and taskId are required");
   });
 });
 
@@ -419,5 +420,201 @@ describe("POST /api/claude/gather-context — edge cases", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe("taskTitle and projectId are required");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/claude/interview/next — validation
+// ---------------------------------------------------------------------------
+
+describe("POST /api/claude/interview/next", () => {
+  test("returns 404 when task does not exist", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/interview/next",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: "p1", taskId: "nonexistent", answers: [] },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("returns 404 when project does not exist for valid task", async () => {
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Interview Test", path: `/tmp/test-interview-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Interview task" },
+    });
+
+    // Cleanup project (cascades to tasks)
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/claude/interview/finalize — validation
+// ---------------------------------------------------------------------------
+
+describe("POST /api/claude/interview/finalize", () => {
+  test("returns 404 when task does not exist", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/interview/finalize",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: "p1", taskId: "nonexistent", answers: [] },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
+  });
+
+  test("creates spec artifact and updates task with Q&A", async () => {
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Finalize Test", path: `/tmp/test-finalize-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Finalize task", prompt: "Initial prompt" },
+    });
+    const taskId = taskRes.json().id;
+
+    const answers = [
+      { question: "What framework?", answer: "React" },
+      { question: "State management?", answer: "Zustand" },
+    ];
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/interview/finalize",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: projId, taskId, answers },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(typeof body.artifactId).toBe("string");
+
+    // Verify artifact exists
+    const artifactRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projId}/artifacts/${body.artifactId}`,
+    });
+    expect(artifactRes.statusCode).toBe(200);
+    const artifact = artifactRes.json();
+    expect(artifact.type).toBe("spec");
+    expect(artifact.filename).toContain("interview-");
+
+    // Verify task prompt was updated
+    const taskGet = await app.inject({
+      method: "GET",
+      url: `/api/tasks/${taskId}`,
+    });
+    expect(taskGet.statusCode).toBe(200);
+    const updatedTask = taskGet.json();
+    expect(updatedTask.prompt).toContain("Interview Q&A");
+    expect(updatedTask.prompt).toContain("What framework?");
+
+    // Verify metadata has the artifact ref
+    expect(updatedTask.metadata?.artifacts).toBeDefined();
+    expect(updatedTask.metadata.artifacts.length).toBe(1);
+    expect(updatedTask.metadata.artifacts[0].id).toBe(body.artifactId);
+    expect(updatedTask.metadata.artifacts[0].role).toBe("spec");
+
+    // Cleanup
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+
+  test("preserves pre-existing task metadata when attaching the spec ref", async () => {
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Finalize Preserve", path: `/tmp/test-finalize-preserve-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Has metadata" },
+    });
+    const taskId = taskRes.json().id;
+
+    // Seed existing metadata: a quiz artifact ref and the quiz-passed gate flag.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${taskId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: {
+        metadata: { quizPassed: true, artifacts: [{ id: "quiz-artifact-1", role: "quiz" }] },
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/interview/finalize",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: projId, taskId, answers: [{ question: "Q", answer: "A" }] },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const updatedTask = (await app.inject({ method: "GET", url: `/api/tasks/${taskId}` })).json();
+    // Pre-existing metadata survives (regression: metadata was a JSON string
+    // that got spread char-by-char, wiping the quiz ref and gate flag).
+    expect(updatedTask.metadata.quizPassed).toBe(true);
+    const roles = updatedTask.metadata.artifacts.map((a: { role: string }) => a.role);
+    expect(roles).toContain("quiz");
+    expect(roles).toContain("spec");
+
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
+  });
+
+  test("handles empty answers gracefully", async () => {
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { "Content-Type": "application/json" },
+      payload: { name: "Finalize Empty", path: `/tmp/test-finalize-empty-${Date.now()}` },
+    });
+    const projId = projRes.json().id;
+
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Empty interview" },
+    });
+    const taskId = taskRes.json().id;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/claude/interview/finalize",
+      headers: { "Content-Type": "application/json" },
+      payload: { projectId: projId, taskId, answers: [] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(typeof body.artifactId).toBe("string");
+
+    await app.inject({ method: "DELETE", url: `/api/projects/${projId}` });
   });
 });

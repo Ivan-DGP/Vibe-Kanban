@@ -77,6 +77,21 @@ mock.module("./aiResolvePrompt", () => ({
   buildAiTestPrompt: mockBuildAiTestPrompt,
 }));
 
+// tmux backend — force "unavailable" so shell/dev sessions take the raw-PTY path
+// these coverage tests assert on (onExit marks the session dead + removes it,
+// rather than detaching and keeping a persistent tmux session alive).
+mock.module("./tmuxBackend", () => ({
+  SESSION_PREFIX: "term-",
+  isTmuxAvailable: mock(() => false),
+  _resetAvailability: mock(() => {}),
+  clientEnv: mock((env: Record<string, string>) => env),
+  tmuxEnsureSession: mock(() => false),
+  tmuxAttachArgs: mock(() => []),
+  tmuxHasSession: mock(() => false),
+  tmuxKillSession: mock(() => {}),
+  tmuxListSessions: mock(() => []),
+}));
+
 // ── Import after mocks are registered ────────────────────────────────────
 
 import {
@@ -87,6 +102,7 @@ import {
   startBatchResolve,
   cancelBatchResolve,
   getBatchResolveStatus,
+  resolveClaudeCmd,
 } from "./terminalService";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -108,6 +124,13 @@ function resetDbMocks() {
   mockDbAll.mockClear();
   mockDbRun.mockClear();
   mockPrepare.mockClear();
+  // mockClear() keeps the last implementation, so a persistent mockImplementation
+  // set by one test would leak into the next. Restore the baseline explicitly.
+  mockPrepare.mockImplementation((_sql: string) => ({
+    get: mockDbGet,
+    all: mockDbAll,
+    run: mockDbRun,
+  }));
   mockSpawnCmd.mockClear();
   mockBuildAiResolvePrompt.mockClear();
   mockBuildAiTestPrompt.mockClear();
@@ -486,41 +509,26 @@ describe("terminalService coverage — PTY-spawning paths", () => {
       //   createSession({type:"ai-test"}) → resolveCwd("p-chain") → [5] SELECT path FROM projects
       //     → [6] SELECT value FROM settings (terminalShell)
 
-      let prepCallIdx = 0;
-      const prepImpls: Array<(sql: string) => any> = [
-        // [0] resolveCwd SELECT path → no project (use cwd())
-        (_sql) => ({ get: mock(() => null), all: mock(() => []), run: mockDbRun }),
-        // [1] SELECT status FROM tasks → done
-        (_sql) => ({ get: mock(() => ({ status: "done" })), all: mock(() => []), run: mockDbRun }),
-        // [2] INSERT INTO task_ai_runs
-        (_sql) => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }),
-        // [3] SELECT * FROM tasks (chainAiTest) → full task so chain proceeds
-        (_sql) => ({
-          get: mock(() => ({
-            id: "t-chain",
-            title: "Chain Task",
-            description: "desc",
-            status: "done",
-            projectId: "p-chain",
-          })),
-          all: mock(() => []),
-          run: mockDbRun,
+      // Dispatch by SQL rather than call order, so unrelated reads (e.g.
+      // getConfiguredAgent's `SELECT value FROM settings WHERE key='aiAgent'`)
+      // don't shift a positional sequence.
+      const fullTask = {
+        id: "t-chain",
+        title: "Chain Task",
+        description: "desc",
+        status: "done",
+        projectId: "p-chain",
+      };
+      mockPrepare.mockImplementation((sql: string) => ({
+        get: mock(() => {
+          if (sql.includes("SELECT status FROM tasks")) return { status: "done" };
+          if (sql.includes("SELECT * FROM tasks")) return fullTask;
+          // projects (resolveCwd → cwd()), settings (aiAgent/shell), anything else
+          return null;
         }),
-        // [4] UPDATE tasks SET status = in_progress
-        (_sql) => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }),
-        // [5] resolveCwd in createSession(ai-test) → no project
-        (_sql) => ({ get: mock(() => null), all: mock(() => []), run: mockDbRun }),
-        // [6] SELECT value FROM settings (terminalShell)
-        (_sql) => ({ get: mock(() => null), all: mock(() => []), run: mockDbRun }),
-      ];
-
-      mockPrepare.mockImplementation((sql: string) => {
-        const impl =
-          prepImpls[prepCallIdx] ??
-          ((_s: string) => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }));
-        prepCallIdx++;
-        return impl(sql);
-      });
+        all: mock(() => []),
+        run: mockDbRun,
+      }));
 
       await createSession({
         type: "ai-resolve",
@@ -658,14 +666,13 @@ describe("terminalService coverage — PTY-spawning paths", () => {
         prompt: null,
       };
 
-      let callCount = 0;
-      mockPrepare.mockImplementation(() => ({
-        get: mock(() => {
-          callCount++;
-          if (callCount === 1) return task1;
-          if (callCount === 2) return task2;
-          return undefined;
-        }),
+      // Match by SQL + id arg so the mock is independent of unrelated DB reads
+      // (e.g. getConfiguredAgent's settings lookup) that also call .get().
+      const tasksById: Record<string, unknown> = { "t-1": task1, "t-2": task2 };
+      mockPrepare.mockImplementation((sql: string) => ({
+        get: mock((...args: any[]) =>
+          sql.includes("FROM tasks WHERE id") ? tasksById[args[0] as string] : undefined,
+        ),
         all: mock(() => []),
         run: mockDbRun,
       }));
@@ -797,31 +804,17 @@ describe("terminalService coverage — PTY-spawning paths", () => {
         prompt: null,
       };
 
-      // prepare calls sequence during startBatchResolve:
-      // 1. SELECT tasks WHERE id AND projectId (task validation)
-      // 2. SELECT path FROM projects (resolveCwd for processQueueWithBranches)
-      // 3. buildAiResolvePrompt catch-fallback
-      // 4. UPDATE tasks SET status = in_progress
-      // 5. SELECT * FROM tasks (resolveCwd in createSession)
-      // 6. SELECT value FROM settings (shell setting in createSession)
-      // 7. SELECT status FROM tasks (waitForTaskCompletion DB check)
-      let prepIdx = 0;
-      const prepares = [
-        () => ({ get: mock(() => mockTask), all: mock(() => []), run: mockDbRun }), // 1 task validation
-        () => ({ get: mock(() => null), all: mock(() => []), run: mockDbRun }), // 2 resolveCwd project
-        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }), // 3 UPDATE in_progress
-        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }), // 4 resolveCwd in createSession
-        () => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }), // 5 settings shell
-        () => ({ get: mock(() => ({ status: "done" })), all: mock(() => []), run: mockDbRun }), // 6 waitForTask check
-      ];
-
-      mockPrepare.mockImplementation(() => {
-        const fn =
-          prepares[prepIdx] ??
-          (() => ({ get: mock(() => undefined), all: mock(() => []), run: mockDbRun }));
-        prepIdx++;
-        return fn();
-      });
+      // Dispatch by SQL rather than call order — resilient to unrelated reads
+      // (e.g. getConfiguredAgent's settings lookup) that also call .get().
+      mockPrepare.mockImplementation((sql: string) => ({
+        get: mock(() => {
+          if (sql.includes("SELECT * FROM tasks")) return mockTask; // task validation
+          if (sql.includes("SELECT status FROM tasks")) return { status: "done" }; // waitForTask
+          return null; // projects (resolveCwd → cwd()), settings, etc.
+        }),
+        all: mock(() => []),
+        run: mockDbRun,
+      }));
 
       // Start batch — this fires processQueueWithBranches in the background
       await startBatchResolve("proj-wfc", ["t-wfc-1"]);
@@ -912,14 +905,11 @@ describe("terminalService coverage — PTY-spawning paths", () => {
         prompt: null,
       };
 
-      let taskCallCount = 0;
-      mockPrepare.mockImplementation(() => ({
-        get: mock(() => {
-          taskCallCount++;
-          if (taskCallCount === 1) return task1;
-          if (taskCallCount === 2) return task2;
-          return null; // resolveCwd project lookup
-        }),
+      const tasksById: Record<string, unknown> = { "t-bf1": task1, "t-bf2": task2 };
+      mockPrepare.mockImplementation((sql: string) => ({
+        get: mock((...args: any[]) =>
+          sql.includes("FROM tasks WHERE id") ? tasksById[args[0] as string] : null,
+        ),
         all: mock(() => []),
         run: mockDbRun,
       }));
@@ -941,18 +931,20 @@ describe("terminalService coverage — PTY-spawning paths", () => {
   // ── resolveClaudeCmd fallback ─────────────────────────────────────────
 
   describe("resolveClaudeCmd fallback", () => {
-    test("falls back to 'claude' string when spawnProcessSync returns non-zero", async () => {
+    // Tested directly: the ai-resolve spawn path resolves its command via the
+    // agent abstraction (getConfiguredAgent → isAgentAvailable → resolveAgentBinary),
+    // not resolveClaudeCmd. resolveClaudeCmd still backs other paths, so exercise it here.
+    test("falls back to 'claude' string when which/where returns non-zero", () => {
+      mockSpawnProcessSync.mockImplementationOnce(() => ({ stdout: "", exitCode: 1 }));
+      expect(resolveClaudeCmd({})).toBe("claude");
+    });
+
+    test("returns the resolved path when which/where succeeds", () => {
       mockSpawnProcessSync.mockImplementationOnce(() => ({
-        stdout: "",
-        exitCode: 1, // which/where failed
+        stdout: "/usr/local/bin/claude\n",
+        exitCode: 0,
       }));
-
-      // Create ai-resolve session — resolveClaudeCmd is called inside spawnAiResolve
-      await createSession({ type: "ai-resolve", prompt: "test" });
-
-      // When exitCode != 0, resolveClaudeCmd returns "claude"
-      // PTY should have been spawned with "claude" as command
-      expect(spawnPtyCalls[0].cmd).toBe("claude");
+      expect(resolveClaudeCmd({})).toBe("/usr/local/bin/claude");
     });
   });
 

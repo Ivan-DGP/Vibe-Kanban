@@ -27,6 +27,7 @@ import {
   useGitHubMapping,
   useSetGitHubMapping,
   useClearGitHubMapping,
+  useGitBranches,
 } from "@/hooks";
 import { useConfirm } from "@/hooks/useConfirm";
 import type { Project, ExternalLink } from "@vibe-kanban/shared";
@@ -46,6 +47,7 @@ export default function ProjectSettingsDialog({
   const [name, setName] = useState(project.name);
   const [category, setCategory] = useState(project.category ?? "");
   const [aiCommitMode, setAiCommitMode] = useState(project.aiCommitMode);
+  const [defaultBranch, setDefaultBranch] = useState(project.defaultBranch ?? "");
   const [treeDepth, setTreeDepth] = useState(project.treeDepth ?? 3);
   const [aiInstructions, setAiInstructions] = useState(project.aiInstructions ?? "");
   const [links, setLinks] = useState<ExternalLink[]>(project.externalLinks);
@@ -62,6 +64,7 @@ export default function ProjectSettingsDialog({
   const { data: notionStatus } = useNotionStatus();
   const { data: notionDbs } = useNotionDatabases(notionStatus?.connected ?? false);
   const { data: githubAccounts } = useGitHubAccounts();
+  const { data: branches } = useGitBranches(open ? project.id : undefined);
   const { data: githubMappings } = useGitHubMapping(open ? project.id : undefined);
   const setGithubMapping = useSetGitHubMapping();
   const clearGithubMapping = useClearGitHubMapping();
@@ -71,6 +74,7 @@ export default function ProjectSettingsDialog({
     setName(project.name);
     setCategory(project.category ?? "");
     setAiCommitMode(project.aiCommitMode);
+    setDefaultBranch(project.defaultBranch ?? "");
     setTreeDepth(project.treeDepth ?? 3);
     setAiInstructions(project.aiInstructions ?? "");
     setLinks(project.externalLinks);
@@ -101,6 +105,7 @@ export default function ProjectSettingsDialog({
           name: name.trim(),
           category: category.trim() || null,
           aiCommitMode,
+          defaultBranch: defaultBranch || null,
           treeDepth,
           aiInstructions: aiInstructions.trim() || null,
           externalLinks: links,
@@ -138,6 +143,8 @@ export default function ProjectSettingsDialog({
   };
 
   const removeLink = (i: number) => setLinks(links.filter((_, idx) => idx !== i));
+
+  const localBranchNames = (branches ?? []).filter((b) => !b.remote).map((b) => b.name);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -178,6 +185,33 @@ export default function ProjectSettingsDialog({
             </Select>
             <p className="text-[10px] text-muted-foreground">
               How AI handles git after resolving tasks
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Default Branch</Label>
+            <Select
+              value={defaultBranch || "__auto__"}
+              onValueChange={(v) => setDefaultBranch(v === "__auto__" ? "" : v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__auto__">Auto-detect (main / master)</SelectItem>
+                {defaultBranch && !localBranchNames.includes(defaultBranch) && (
+                  <SelectItem value={defaultBranch}>{defaultBranch} (missing)</SelectItem>
+                )}
+                {localBranchNames.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              Integration branch this project's work merges into. Used as the base for the
+              ahead/behind indicator.
             </p>
           </div>
 

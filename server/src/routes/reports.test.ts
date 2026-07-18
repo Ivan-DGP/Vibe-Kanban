@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { getDateRange, calculateHours } from "./reports";
 import { buildApp } from "../app";
+import { getDb } from "../db";
 
 // ===========================================================================
 // Pure function tests
@@ -130,13 +131,34 @@ describe("calculateHours", () => {
     expect(calculateHours({})).toBe(2);
   });
 
-  test("falls back to priority-based when hours > 1000 (unreasonable)", () => {
+  test("caps elapsed hours at 8 when the range is very large", () => {
     const task = {
       inProgressAt: "2020-01-01T00:00:00.000Z",
-      doneAt: "2025-06-01T00:00:00.000Z", // years apart => way > 1000 hours
+      doneAt: "2025-06-01T00:00:00.000Z", // years apart => capped at 8h
       priority: "high",
     };
-    expect(calculateHours(task)).toBe(3); // priority-based fallback for "high"
+    expect(calculateHours(task)).toBe(8); // idle-inflation cap
+  });
+
+  test("run duration wins over elapsed and priority", () => {
+    const task = {
+      inProgressAt: "2025-06-01T10:00:00.000Z",
+      doneAt: "2025-06-01T13:30:00.000Z",
+      priority: "urgent",
+    };
+    expect(calculateHours(task, 5_400_000)).toBe(1.5); // 90 min
+  });
+
+  test("caps elapsed at 8 hours (20h apart, no runs)", () => {
+    const task = {
+      inProgressAt: "2025-06-01T00:00:00.000Z",
+      doneAt: "2025-06-01T20:00:00.000Z",
+    };
+    expect(calculateHours(task, 0)).toBe(8);
+  });
+
+  test("priority fallback with explicit zero run duration", () => {
+    expect(calculateHours({ priority: "high" }, 0)).toBe(3);
   });
 
   test("falls back to priority-based when doneAt is before inProgressAt (negative hours)", () => {
@@ -374,5 +396,39 @@ describe("Reports API", () => {
       expect(typeof entry.hours).toBe("number");
       expect(entry.hours).toBeGreaterThan(0);
     }
+  });
+
+  test("POST /api/reports/summaries/:taskId returns cached reportSummary (idempotent)", async () => {
+    // Create a task, then seed metadata.reportSummary directly.
+    const taskRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      headers: { "Content-Type": "application/json" },
+      payload: { title: "Cached Summary Task", status: "done" },
+    });
+    const taskId = taskRes.json().id;
+
+    const cached = "This task shipped the cached summary path.";
+    getDb()
+      .prepare(`UPDATE tasks SET metadata = ? WHERE id = ?`)
+      .run(JSON.stringify({ reportSummary: cached, keep: "me" }), taskId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/reports/summaries/${taskId}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().summary).toBe(cached);
+  });
+
+  test("POST /api/reports/summaries/:taskId returns 404 for unknown task", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/reports/summaries/does-not-exist`,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe("Task not found");
   });
 });

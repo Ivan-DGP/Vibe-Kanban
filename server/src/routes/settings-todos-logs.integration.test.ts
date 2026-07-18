@@ -41,6 +41,20 @@ describe("Settings routes", () => {
     expect(getBody.soundEnabled).toBe(true);
   });
 
+  test("PUT /api/settings persists the aiAgent resolver setting", async () => {
+    const putRes = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: { "Content-Type": "application/json" },
+      payload: { aiAgent: "opencode" },
+    });
+    expect(putRes.statusCode).toBe(200);
+    expect(putRes.json().aiAgent).toBe("opencode");
+
+    const getRes = await app.inject({ method: "GET", url: "/api/settings" });
+    expect(getRes.json().aiAgent).toBe("opencode");
+  });
+
   test("PUT /api/settings ignores non-writable keys", async () => {
     const res = await app.inject({
       method: "PUT",

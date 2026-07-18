@@ -25,7 +25,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { tasksToCSV, tasksToJSON, tasksToMarkdown, downloadFile } from "@/lib/task-export";
-import { api } from "@/lib/api";
+import { fetchProjectTasks } from "@/hooks/useTasks";
+import { claudeChat } from "@/hooks/useClaude";
 import TaskSortSelect from "@/components/tasks/TaskSortSelect";
 import MilestoneSelector from "./MilestoneSelector";
 import MilestoneManagerDialog from "./MilestoneManagerDialog";
@@ -70,7 +71,7 @@ export default function KanbanToolbar({
     setSizeError("");
     setSizeLoading(true);
     try {
-      const data = await api.tasks.list(projectId, { limit: 1000 });
+      const data = await fetchProjectTasks(projectId);
       const tasks = data.items;
       const summary = tasks
         .map(
@@ -104,16 +105,23 @@ Provide a concise project size assessment:
 
 Be direct and practical. Output plain text, no markdown headers.`;
 
-      const res = await api.claude.chat(prompt, projectId);
+      const res = await claudeChat(prompt, projectId);
       const reader = res.body?.getReader();
       if (!reader) return;
       const decoder = new TextDecoder();
       let text = "";
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
+        // Buffer across reads: the CLI (`claude -p`) emits its whole answer as
+        // one large `data:` frame, which is routinely split across chunk
+        // boundaries. Parsing per-chunk would JSON.parse a partial line, throw,
+        // and silently drop the frame — leaving the dialog blank forever.
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const d = JSON.parse(line.slice(6));
@@ -177,7 +185,7 @@ Be direct and practical. Output plain text, no markdown headers.`;
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={async () => {
-                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  const data = await fetchProjectTasks(projectId);
                   downloadFile(tasksToCSV(data.items), `tasks-${projectId}.csv`, "text/csv");
                 }}
               >
@@ -185,7 +193,7 @@ Be direct and practical. Output plain text, no markdown headers.`;
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={async () => {
-                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  const data = await fetchProjectTasks(projectId);
                   downloadFile(
                     tasksToJSON(data.items),
                     `tasks-${projectId}.json`,
@@ -197,7 +205,7 @@ Be direct and practical. Output plain text, no markdown headers.`;
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={async () => {
-                  const data = await api.tasks.list(projectId, { limit: 1000 });
+                  const data = await fetchProjectTasks(projectId);
                   downloadFile(
                     tasksToMarkdown(data.items, projectName),
                     `tasks-${projectId}.md`,

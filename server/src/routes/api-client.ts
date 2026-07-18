@@ -1,4 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
+import type {
+  CreateApiCollectionInput,
+  UpdateApiCollectionInput,
+  CreateApiRequestInput,
+  UpdateApiRequestInput,
+  ApiRequestExecuteInput,
+} from "@vibe-kanban/shared";
 import { getDb } from "../db";
 import { proxyFetch, SsrfError } from "../lib/ssrf-guard";
 import { isAllowedOrigin } from "../lib/origin";
@@ -18,7 +25,7 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/api-collections", async (request) => {
     const { projectId } = request.params as any;
-    const { name } = request.body as any;
+    const { name } = request.body as CreateApiCollectionInput;
     const id = crypto.randomUUID();
     const ts = new Date().toISOString();
 
@@ -37,7 +44,7 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch("/api-collections/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const updates = request.body as any;
+    const updates = request.body as UpdateApiCollectionInput;
 
     const existing = db.prepare("SELECT * FROM api_collections WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Collection not found" });
@@ -93,7 +100,7 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   fastify.post("/api-requests", async (request) => {
-    const body = request.body as any;
+    const body = request.body as CreateApiRequestInput;
     const id = crypto.randomUUID();
     const ts = new Date().toISOString();
 
@@ -123,7 +130,7 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.patch("/api-requests/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const updates = request.body as any;
+    const updates = request.body as UpdateApiRequestInput;
 
     const existing = db.prepare("SELECT * FROM api_requests WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Request not found" });
@@ -139,7 +146,7 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
       "sortOrder",
       "lastResponseStatus",
       "lastResponseTime",
-    ]) {
+    ] as (keyof UpdateApiRequestInput)[]) {
       if (updates[key] !== undefined) {
         fields.push(`${key} = ?`);
         values.push(updates[key]);
@@ -173,7 +180,7 @@ const apiClientRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(403).send({ error: "Cross-origin request blocked" });
     }
 
-    const { method, url, headers, body } = request.body as any;
+    const { method, url, headers, body } = request.body as ApiRequestExecuteInput;
 
     if (!url) return reply.code(400).send({ error: "url is required" });
 

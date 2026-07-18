@@ -33,6 +33,26 @@ function toFileArgs(files: unknown): string[] {
   return files.filter((f): f is string => typeof f === "string" && f.length > 0);
 }
 
+// Request-body shapes for the git operation endpoints. `subPath` scopes the op
+// to a nested worktree/submodule; `files` is filtered through toFileArgs so it
+// is validated at runtime regardless of what the client sends.
+interface SubPathBody {
+  subPath?: string;
+}
+interface FilesBody extends SubPathBody {
+  files?: string[];
+}
+interface CommitBody extends SubPathBody {
+  message: string;
+}
+interface CreateBranchBody extends SubPathBody {
+  branch: string;
+  baseBranch?: string;
+}
+interface CheckoutBody extends SubPathBody {
+  branch: string;
+}
+
 function getProjectPath(projectId: string): string {
   const db = getDb();
   const project = db.prepare("SELECT path FROM projects WHERE id = ?").get(projectId) as any;
@@ -159,7 +179,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/stage", async (request) => {
     const { projectId } = request.params as any;
-    const { files, subPath } = request.body as any;
+    const { files, subPath } = request.body as FilesBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const fileArgs = toFileArgs(files);
     const args = fileArgs.length ? ["git", "add", "--", ...fileArgs] : ["git", "add", "-A"];
@@ -170,7 +190,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/unstage", async (request) => {
     const { projectId } = request.params as any;
-    const { files, subPath } = request.body as any;
+    const { files, subPath } = request.body as FilesBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const fileArgs = toFileArgs(files);
     const args = fileArgs.length
@@ -182,7 +202,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/commit", async (request) => {
     const { projectId } = request.params as any;
-    const { message, subPath } = request.body as any;
+    const { message, subPath } = request.body as CommitBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const account = getMappedGitHubAccount(projectId, subPath ?? "");
     const identityArgs = account ? gitCommitIdentityArgs(account) : [];
@@ -193,7 +213,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/push", async (request) => {
     const { projectId } = request.params as any;
-    const { subPath } = request.body as any;
+    const { subPath } = request.body as SubPathBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const account = getMappedGitHubAccount(projectId, subPath ?? "");
     const authEnv = account ? gitAuthEnv(account.token) : undefined;
@@ -211,7 +231,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/pull", async (request) => {
     const { projectId } = request.params as any;
-    const { subPath } = request.body as any;
+    const { subPath } = request.body as SubPathBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const account = getMappedGitHubAccount(projectId, subPath ?? "");
     const authEnv = account ? gitAuthEnv(account.token) : undefined;
@@ -222,7 +242,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/discard", async (request) => {
     const { projectId } = request.params as any;
-    const { files, subPath } = request.body as any;
+    const { files, subPath } = request.body as FilesBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const fileArgs = toFileArgs(files);
     if (fileArgs.length) {
@@ -236,7 +256,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.post("/projects/:projectId/git/undo-commit", async (request) => {
     const { projectId } = request.params as any;
-    const { subPath } = request.body as any;
+    const { subPath } = request.body as SubPathBody;
     const cwd = resolveGitCwd(getProjectPath(projectId), subPath);
     const result = await spawn(["git", "reset", "--soft", "HEAD~1"], { cwd });
     log("warn", "git", "Undo commit", { projectId });
@@ -266,8 +286,16 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
     const cwd = resolveGitCwd(projectPath, subPath);
     if (!isGitRepo(cwd) && !isGitRepo(projectPath))
       return { mainBranch: null, ahead: 0, behind: 0 };
-    // Try main, then master
-    for (const main of ["main", "master"]) {
+    // Prefer the project's configured default branch, then fall back to main/master.
+    const configured = (
+      getDb().prepare("SELECT defaultBranch FROM projects WHERE id = ?").get(projectId) as
+        | { defaultBranch: string | null }
+        | undefined
+    )?.defaultBranch;
+    const candidates = [configured, "main", "master"].filter(
+      (b): b is string => !!b && isValidRef(b),
+    );
+    for (const main of candidates) {
       const check = await spawn(["git", "rev-parse", "--verify", main], { cwd });
       if (check.exitCode === 0) {
         const result = await spawn(
@@ -286,7 +314,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   // Create branch
   fastify.post("/projects/:projectId/git/create-branch", async (request) => {
     const { projectId } = request.params as any;
-    const { branch, baseBranch, subPath } = request.body as any;
+    const { branch, baseBranch, subPath } = request.body as CreateBranchBody;
     if (!isValidRef(branch)) {
       return { ok: false, error: "Invalid branch name" };
     }
@@ -310,7 +338,7 @@ const gitRoutes: FastifyPluginAsync = async (fastify) => {
   // Checkout branch
   fastify.post("/projects/:projectId/git/checkout", async (request) => {
     const { projectId } = request.params as any;
-    const { branch, subPath } = request.body as any;
+    const { branch, subPath } = request.body as CheckoutBody;
     if (!isValidRef(branch)) {
       return { ok: false, error: "Invalid branch name" };
     }

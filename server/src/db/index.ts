@@ -4,7 +4,13 @@ import { SCHEMA_SQL } from "./schema";
 
 let _db: DatabaseHandle | null = null;
 
-export function getDb(): DatabaseHandle {
+/**
+ * Open the database, apply pragmas, and run the migration ladder. Idempotent —
+ * returns the existing handle if already initialized. Call once at startup
+ * (see app.ts) so migrations run at a known point rather than as a hidden side
+ * effect of whichever getDb() happens to fire first inside a request.
+ */
+export function initDb(): DatabaseHandle {
   if (_db) return _db;
 
   const dbPath = getDbPath();
@@ -15,10 +21,18 @@ export function getDb(): DatabaseHandle {
   _db.exec("PRAGMA foreign_keys = ON");
   _db.exec("PRAGMA busy_timeout = 5000");
 
-  // Run initial schema
+  // Run initial schema + pending migrations
   runMigrations(_db);
 
   return _db;
+}
+
+/**
+ * Return the shared connection. Lazily initializes when startup didn't call
+ * initDb() first (tests, one-off scripts), so existing callers are unaffected.
+ */
+export function getDb(): DatabaseHandle {
+  return _db ?? initDb();
 }
 
 function runMigrations(db: DatabaseHandle): void {
@@ -851,6 +865,89 @@ function runMigrations(db: DatabaseHandle): void {
         db.exec(
           "CREATE INDEX IF NOT EXISTS idx_graph_edges_status ON project_graph_edges (projectId, status)",
         );
+      },
+    },
+    {
+      version: 34,
+      name: "add-claude-sessions",
+      up: () => {
+        // Interactive Claude terminals VK has spawned. `id` is the Claude CLI
+        // --session-id UUID we pin at launch, so a picker can list past sessions
+        // and resume a specific one (`claude --resume <id>`). taskId is optional
+        // (a session may be project-scoped, not tied to a task).
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS claude_sessions (
+            id          TEXT PRIMARY KEY,
+            projectId   TEXT DEFAULT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            taskId      TEXT DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL,
+            model       TEXT DEFAULT NULL,
+            cwd         TEXT NOT NULL,
+            title       TEXT DEFAULT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            lastUsedAt  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_claude_sessions_projectId ON claude_sessions (projectId, lastUsedAt DESC);
+        `);
+      },
+    },
+    {
+      version: 35,
+      name: "add-task-ai-run-deviations",
+      up: () => {
+        // Per-run deviations log: a resolve agent records how it diverged from
+        // the plan (and the impl-notes artifact it authored) via the run-scoped
+        // record_run_deviations MCP tool. JSON {notes?, artifactId?}, keyed by
+        // runId for audit — complements the agent-authored artifact on the task.
+        const tableExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='task_ai_runs'")
+          .get();
+        if (!tableExists) return;
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "deviations")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN deviations TEXT DEFAULT NULL");
+        }
+      },
+    },
+    {
+      version: 36,
+      name: "add-project-default-branch",
+      up: () => {
+        // Per-project integration branch (e.g. main/develop). Base for the
+        // ahead/behind divergence indicator; NULL falls back to main→master.
+        const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "defaultBranch")) {
+          db.exec("ALTER TABLE projects ADD COLUMN defaultBranch TEXT DEFAULT NULL");
+        }
+      },
+    },
+    {
+      version: 37,
+      name: "add-task-agent",
+      up: () => {
+        // Per-task resolver agent override (claude/opencode/grok). NULL = inherit
+        // the batch-dialog choice, then the global aiAgent setting, then claude.
+        const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "agent")) {
+          db.exec("ALTER TABLE tasks ADD COLUMN agent TEXT DEFAULT NULL");
+        }
+      },
+    },
+    {
+      version: 38,
+      name: "add-terminal-sessions-table",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS terminal_sessions (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            projectId TEXT,
+            taskId TEXT,
+            name TEXT,
+            cwd TEXT NOT NULL,
+            createdAt TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_terminal_sessions_projectId ON terminal_sessions (projectId);
+        `);
       },
     },
   ];

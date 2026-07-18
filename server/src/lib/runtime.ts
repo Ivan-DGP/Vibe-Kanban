@@ -146,16 +146,17 @@ export async function spawnProcess(
 
 export function spawnProcessSync(
   cmd: string[],
-  opts: { env?: Record<string, string> },
+  opts: { env?: Record<string, string>; timeout?: number },
 ): { stdout: string; exitCode: number } {
   if (isBun) {
-    const result = Bun.spawnSync(cmd, { env: opts.env });
+    const result = Bun.spawnSync(cmd, { env: opts.env, timeout: opts.timeout });
     return { stdout: result.stdout.toString().trim(), exitCode: result.exitCode };
   }
 
   const { spawnSync } = require("node:child_process");
   const result = spawnSync(cmd[0], cmd.slice(1), {
     env: opts.env,
+    timeout: opts.timeout,
     stdio: ["ignore", "pipe", "pipe"],
   });
   return { stdout: (result.stdout ?? "").toString().trim(), exitCode: result.status ?? 1 };

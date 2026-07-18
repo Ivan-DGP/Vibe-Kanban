@@ -3,7 +3,7 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { tryDecrypt } from "../lib/crypto";
 import { writeTaskSnapshot } from "../services/snapshot";
-import { applyTimestampCascade } from "./tasks";
+import { applyTimestampCascade } from "../services/taskModel";
 import type { DatabaseHandle } from "../lib/runtime";
 import type {
   NotionDatabase,

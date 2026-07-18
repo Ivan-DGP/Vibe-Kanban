@@ -1,23 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Loader2, FileSearch, Wand2, Image as ImageIcon, X, Sparkles } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   useCreateTask,
@@ -26,9 +8,14 @@ import {
   useUploadArtifact,
   useUpdateArtifact,
 } from "@/hooks";
-import BranchSelector from "@/components/git/BranchSelector";
 import GatherContextModal from "./GatherContextModal";
-import { api } from "@/lib/api";
+import TaskEditorFields from "./TaskEditorFields";
+import TaskEditorAiActions from "./TaskEditorAiActions";
+import TaskEditorArtifactList from "./TaskEditorArtifactList";
+import TaskEditorMetaFields from "./TaskEditorMetaFields";
+import TaskEditorSpawnConfig from "./TaskEditorSpawnConfig";
+import TaskEditorFooter from "./TaskEditorFooter";
+import { claudeChat } from "@/hooks/useClaude";
 import type {
   Task,
   TaskStatus,
@@ -36,6 +23,7 @@ import type {
   PromptProfile,
   CreateTaskInput,
   Artifact,
+  AiAgent,
 } from "@vibe-kanban/shared";
 
 function slugifyForFilename(s: string): string {
@@ -70,6 +58,7 @@ export default function TaskEditorDialog({
   const [milestoneId, setMilestoneId] = useState<string>("none");
   const [branch, setBranch] = useState<string | null>(null);
   const [promptProfile, setPromptProfile] = useState<PromptProfile>("auto");
+  const [agent, setAgent] = useState<AiAgent | null>(null);
   const [spawnType, setSpawnType] = useState<"" | "qa-test" | "dev-fix">("dev-fix");
   const [qaTargetUrl, setQaTargetUrl] = useState("");
 
@@ -91,7 +80,7 @@ export default function TaskEditorDialog({
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
-      const res = await api.claude.chat(systemPrompt, projectId, controller.signal);
+      const res = await claudeChat(systemPrompt, projectId, controller.signal);
       if (!res.ok) throw new Error(`AI request failed (${res.status})`);
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
@@ -262,6 +251,7 @@ export default function TaskEditorDialog({
       setMilestoneId(task.milestoneId ?? "none");
       setBranch(task.branch ?? null);
       setPromptProfile(task.promptProfile ?? "auto");
+      setAgent(task.agent ?? null);
       const md = task.metadata ?? {};
       const t = (md as { type?: unknown }).type;
       setSpawnType(t === "qa-test" || t === "dev-fix" ? t : "");
@@ -279,6 +269,7 @@ export default function TaskEditorDialog({
       setMilestoneId("none");
       setBranch(null);
       setPromptProfile("auto");
+      setAgent(null);
       setSpawnType("dev-fix");
       setQaTargetUrl("");
     }
@@ -310,6 +301,7 @@ export default function TaskEditorDialog({
       priority,
       status,
       milestoneId: milestoneId === "none" ? null : milestoneId,
+      agent,
       metadata,
     };
 
@@ -333,230 +325,65 @@ export default function TaskEditorDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>Title</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Task title"
-              autoFocus
-            />
-          </div>
+          <TaskEditorFields
+            title={title}
+            onTitleChange={setTitle}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            description={description}
+            onDescriptionChange={setDescription}
+            prompt={prompt}
+            onPromptChange={setPrompt}
+          />
 
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full">
-              <TabsTrigger value="description" className="flex-1">
-                Description
-              </TabsTrigger>
-              <TabsTrigger value="prompt" className="flex-1">
-                Prompt
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="description" className="mt-2">
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Product/user-facing description..."
-                className="w-full min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
-                rows={5}
-              />
-            </TabsContent>
-            <TabsContent value="prompt" className="mt-2">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Technical details for AI implementation..."
-                className="w-full min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
-                rows={5}
-              />
-            </TabsContent>
-          </Tabs>
+          <TaskEditorAiActions
+            aiLoading={aiLoading}
+            title={title}
+            description={description}
+            prompt={prompt}
+            gatherModalOpen={gatherModalOpen}
+            onGatherContext={handleGatherContext}
+            onImproveWriting={handleImproveWriting}
+          />
 
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1"
-              onClick={handleGatherContext}
-              disabled={aiLoading !== null || !title.trim() || gatherModalOpen}
-            >
-              <FileSearch className="h-3 w-3" />
-              Gather Context
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1"
-              onClick={handleImproveWriting}
-              disabled={
-                aiLoading !== null || (!title.trim() && !description.trim() && !prompt.trim())
-              }
-            >
-              {aiLoading === "improve" ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Wand2 className="h-3 w-3" />
-              )}
-              AI Improve Writing
-            </Button>
-            <span className="text-[10px] text-muted-foreground ml-auto">
-              Paste a screenshot to attach
-            </span>
-          </div>
+          <TaskEditorArtifactList
+            pastedArtifacts={pastedArtifacts}
+            uploadPending={uploadArtifact.isPending}
+            onRemove={handleRemovePastedArtifact}
+          />
 
-          {(uploadArtifact.isPending || pastedArtifacts.length > 0) && (
-            <div className="flex flex-wrap gap-1.5">
-              {pastedArtifacts.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
-                >
-                  <ImageIcon className="h-3 w-3 text-muted-foreground" />
-                  <span className="font-mono truncate max-w-[200px]" title={a.filename}>
-                    {a.filename}
-                  </span>
-                  {a.renaming && <Sparkles className="h-3 w-3 text-blue-500 animate-pulse" />}
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePastedArtifact(a.id)}
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="Remove from list"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-              {uploadArtifact.isPending && (
-                <div className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span className="text-muted-foreground">Uploading screenshot…</span>
-                </div>
-              )}
-            </div>
-          )}
+          <TaskEditorMetaFields
+            projectId={projectId}
+            priority={priority}
+            onPriorityChange={setPriority}
+            status={status}
+            onStatusChange={setStatus}
+            milestoneId={milestoneId}
+            onMilestoneChange={setMilestoneId}
+            milestones={milestones}
+            branch={branch}
+            onBranchChange={setBranch}
+            promptProfile={promptProfile}
+            onPromptProfileChange={setPromptProfile}
+            agent={agent}
+            onAgentChange={setAgent}
+          />
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-2">
-              <Label>Priority</Label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriority)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={status} onValueChange={(v) => setStatus(v as TaskStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todo">Inbox</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="done">Done</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Milestone</Label>
-              <Select value={milestoneId} onValueChange={setMilestoneId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">General</SelectItem>
-                  {milestones?.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>Branch</Label>
-              <BranchSelector projectId={projectId} value={branch} onSelect={setBranch} />
-            </div>
-            <div className="space-y-2">
-              <Label>AI Profile</Label>
-              <Select
-                value={promptProfile}
-                onValueChange={(v) => setPromptProfile(v as PromptProfile)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto-detect</SelectItem>
-                  <SelectItem value="quick-fix">Quick Fix</SelectItem>
-                  <SelectItem value="feature">Feature</SelectItem>
-                  <SelectItem value="refactor">Refactor</SelectItem>
-                  <SelectItem value="bug-fix">Bug Fix</SelectItem>
-                  <SelectItem value="docs">Documentation</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2 rounded-md border p-3">
-            <div className="space-y-1">
-              <Label className="text-sm">Auto-spawn type</Label>
-              <Select
-                value={spawnType || "__none__"}
-                onValueChange={(v) =>
-                  setSpawnType(v === "__none__" ? "" : (v as "qa-test" | "dev-fix"))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None (manual task)</SelectItem>
-                  <SelectItem value="qa-test">qa-test — run browser QA via qa-agent</SelectItem>
-                  <SelectItem value="dev-fix">dev-fix — Claude session writes the code</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground">
-                Triggers a headless Claude session when the task is created. Project must have
-                auto-spawn enabled.
-              </p>
-            </div>
-            {spawnType === "qa-test" && (
-              <div className="space-y-1 pt-1">
-                <Label className="text-xs">Target URL</Label>
-                <Input
-                  value={qaTargetUrl}
-                  onChange={(e) => setQaTargetUrl(e.target.value)}
-                  placeholder="https://app.example.com/page"
-                  className="h-8 text-xs font-mono"
-                />
-              </div>
-            )}
-          </div>
+          <TaskEditorSpawnConfig
+            spawnType={spawnType}
+            onSpawnTypeChange={setSpawnType}
+            qaTargetUrl={qaTargetUrl}
+            onQaTargetUrlChange={setQaTargetUrl}
+          />
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={isPending || !title.trim()}>
-            {isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-            {isEditing ? "Save" : "Create"}
-          </Button>
-        </DialogFooter>
+        <TaskEditorFooter
+          isEditing={isEditing}
+          isPending={isPending}
+          title={title}
+          onCancel={() => onOpenChange(false)}
+          onSubmit={handleSubmit}
+        />
       </DialogContent>
 
       <GatherContextModal

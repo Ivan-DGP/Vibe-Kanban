@@ -15,10 +15,13 @@ export function reportToMarkdown(report: Report): string {
   for (const group of report.byProject) {
     lines.push(`## ${group.projectName} (${group.totalHours.toFixed(1)}h)`);
     lines.push("");
-    lines.push(`| Task | Priority | Hours |`);
-    lines.push(`|------|----------|-------|`);
+    lines.push(`| Task | Priority | Hours | Summary |`);
+    lines.push(`|------|----------|-------|---------|`);
     for (const entry of group.tasks) {
-      lines.push(`| ${entry.task.title} | ${entry.task.priority} | ${entry.hours.toFixed(1)} |`);
+      const summary = (entry.summary ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+      lines.push(
+        `| ${entry.task.title} | ${entry.task.priority} | ${entry.hours.toFixed(1)} | ${summary} |`,
+      );
     }
     lines.push("");
   }

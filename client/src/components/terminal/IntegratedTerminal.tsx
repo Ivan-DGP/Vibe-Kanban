@@ -3,6 +3,12 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { getWebSocketUrl } from "@/hooks/useTerminal";
+import type {
+  TerminalWsInputMessage,
+  TerminalWsResizeMessage,
+  TerminalWsBinaryMessage,
+  TerminalWsServerMessage,
+} from "@vibe-kanban/shared";
 import "@xterm/xterm/css/xterm.css";
 
 interface IntegratedTerminalProps {
@@ -22,12 +28,25 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const disposedRef = useRef(false);
   const connectionGenRef = useRef(0);
+  // Keystrokes typed while the socket is (re)connecting — buffered here and
+  // flushed on open, so no input is lost during a reconnect.
+  const pendingInputRef = useRef<string[]>([]);
 
   const safeFit = useCallback(() => {
     if (disposedRef.current || !fitRef.current || !termRef.current) return;
     try {
       fitRef.current.fit();
     } catch {}
+  }, []);
+
+  // Send input if the socket is open; otherwise buffer it for the next open.
+  const sendInput = useCallback((data: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "input", data } satisfies TerminalWsInputMessage));
+    } else {
+      pendingInputRef.current.push(data);
+    }
   }, []);
 
   const connectWs = useCallback(() => {
@@ -48,14 +67,21 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       // Send initial resize so server knows our dimensions
       if (termRef.current) {
         const { cols, rows } = termRef.current;
-        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+        ws.send(JSON.stringify({ type: "resize", cols, rows } satisfies TerminalWsResizeMessage));
+      }
+      // Flush any keystrokes buffered while (re)connecting.
+      if (pendingInputRef.current.length) {
+        const pending = pendingInputRef.current;
+        pendingInputRef.current = [];
+        for (const data of pending)
+          ws.send(JSON.stringify({ type: "input", data } satisfies TerminalWsInputMessage));
       }
     };
 
     ws.onmessage = (event) => {
       try {
         if (gen !== connectionGenRef.current) return;
-        const msg = JSON.parse(event.data);
+        const msg = JSON.parse(event.data) as TerminalWsServerMessage;
         if (!termRef.current || disposedRef.current) return;
 
         switch (msg.type) {
@@ -120,19 +146,14 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       term.open(container);
       requestAnimationFrame(safeFit);
 
-      // Input → WebSocket
-      term.onData((data) => {
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "input", data }));
-        }
-      });
+      // Input → WebSocket (buffered across reconnects)
+      term.onData((data) => sendInput(data));
 
       // Binary mouse reports
       term.onBinary((data) => {
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "binary", data }));
+          ws.send(JSON.stringify({ type: "binary", data } satisfies TerminalWsBinaryMessage));
         }
       });
 
@@ -154,12 +175,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
         if (ev.ctrlKey && ev.key === "v") {
           navigator.clipboard
             .readText()
-            .then((text) => {
-              const ws = wsRef.current;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "input", data: text }));
-              }
-            })
+            .then((text) => sendInput(text))
             .catch(() => {});
           return false;
         }
@@ -171,7 +187,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       term.onResize(({ cols, rows }) => {
         const ws = wsRef.current;
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "resize", cols, rows }));
+          ws.send(JSON.stringify({ type: "resize", cols, rows } satisfies TerminalWsResizeMessage));
         }
       });
 
@@ -212,7 +228,7 @@ export default function IntegratedTerminal({ sessionId, onExit }: IntegratedTerm
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [sessionId, connectWs, safeFit]);
+  }, [sessionId, connectWs, safeFit, sendInput]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }

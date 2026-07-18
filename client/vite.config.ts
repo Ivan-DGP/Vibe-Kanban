@@ -13,16 +13,19 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // Target 127.0.0.1 (not "localhost"): the server binds IPv4 only, but on
+      // dual-stack hosts "localhost" can resolve to ::1 first, making every
+      // proxied API/WS call fail with ECONNREFUSED.
       "/api/": {
-        target: "http://localhost:3001",
+        target: "http://127.0.0.1:3001",
         changeOrigin: true,
       },
       "/ws": {
-        target: "ws://localhost:3001",
+        target: "ws://127.0.0.1:3001",
         ws: true,
       },
       "/mcp": {
-        target: "http://localhost:3001",
+        target: "http://127.0.0.1:3001",
         changeOrigin: true,
       },
     },

@@ -134,7 +134,10 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
 
   fastify.put("/projects/:projectId/github-mapping", async (request) => {
     const { projectId } = request.params as any;
-    const { subPath, githubAccountId } = request.body as any;
+    const { subPath, githubAccountId } = request.body as {
+      subPath?: string;
+      githubAccountId?: string;
+    };
     const sub = subPath || "";
     db.prepare(
       "INSERT INTO project_github_mappings (projectId, subPath, githubAccountId) VALUES (?, ?, ?) ON CONFLICT(projectId, subPath) DO UPDATE SET githubAccountId = excluded.githubAccountId",
@@ -255,7 +258,7 @@ const githubRoutes: FastifyPluginAsync = async (fastify) => {
   // Batch CI status: fetch for multiple branches at once
   fastify.post("/projects/:projectId/ci-status/batch", async (request, reply) => {
     const { projectId } = request.params as any;
-    const { branches, subPath } = request.body as any;
+    const { branches, subPath } = request.body as { branches?: string[]; subPath?: string };
     if (!branches || !Array.isArray(branches) || branches.length === 0) {
       return reply.code(400).send({ error: "branches array required" });
     }

@@ -14,6 +14,43 @@ export function useGraph(projectId: string | undefined) {
   });
 }
 
+// Dependency (import) graph — extraction is a filesystem walk, so it's fetched
+// lazily and only recomputed when the user explicitly refreshes.
+export function useDepGraph(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["dep-graph", projectId],
+    queryFn: () => api.depGraph.get(projectId!),
+    enabled: !!projectId && enabled,
+    staleTime: Infinity,
+  });
+}
+
+export function useRefreshDepGraph(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.depGraph.get(projectId, true),
+    onSuccess: (data) => qc.setQueryData(["dep-graph", projectId], data),
+  });
+}
+
+// Draft suggested knowledge-graph nodes/edges from the dependency graph.
+export function useGraphFromDeps(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.depGraph.toKnowledge(projectId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["graph", projectId] }),
+  });
+}
+
+/** Transitive blast-radius for a task's candidate source files. */
+export function useTaskImpact(projectId: string, files: string[]) {
+  return useQuery({
+    queryKey: ["impact", projectId, files],
+    queryFn: () => api.depGraph.impact(projectId, files),
+    enabled: !!projectId && files.length > 0,
+  });
+}
+
 export function useCreateGraphNode(projectId: string) {
   const qc = useQueryClient();
   return useMutation({

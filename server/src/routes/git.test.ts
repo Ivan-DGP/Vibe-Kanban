@@ -859,6 +859,53 @@ describe("Git route integration", () => {
     execSync("git branch -D diverge-test-branch", { cwd: tmpDir });
   });
 
+  test("GET /api/projects/:id/git/divergence - uses configured project.defaultBranch over main/master", async () => {
+    const branchRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/branches`,
+    });
+    const branches = branchRes.json();
+    const mainBranch = branches.find((b: any) => b.name === "main" || b.name === "master");
+    const mainName = mainBranch?.name ?? "main";
+
+    // A "develop" integration branch pointing at the same commit as main
+    execSync("git branch develop", { cwd: tmpDir });
+    // Point the project at it as the default branch
+    await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { defaultBranch: "develop" },
+    });
+
+    // Diverge from develop on a feature branch
+    execSync("git checkout -b default-branch-test", { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, "default-branch.txt"), "test\n");
+    execSync("git add default-branch.txt", { cwd: tmpDir });
+    execSync('git commit -m "ahead of develop"', { cwd: tmpDir });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/git/divergence`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.mainBranch).toBe("develop");
+    expect(body.ahead).toBeGreaterThanOrEqual(1);
+
+    // Restore: clear the setting and delete the branches
+    await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { "Content-Type": "application/json" },
+      payload: { defaultBranch: null },
+    });
+    execSync(`git checkout ${mainName}`, { cwd: tmpDir });
+    execSync("git branch -D default-branch-test", { cwd: tmpDir });
+    execSync("git branch -D develop", { cwd: tmpDir });
+  });
+
   test("GET /api/projects/:id/git/divergence - returns null mainBranch when rev-list fails (orphan HEAD)", async () => {
     // Switch to an orphan branch so HEAD is unborn.
     // rev-parse --verify main/master succeeds (the branch exists), but

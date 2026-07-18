@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Zap } from "lucide-react";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
 import { useAppStore } from "@/stores/appStore";
-import { api } from "@/lib/api";
+import { useAiResolvePrompt } from "@/hooks/useTasks";
 import type { Task, Project } from "@vibe-kanban/shared";
 
 interface AIResolveButtonProps {
@@ -13,13 +13,17 @@ interface AIResolveButtonProps {
 export default function AIResolveButton({ task, project: _project }: AIResolveButtonProps) {
   const createSession = useCreateTerminalSession();
   const { toggleTerminal, terminalVisible } = useAppStore();
+  const aiResolvePrompt = useAiResolvePrompt();
 
   const handleResolve = async () => {
     if (!terminalVisible) toggleTerminal();
 
     let prompt: string;
     try {
-      const result = await api.tasks.aiResolvePrompt(task.projectId, task.id);
+      const result = await aiResolvePrompt.mutateAsync({
+        projectId: task.projectId,
+        taskId: task.id,
+      });
       prompt = result.prompt;
     } catch {
       const parts = [task.title];

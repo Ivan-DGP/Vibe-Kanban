@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type BenchTriggerInput } from "@/lib/api";
+import { api } from "@/lib/api";
+import type { BenchTriggerInput } from "@vibe-kanban/shared";
 
 export function useBenchmarkRuns() {
   return useQuery({

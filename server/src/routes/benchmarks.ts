@@ -12,6 +12,15 @@ import {
   type SseEvent,
   type Subscriber,
 } from "../services/benchRunStream";
+import type {
+  BenchTriggerInput,
+  BenchRunSummary,
+  BenchFixture,
+  BenchActiveRun,
+  BenchDriftStats,
+  BenchDriftProjectAgg,
+  BenchReport,
+} from "@vibe-kanban/shared";
 
 const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const DEFAULT_BENCH_DIR = path.join(REPO_ROOT, "benchmarks");
@@ -32,22 +41,18 @@ const ID_RE = /^[A-Za-z0-9._-]+$/;
 const ALLOWED_PARALLEL_MIN = 1;
 const ALLOWED_PARALLEL_MAX = 4;
 
-export interface BenchTriggerInput {
-  fixtures?: unknown;
-  mock?: unknown;
-  mockClaude?: unknown;
-  mode?: unknown;
-  parallel?: unknown;
-  lenient?: unknown;
-}
-
 export interface BuiltBenchArgs {
   args: string[];
   fixtures: string[];
 }
 
+// Raw, untrusted request-body shape: same keys as the shared BenchTriggerInput
+// DTO but every field is `unknown`. buildBenchArgs sanitizes it into CLI args,
+// so it must accept malformed values (non-string fixtures, junk modes, etc.).
+type RawBenchTriggerBody = { [K in keyof BenchTriggerInput]?: unknown };
+
 export function buildBenchArgs(
-  body: BenchTriggerInput,
+  body: RawBenchTriggerBody,
   knownFixtureIds: Set<string>,
 ): BuiltBenchArgs {
   const args: string[] = ["run", "bench"];
@@ -143,17 +148,7 @@ function statusToWire(s: benchRunsRepo.BenchRunStatus): "running" | "done" | "er
   return "running";
 }
 
-interface ActiveRunWire {
-  runId: string;
-  startedAt: string;
-  args: string[];
-  pid: number | null;
-  exitCode: number | null;
-  status: "running" | "done" | "error";
-  output: string;
-}
-
-function toActiveWire(row: benchRunsRepo.BenchRunRow): ActiveRunWire {
+function toActiveWire(row: benchRunsRepo.BenchRunRow): BenchActiveRun {
   const t = transient.get(row.id);
   return {
     runId: row.id,
@@ -180,9 +175,9 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
     runningProcs.clear();
   });
 
-  fastify.get("/benchmarks/runs", async () => {
+  fastify.get("/benchmarks/runs", async (): Promise<{ runs: BenchRunSummary[] }> => {
     const files = listReportFiles();
-    const runs = files
+    const runs: BenchRunSummary[] = files
       .map((f) => {
         try {
           const full = path.join(resultsDir(), f);
@@ -218,15 +213,15 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
     const file = path.join(resultsDir(), `${id}.json`);
     if (!fs.existsSync(file)) return reply.code(404).send({ error: "not found" });
     try {
-      return JSON.parse(fs.readFileSync(file, "utf-8"));
+      return JSON.parse(fs.readFileSync(file, "utf-8")) as BenchReport;
     } catch {
       return reply.code(500).send({ error: "malformed report" });
     }
   });
 
-  fastify.get("/benchmarks/fixtures", async () => {
+  fastify.get("/benchmarks/fixtures", async (): Promise<{ fixtures: BenchFixture[] }> => {
     const specs = loadFixtureSpecs(fixturesDir());
-    const fixtures = [...specs.values()].map((s) => ({
+    const fixtures: BenchFixture[] = [...specs.values()].map((s) => ({
       id: s.id,
       title: s.title,
       category: s.category,
@@ -250,18 +245,12 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
   // Cheap: reads sidecar JSONs only — does NOT execute replays. Group by
   // anonymized projectNameHash so the dashboard can show capture health
   // without leaking project identity.
-  fastify.get("/benchmarks/drift", async () => {
+  fastify.get("/benchmarks/drift", async (): Promise<BenchDriftStats> => {
     const replaysDir = path.join(benchDir(), "replays");
     if (!fs.existsSync(replaysDir)) {
       return { totalCaptures: 0, projectCount: 0, latestCaptureAt: null, byProject: [] };
     }
-    interface ProjectAgg {
-      hash: string;
-      count: number;
-      lastAt: string;
-      lastExitCode: number | null;
-    }
-    const byHash = new Map<string, ProjectAgg>();
+    const byHash = new Map<string, BenchDriftProjectAgg>();
     let latest = "";
     let total = 0;
     for (const entry of fs.readdirSync(replaysDir)) {
@@ -300,7 +289,7 @@ const benchmarkRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
-  fastify.get("/benchmarks/active", async () => {
+  fastify.get("/benchmarks/active", async (): Promise<{ runs: BenchActiveRun[] }> => {
     const rows = benchRunsRepo.list({});
     return { runs: rows.map(toActiveWire) };
   });

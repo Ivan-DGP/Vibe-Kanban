@@ -1,5 +1,10 @@
 # Vibe-Kanban benchmarks
 
+> **Two different things live under `benchmarks/`:** this suite (`fixtures/` +
+> `harness/`) grades the **AI task-solving pipeline**. For **server performance**
+> micro-benchmarks (SQLite queries, chunking, dep-graph, crypto — wall-time /
+> ops-sec of real backend code) see [`perf/`](perf/README.md): `bun run bench:perf`.
+
 TDD-graded benchmarks for the AI task-solving pipeline. Each fixture is a tiny self-contained codebase with a failing target test (defines "solved") and regression tests (define "no breakage"). The harness copies a fixture into a temp work dir, invokes the Claude CLI with the fixture's prompt and the work dir as `cwd`, then runs the tests and computes a diff to score the result.
 
 ## Layout

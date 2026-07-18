@@ -4,16 +4,25 @@ import { log } from "../lib/logger";
 import { tryDecrypt } from "../lib/crypto";
 import { writeTaskSnapshot } from "../services/snapshot";
 import {
-  buildAiResolvePrompt,
+  buildAiResolvePromptWithGrounding,
   buildDecomposePrompt,
   classifyTaskProfile,
   estimateComplexity,
 } from "../services/aiResolvePrompt";
 import { maybeSpawnForTask } from "../services/taskSpawner";
+import { rowToTask, applyTimestampCascade } from "../services/taskModel";
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import { discardWorktree, worktreeDirFor } from "../services/worktree";
 import fs from "node:fs";
-import type { Task, TaskStatus, GroundedArtifact, TaskAiRun } from "@vibe-kanban/shared";
+import type {
+  Task,
+  TaskStatus,
+  GroundedArtifact,
+  TaskAiRun,
+  RunDeviations,
+  CreateTaskInput,
+  UpdateTaskInput,
+} from "@vibe-kanban/shared";
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -21,8 +30,8 @@ function uuid(): string {
 
 /**
  * Map a raw `task_ai_runs` DB row to the API/UI shape, parsing the O6
- * `groundedArtifacts` JSON column into a structured list. Malformed or NULL
- * JSON degrades to an empty list rather than throwing.
+ * `groundedArtifacts` and the `deviations` JSON columns into structured shapes.
+ * Malformed or NULL JSON degrades to empty/null rather than throwing.
  */
 export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
   let groundedArtifacts: GroundedArtifact[] = [];
@@ -35,55 +44,23 @@ export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
       // Leave empty on malformed JSON.
     }
   }
-  return { ...(row as unknown as TaskAiRun), groundedArtifacts };
+
+  let deviations: RunDeviations | null = null;
+  const rawDev = row.deviations;
+  if (typeof rawDev === "string" && rawDev.length > 0) {
+    try {
+      const parsed = JSON.parse(rawDev);
+      if (parsed && typeof parsed === "object") deviations = parsed as RunDeviations;
+    } catch {
+      // Leave null on malformed JSON.
+    }
+  }
+
+  return { ...(row as unknown as TaskAiRun), groundedArtifacts, deviations };
 }
 
 function now(): string {
   return new Date().toISOString();
-}
-
-export function rowToTask(row: any): Task {
-  if (!row) return row;
-  return {
-    ...row,
-    metadata: row.metadata ? JSON.parse(row.metadata) : {},
-  };
-}
-
-export function applyTimestampCascade(
-  task: Partial<Task>,
-  newStatus: TaskStatus,
-): Record<string, string> {
-  const ts = now();
-  const updates: Record<string, string> = { updatedAt: ts };
-
-  if (newStatus === "backlog" || newStatus === "todo") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-  }
-  if (newStatus === "in_progress") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-  }
-  if (newStatus === "done") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-    if (!task.doneAt) updates.doneAt = ts;
-  }
-  if (newStatus === "approved") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-    if (!task.doneAt) updates.doneAt = ts;
-    if (!task.approvedAt) updates.approvedAt = ts;
-  }
-  if (newStatus === "archived") {
-    if (!task.inboxAt) updates.inboxAt = ts;
-    if (!task.inProgressAt) updates.inProgressAt = ts;
-    if (!task.doneAt) updates.doneAt = ts;
-    if (!task.approvedAt) updates.approvedAt = ts;
-    if (!task.archivedAt) updates.archivedAt = ts;
-  }
-
-  return updates;
 }
 
 // Allowed enum values — must match the DB CHECK constraints (see db/index.ts).
@@ -266,8 +243,9 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       priority = "medium",
       milestoneId,
       parentTaskId,
+      agent,
       metadata,
-    } = request.body as any;
+    } = request.body as CreateTaskInput;
 
     const id = uuid();
     const ts = now();
@@ -290,8 +268,8 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     const metadataJson = metadata && typeof metadata === "object" ? JSON.stringify(metadata) : "{}";
 
     db.prepare(
-      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, metadata, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, projectId, milestoneId, parentTaskId, title, description, prompt, branch, promptProfile, status, priority, taskNumber, sortOrder, inboxAt, inProgressAt, doneAt, approvedAt, archivedAt, agent, metadata, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       projectId,
@@ -311,6 +289,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       cascaded.doneAt || null,
       cascaded.approvedAt || null,
       cascaded.archivedAt || null,
+      agent || null,
       metadataJson,
       ts,
       ts,
@@ -335,7 +314,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
   // Update task
   fastify.patch("/tasks/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const updates = request.body as any;
+    const updates = request.body as UpdateTaskInput;
 
     const existing = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as any;
     if (!existing) return reply.code(404).send({ error: "Task not found" });
@@ -374,6 +353,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
           "status",
           "priority",
           "sortOrder",
+          "agent",
         ].includes(key)
       ) {
         fields.push(`${key} = ?`);
@@ -746,13 +726,19 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-5",
           max_tokens: 4096,
+          // Sonnet 5 runs adaptive thinking by default when `thinking` is omitted,
+          // which shares the max_tokens budget and prepends a thinking block to
+          // content. Disable it: this is a plain JSON extraction, so preserve the
+          // full 4096 for output and keep the response a single text block.
+          thinking: { type: "disabled" },
           messages: [{ role: "user", content: prompt }],
         }),
       });
       const data = (await res.json()) as any;
-      responseText = data.content?.[0]?.text || "";
+      // Scan for the text block rather than assuming content[0] is text.
+      responseText = data.content?.find((b: any) => b.type === "text")?.text || "";
     }
 
     // Parse JSON array from response
@@ -867,8 +853,15 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     if (!task) return reply.code(404).send({ error: "Task not found" });
 
     const port = parseInt(process.env.PORT || "3001", 10);
-    const prompt = await buildAiResolvePrompt(task, projectId, port);
-    return { prompt };
+    // Use the grounding builder so knowledge artifacts are injected AND the
+    // audit list is returned; the client passes groundedArtifacts back to
+    // POST /tasks/:taskId/ai-runs so task_ai_runs.groundedArtifacts is recorded.
+    const { prompt, groundedArtifacts } = await buildAiResolvePromptWithGrounding(
+      task,
+      projectId,
+      port,
+    );
+    return { prompt, groundedArtifacts };
   });
 
   // Record an AI run result
@@ -884,7 +877,20 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       durationMs,
       summary,
       groundedArtifacts,
-    } = request.body as any;
+    } = request.body as Partial<
+      Pick<
+        TaskAiRun,
+        | "sessionId"
+        | "profile"
+        | "complexity"
+        | "exitCode"
+        | "success"
+        | "filesChanged"
+        | "durationMs"
+        | "summary"
+        | "groundedArtifacts"
+      >
+    >;
 
     const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as any;
     if (!task) return reply.code(404).send({ error: "Task not found" });

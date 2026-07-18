@@ -42,3 +42,7 @@ benchmarks/.runs/
 benchmarks/.tmpdata/
 benchmarks/results/
 .claude/conductor/
+
+# graphify dependency-graph tooling
+scripts/graphify/.venv/
+docs/graphs/

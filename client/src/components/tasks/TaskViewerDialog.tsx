@@ -1,37 +1,72 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import {
-  Pencil,
-  Trash2,
-  Sparkles,
-  Loader2,
-  Zap,
-  GitBranch,
-  ClipboardCopy,
-  Split,
-  FileSearch,
-  Image as ImageIcon,
-  X,
-} from "lucide-react";
-import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
+import { useState, useEffect, useMemo } from "react";
+import { claudeAnalyze, claudeChat } from "@/hooks/useClaude";
 import { useCreateTerminalSession } from "@/hooks/useTerminal";
+import { useTaskImpact } from "@/hooks/useGraph";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirm } from "@/hooks/useConfirm";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import PriorityBadge from "./PriorityBadge";
 import GatherContextModal from "./GatherContextModal";
+import InterviewPanel from "@/components/ai/InterviewPanel";
 import TaskAiRuns from "./TaskAiRuns";
-import { STATUS_LABELS } from "@/lib/constants";
-import { useDeleteTask, useUpdateTask, useUploadArtifact, useUpdateArtifact } from "@/hooks";
-import { useTasks } from "@/hooks/useTasks";
-import { formatDistanceToNow } from "date-fns";
+import TaskViewerHeader from "./TaskViewerHeader";
+import TaskViewerContent from "./TaskViewerContent";
+import TaskViewerTimestamps from "./TaskViewerTimestamps";
+import TaskViewerSubtasks from "./TaskViewerSubtasks";
+import TaskViewerAnalysis from "./TaskViewerAnalysis";
+import TaskViewerPreflight from "./TaskViewerPreflight";
+import TaskViewerPastedArtifacts from "./TaskViewerPastedArtifacts";
+import TaskViewerActions from "./TaskViewerActions";
+import {
+  useDeleteTask,
+  useUpdateTask,
+  useUploadArtifact,
+  useUpdateArtifact,
+  useAiResolvePrompt,
+  useAiPreflight,
+  useDecomposeTask,
+} from "@/hooks";
 import { toast } from "sonner";
 import type { Task, AiPreflightResult, Artifact } from "@vibe-kanban/shared";
+
+const FILE_PATH_RE = /[\w./-]+\.(?:tsx?|jsx?)/g;
+
+function extractCandidateFiles(task: Task): string[] {
+  const text = [task.title, task.description, task.prompt].filter(Boolean).join("\n");
+  const matches = text.match(FILE_PATH_RE) ?? [];
+  return [...new Set(matches)];
+}
+
+/** Compact blast-radius line for files mentioned in the task text. */
+function TaskImpactSection({ task }: { task: Task }) {
+  const files = useMemo(
+    () => extractCandidateFiles(task),
+    [task.title, task.description, task.prompt],
+  );
+  const { data } = useTaskImpact(task.projectId, files);
+  if (!data || data.transitiveDependents === 0) return null;
+
+  return (
+    <div className="text-xs text-muted-foreground">
+      <details>
+        <summary className="cursor-pointer hover:text-foreground list-none [&::-webkit-details-marker]:hidden">
+          Impact: {data.transitiveDependents} file{data.transitiveDependents === 1 ? "" : "s"}{" "}
+          depend on this ({data.directDependents} direct)
+        </summary>
+        {data.top.length > 0 && (
+          <ul className="mt-1 ml-1 space-y-0.5 border-l border-border pl-2">
+            {data.top.map((t) => (
+              <li key={t.file} className="font-mono truncate" title={t.file}>
+                {t.file}
+                {t.dependents > 0 ? ` · ${t.dependents}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+    </div>
+  );
+}
 
 function slugifyForFilename(s: string): string {
   return (
@@ -67,6 +102,7 @@ export default function TaskViewerDialog({
   const [copying, setCopying] = useState(false);
   const [decomposing, setDecomposing] = useState(false);
   const [gatherModalOpen, setGatherModalOpen] = useState(false);
+  const [interviewOpen, setInterviewOpen] = useState(false);
   const [pastedArtifacts, setPastedArtifacts] = useState<
     Array<{ id: string; filename: string; renaming: boolean }>
   >([]);
@@ -74,6 +110,9 @@ export default function TaskViewerDialog({
   const { toggleTerminal, terminalVisible } = useAppStore();
   const uploadArtifact = useUploadArtifact(task?.projectId ?? "");
   const updateArtifact = useUpdateArtifact(task?.projectId ?? "");
+  const aiResolvePrompt = useAiResolvePrompt();
+  const aiPreflight = useAiPreflight();
+  const decomposeTask = useDecomposeTask();
 
   useEffect(() => {
     if (!open) setPastedArtifacts([]);
@@ -84,7 +123,7 @@ export default function TaskViewerDialog({
   const handleAnalyze = async () => {
     setAnalyzing(true);
     try {
-      const res = await api.claude.analyze(task.projectId, task.id);
+      const res = await claudeAnalyze(task.projectId, task.id);
       const reader = res.body?.getReader();
       if (!reader) return;
       let text = "";
@@ -126,7 +165,7 @@ export default function TaskViewerDialog({
       const timeout = setTimeout(() => controller.abort(), 30_000);
       let raw = "";
       try {
-        const res = await api.claude.chat(aiPrompt, task.projectId, controller.signal);
+        const res = await claudeChat(aiPrompt, task.projectId, controller.signal);
         if (!res.ok) throw new Error("AI request failed");
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No stream");
@@ -225,291 +264,139 @@ export default function TaskViewerDialog({
     setPastedArtifacts((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const handleAiResolve = async () => {
+    setResolving(true);
+    try {
+      // Run preflight check first
+      const pf = await aiPreflight.mutateAsync({
+        projectId: task.projectId,
+        taskId: task.id,
+      });
+      setPreflight(pf);
+
+      // If there are warnings, confirm with user
+      if (pf.warnings.length > 0) {
+        const proceed = await confirm({
+          title: "AI Resolve Pre-flight",
+          description: `${pf.warnings.join(". ")}. Continue anyway?`,
+        });
+        if (!proceed) {
+          setResolving(false);
+          return;
+        }
+      }
+
+      // Proceed with resolve
+      if (!terminalVisible) toggleTerminal();
+      let prompt: string;
+      try {
+        const result = await aiResolvePrompt.mutateAsync({
+          projectId: task.projectId,
+          taskId: task.id,
+        });
+        prompt = result.prompt;
+      } catch {
+        const parts = [task.title];
+        if (task.description) parts.push(task.description);
+        if (task.prompt) parts.push(task.prompt);
+        prompt = parts.join("\n\n");
+      }
+      createTermSession.mutate({
+        type: "ai-resolve",
+        projectId: task.projectId,
+        prompt,
+        taskId: task.id,
+        branch: task.branch ?? undefined,
+        // Per-task agent; undefined lets the server fall back to the global setting.
+        agent: task.agent ?? undefined,
+      });
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(e.message || "Pre-flight check failed");
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handleDecompose = async () => {
+    setDecomposing(true);
+    try {
+      const result = await decomposeTask.mutateAsync({
+        projectId: task.projectId,
+        taskId: task.id,
+      });
+      toast.success(`Created ${result.subtasks.length} subtasks`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to decompose task");
+    } finally {
+      setDecomposing(false);
+    }
+  };
+
+  const handleCopyContext = async () => {
+    setCopying(true);
+    try {
+      const result = await aiResolvePrompt.mutateAsync({
+        projectId: task.projectId,
+        taskId: task.id,
+      });
+      await navigator.clipboard.writeText(result.prompt);
+      toast.success("Context copied to clipboard");
+    } catch {
+      toast.error("Failed to copy context");
+    } finally {
+      setCopying(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto" onPaste={handlePaste}>
-        <DialogHeader>
-          <div className="flex items-start gap-2">
-            <DialogTitle className="flex-1">{task.title}</DialogTitle>
-            <PriorityBadge priority={task.priority} />
-          </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-            <Badge variant="secondary">{STATUS_LABELS[task.status]}</Badge>
-            {task.branch && (
-              <Badge variant="outline" className="gap-1 font-mono text-[10px]">
-                <GitBranch className="h-3 w-3" />
-                {task.branch}
-              </Badge>
-            )}
-            {task.promptProfile && task.promptProfile !== "auto" && (
-              <Badge variant="outline" className="text-[10px]">
-                {task.promptProfile}
-              </Badge>
-            )}
-            <span>
-              Created {formatDistanceToNow(new Date(task.createdAt), { addSuffix: true })}
-            </span>
-          </div>
-        </DialogHeader>
+        <TaskViewerHeader task={task} />
 
-        {task.description || task.prompt ? (
-          <Tabs defaultValue={task.description ? "description" : "prompt"}>
-            <TabsList className="w-full">
-              {task.description && (
-                <TabsTrigger value="description" className="flex-1">
-                  Description
-                </TabsTrigger>
-              )}
-              {task.prompt && (
-                <TabsTrigger value="prompt" className="flex-1">
-                  Prompt
-                </TabsTrigger>
-              )}
-            </TabsList>
-            {task.description && (
-              <TabsContent
-                value="description"
-                className="mt-2 prose prose-sm dark:prose-invert max-w-none"
-              >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.description}</ReactMarkdown>
-              </TabsContent>
-            )}
-            {task.prompt && (
-              <TabsContent
-                value="prompt"
-                className="mt-2 prose prose-sm dark:prose-invert max-w-none"
-              >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.prompt}</ReactMarkdown>
-              </TabsContent>
-            )}
-          </Tabs>
-        ) : (
-          <p className="text-sm text-muted-foreground italic">No description</p>
-        )}
+        <TaskViewerContent task={task} />
 
         <Separator />
 
         {/* Timestamps */}
-        <div className="space-y-1 text-xs text-muted-foreground">
-          {task.inboxAt && <div>Inbox: {new Date(task.inboxAt).toLocaleString()}</div>}
-          {task.inProgressAt && (
-            <div>In Progress: {new Date(task.inProgressAt).toLocaleString()}</div>
-          )}
-          {task.doneAt && <div>Done: {new Date(task.doneAt).toLocaleString()}</div>}
-        </div>
+        <TaskViewerTimestamps task={task} />
+
+        <TaskImpactSection task={task} />
 
         {/* Subtasks */}
-        <SubtasksList projectId={task.projectId} parentTaskId={task.id} />
+        <TaskViewerSubtasks projectId={task.projectId} parentTaskId={task.id} />
 
         {/* AI run history (status, duration, cost, cancel) */}
         <TaskAiRuns taskId={task.id} />
 
         {/* AI Analysis */}
-        {analysis && (
-          <>
-            <Separator />
-            <div className="prose prose-sm dark:prose-invert max-w-none text-xs">
-              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                AI Analysis
-              </div>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis}</ReactMarkdown>
-            </div>
-          </>
-        )}
+        <TaskViewerAnalysis analysis={analysis} />
 
         {/* Pre-flight info */}
-        {preflight && (
-          <>
-            <Separator />
-            <div className="space-y-1.5 text-xs">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline">{preflight.effectiveProfile}</Badge>
-                <Badge variant={preflight.scope === "large" ? "default" : "secondary"}>
-                  {preflight.scope} scope
-                </Badge>
-                {preflight.detectedProfile !== preflight.effectiveProfile && (
-                  <span className="text-muted-foreground">
-                    detected: {preflight.detectedProfile}
-                  </span>
-                )}
-              </div>
-              {preflight.warnings.length > 0 && (
-                <div className="space-y-0.5">
-                  {preflight.warnings.map((w, i) => (
-                    <p key={i} className="text-yellow-600 dark:text-yellow-400">
-                      {w}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        <TaskViewerPreflight preflight={preflight} />
 
-        {(uploadArtifact.isPending || pastedArtifacts.length > 0) && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {pastedArtifacts.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
-              >
-                <ImageIcon className="h-3 w-3 text-muted-foreground" />
-                <span className="font-mono truncate max-w-[200px]" title={a.filename}>
-                  {a.filename}
-                </span>
-                {a.renaming && <Sparkles className="h-3 w-3 text-blue-500 animate-pulse" />}
-                <button
-                  type="button"
-                  onClick={() => handleRemovePastedArtifact(a.id)}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Remove from list"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-            {uploadArtifact.isPending && (
-              <div className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span className="text-muted-foreground">Uploading screenshot…</span>
-              </div>
-            )}
-          </div>
-        )}
+        <TaskViewerPastedArtifacts
+          pastedArtifacts={pastedArtifacts}
+          uploading={uploadArtifact.isPending}
+          onRemove={handleRemovePastedArtifact}
+        />
 
-        <div className="flex items-center gap-2 pt-2 flex-wrap">
-          <Button
-            variant="default"
-            size="sm"
-            disabled={resolving}
-            onClick={async () => {
-              setResolving(true);
-              try {
-                // Run preflight check first
-                const pf = await api.tasks.aiPreflight(task.projectId, task.id);
-                setPreflight(pf);
-
-                // If there are warnings, confirm with user
-                if (pf.warnings.length > 0) {
-                  const proceed = await confirm({
-                    title: "AI Resolve Pre-flight",
-                    description: `${pf.warnings.join(". ")}. Continue anyway?`,
-                  });
-                  if (!proceed) {
-                    setResolving(false);
-                    return;
-                  }
-                }
-
-                // Proceed with resolve
-                if (!terminalVisible) toggleTerminal();
-                let prompt: string;
-                try {
-                  const result = await api.tasks.aiResolvePrompt(task.projectId, task.id);
-                  prompt = result.prompt;
-                } catch {
-                  const parts = [task.title];
-                  if (task.description) parts.push(task.description);
-                  if (task.prompt) parts.push(task.prompt);
-                  prompt = parts.join("\n\n");
-                }
-                createTermSession.mutate({
-                  type: "ai-resolve",
-                  projectId: task.projectId,
-                  prompt,
-                  taskId: task.id,
-                  branch: task.branch ?? undefined,
-                });
-                onOpenChange(false);
-              } catch (e: any) {
-                toast.error(e.message || "Pre-flight check failed");
-              } finally {
-                setResolving(false);
-              }
-            }}
-          >
-            {resolving ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            ) : (
-              <Zap className="h-3.5 w-3.5 mr-1" />
-            )}
-            AI Resolve
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleAnalyze} disabled={analyzing}>
-            {analyzing ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5 mr-1" />
-            )}
-            {analyzing ? "Analyzing..." : "Analyze"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={decomposing}
-            onClick={async () => {
-              setDecomposing(true);
-              try {
-                const result = await api.tasks.decompose(task.projectId, task.id);
-                toast.success(`Created ${result.subtasks.length} subtasks`);
-              } catch (e: any) {
-                toast.error(e.message || "Failed to decompose task");
-              } finally {
-                setDecomposing(false);
-              }
-            }}
-          >
-            {decomposing ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            ) : (
-              <Split className="h-3.5 w-3.5 mr-1" />
-            )}
-            {decomposing ? "Breaking down..." : "Break Down"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={copying}
-            onClick={async () => {
-              setCopying(true);
-              try {
-                const result = await api.tasks.aiResolvePrompt(task.projectId, task.id);
-                await navigator.clipboard.writeText(result.prompt);
-                toast.success("Context copied to clipboard");
-              } catch {
-                toast.error("Failed to copy context");
-              } finally {
-                setCopying(false);
-              }
-            }}
-          >
-            {copying ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-            ) : (
-              <ClipboardCopy className="h-3.5 w-3.5 mr-1" />
-            )}
-            Copy Context
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setGatherModalOpen(true)}
-            disabled={gatherModalOpen}
-          >
-            <FileSearch className="h-3.5 w-3.5 mr-1" />
-            Gather Context
-          </Button>
-          {onEdit && (
-            <Button variant="outline" size="sm" onClick={onEdit}>
-              <Pencil className="h-3.5 w-3.5 mr-1" />
-              Edit
-            </Button>
-          )}
-          <Button variant="destructive" size="sm" onClick={handleDelete}>
-            <Trash2 className="h-3.5 w-3.5 mr-1" />
-            Delete
-          </Button>
-        </div>
+        <TaskViewerActions
+          resolving={resolving}
+          analyzing={analyzing}
+          decomposing={decomposing}
+          copying={copying}
+          interviewOpen={interviewOpen}
+          gatherModalOpen={gatherModalOpen}
+          onEdit={onEdit}
+          onAiResolve={handleAiResolve}
+          onAnalyze={handleAnalyze}
+          onDecompose={handleDecompose}
+          onCopyContext={handleCopyContext}
+          onInterview={() => setInterviewOpen(true)}
+          onGather={() => setGatherModalOpen(true)}
+          onDelete={handleDelete}
+        />
       </DialogContent>
 
       <GatherContextModal
@@ -528,34 +415,25 @@ export default function TaskViewerDialog({
           );
         }}
       />
-    </Dialog>
-  );
-}
 
-function SubtasksList({ projectId, parentTaskId }: { projectId: string; parentTaskId: string }) {
-  const { data } = useTasks(projectId);
-  const subtasks = data?.items?.filter((t: Task) => t.parentTaskId === parentTaskId) ?? [];
-
-  if (subtasks.length === 0) return null;
-
-  return (
-    <>
-      <Separator />
-      <div className="space-y-1.5">
-        <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-          Subtasks ({subtasks.length})
-        </div>
-        <div className="space-y-1">
-          {subtasks.map((st: Task) => (
-            <div key={st.id} className="flex items-center gap-2 text-xs">
-              <Badge variant="secondary" className="text-[10px] shrink-0">
-                {STATUS_LABELS[st.status]}
-              </Badge>
-              <span className="truncate">{st.title}</span>
+      {interviewOpen && (
+        <Dialog open={interviewOpen} onOpenChange={setInterviewOpen}>
+          <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto p-0">
+            <div className="h-[500px]">
+              <InterviewPanel
+                projectId={task.projectId}
+                taskId={task.id}
+                taskTitle={task.title}
+                onClose={() => setInterviewOpen(false)}
+                onFinalized={() => {
+                  setInterviewOpen(false);
+                  toast.success("Interview saved — answers will feed AI resolve");
+                }}
+              />
             </div>
-          ))}
-        </div>
-      </div>
-    </>
+          </DialogContent>
+        </Dialog>
+      )}
+    </Dialog>
   );
 }

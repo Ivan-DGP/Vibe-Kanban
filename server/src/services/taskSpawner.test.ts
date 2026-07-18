@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import type { Task } from "@vibe-kanban/shared";
 import { getDb } from "../db";
 import { maybeSpawnForTask, maxAttemptsFor, retryDelayMs } from "./taskSpawner";
-import { registerSpawnConfig, _resetSpawnRegistry } from "./taskSpawnRegistry";
+import { registerSpawnConfig, _resetSpawnRegistry, getSpawnConfig } from "./taskSpawnRegistry";
 
 const db = getDb();
 
@@ -31,6 +31,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     milestoneId: null,
     parentTaskId: null,
     notionPageId: null,
+    agent: null,
     metadata: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -120,6 +121,22 @@ describe("maybeSpawnForTask", () => {
     maybeSpawnForTask(makeTask({ metadata: { type: "qa-test" } }));
     await new Promise((r) => setTimeout(r, 50));
     expect(buildPromptCalled).toBe(0);
+  });
+});
+
+describe("blindspot config registration", () => {
+  test("blindspot config is registered and dispatchable by type", () => {
+    _resetSpawnRegistry();
+    registerSpawnConfig({
+      type: "blindspot",
+      mcpServers: ["vibe-kanban"],
+      profile: "blindspot",
+      buildPrompt: () => "unknowns brief",
+    });
+    const config = getSpawnConfig("blindspot");
+    expect(config).toBeDefined();
+    expect(config!.profile).toBe("blindspot");
+    expect(config!.mcpServers).toEqual(["vibe-kanban"]);
   });
 });
 

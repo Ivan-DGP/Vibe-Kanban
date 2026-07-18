@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import type { CreateTodoInput, UpdateTodoInput } from "@vibe-kanban/shared";
 import { getDb } from "../db";
 
 const uuid = () => crypto.randomUUID();
@@ -17,7 +18,7 @@ const todoRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Create a todo
   fastify.post("/todos", async (request) => {
-    const { title, linkedTaskId } = request.body as any;
+    const { title, linkedTaskId } = request.body as CreateTodoInput;
     const id = uuid();
     const ts = now();
 
@@ -62,7 +63,7 @@ const todoRoutes: FastifyPluginAsync = async (fastify) => {
   // Update a todo
   fastify.patch("/todos/:id", async (request, reply) => {
     const { id } = request.params as any;
-    const updates = request.body as any;
+    const updates = request.body as UpdateTodoInput;
 
     const existing = db.prepare("SELECT * FROM todos WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Todo not found" });

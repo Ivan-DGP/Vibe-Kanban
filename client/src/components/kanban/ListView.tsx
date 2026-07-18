@@ -6,7 +6,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import PriorityBadge from "@/components/tasks/PriorityBadge";
+import PriorityBadge from "@/components/ui/PriorityBadge";
 import { Badge } from "@/components/ui/badge";
 import { STATUS_LABELS } from "@/lib/constants";
 import { ListTodo } from "lucide-react";

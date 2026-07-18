@@ -18,6 +18,7 @@
     "start": "bun run --cwd server start",
     "start:node": "npx tsx server/src/index.ts",
     "check": "bun run --cwd client typecheck && bun run --cwd server typecheck",
+    "graphs": "bash scripts/graphify/run.sh",
     "lint": "eslint client/src server/src shared/src",
     "lint:fix": "eslint --fix client/src server/src shared/src",
     "format": "prettier --write \"**/*.{ts,tsx,json,css,md}\"",
@@ -28,6 +29,8 @@
     "bench": "bun run benchmarks/harness/run.ts",
     "bench:dry": "bun run benchmarks/harness/run.ts --dry-run",
     "bench:calibrate": "bun run benchmarks/harness/run.ts calibrate",
+    "bench:perf": "bun run benchmarks/perf/run.ts",
+    "bench:perf:quick": "bun run benchmarks/perf/run.ts --quick",
     "prepare": "husky"
   },
   "devDependencies": {

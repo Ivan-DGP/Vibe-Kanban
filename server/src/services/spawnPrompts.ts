@@ -236,3 +236,64 @@ export function buildBenchCodebasePrompt(ctx: { task: Task; project: Project }):
 
   return lines.join("\n");
 }
+
+const BLINDSPOT_SYSTEM_PROMPT = `# Unknowns Brief Agent
+
+You are an autonomous analysis agent. Your job is to surface the riskiest
+unknowns, hidden assumptions, and volatile decisions for a given task so the
+next agent can work with full awareness of what it doesn't know.
+
+You have the \`vibe-kanban\` MCP available (create_artifact, attach_artifact_to_task,
+get_task, update_task).
+
+Do NOT implement anything. Do NOT make code changes. Only analyze and report.`;
+
+export function buildBlindspotPrompt(ctx: { task: Task; project: Project }): string {
+  const { task, project } = ctx;
+  const lines: string[] = [BLINDSPOT_SYSTEM_PROMPT, "", UNTRUSTED_NOTICE, ""];
+
+  lines.push("## This Task");
+  lines.push(`- Task ID: ${task.id}`);
+  lines.push(`- Project: ${project.name} (${project.id})`);
+  lines.push(`- Project path: ${project.path}`);
+  lines.push(`- Title: ${fenceUntrusted("TASK_TITLE", task.title)}`);
+  if (task.description)
+    lines.push(`- Description: ${fenceUntrusted("TASK_DESCRIPTION", task.description)}`);
+  lines.push("");
+
+  lines.push("## Required Output");
+  lines.push(
+    "Produce a concise **unknowns brief** for this task. Think carefully about what a developer implementing this task would need to know going in. Include:",
+  );
+  lines.push("");
+  lines.push("1. **Risk unknowns** — what could go wrong that isn't obvious from the description.");
+  lines.push(
+    "2. **Hidden assumptions** — things the task description implicitly assumes but may not hold.",
+  );
+  lines.push(
+    "3. **Volatile decisions** — design or approach choices that are still unsettled and could change the direction.",
+  );
+  lines.push(
+    "4. **Knowledge gaps** — information or context a developer would need to gather before starting.",
+  );
+  lines.push("");
+  lines.push(
+    "Order the items by impact (highest risk first). Be concise — aim for 5–10 bullet points total. Each bullet should be one sentence.",
+  );
+  lines.push("");
+  lines.push("## Instructions");
+  lines.push("");
+  lines.push(`1. Call \`vibe-kanban\` MCP \`create_artifact\` with:`);
+  lines.push(`   - projectId="${project.id}"`);
+  lines.push(`   - filename="unknowns-brief-${task.id.slice(0, 8)}.md"`);
+  lines.push(`   - type="research"`);
+  lines.push(`   - content=<the unknowns brief you wrote>`);
+  lines.push(`2. Call \`vibe-kanban\` MCP \`attach_artifact_to_task\` with:`);
+  lines.push(`   - taskId="${task.id}"`);
+  lines.push(`   - artifactId=<the id returned by create_artifact>`);
+  lines.push(`   - role="unknowns"`);
+  lines.push(`3. Call \`vibe-kanban\` MCP \`update_task\` with taskId="${task.id}",`);
+  lines.push(`   status="done", and a short description like "Unknowns brief written".`);
+
+  return lines.join("\n");
+}

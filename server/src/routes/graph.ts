@@ -60,9 +60,10 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
   // captures of the same concept don't create duplicates. Returns the existing
   // node unchanged on a slug match (never downgrades a confirmed node), else
   // inserts a new one. `created` reports which path was taken.
-  function upsertNode(
-    input: CreateGraphNodeInput & { projectId: string },
-  ): { node: GraphNode; created: boolean } {
+  function upsertNode(input: CreateGraphNodeInput & { projectId: string }): {
+    node: GraphNode;
+    created: boolean;
+  } {
     const {
       projectId,
       label,
@@ -232,7 +233,17 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
       db.prepare(
         `INSERT INTO project_graph_edges (id, projectId, sourceNodeId, targetNodeId, label, type, status, origin, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, projectId, sourceNodeId, targetNodeId, label || null, type, status, origin ?? null, now);
+      ).run(
+        id,
+        projectId,
+        sourceNodeId,
+        targetNodeId,
+        label || null,
+        type,
+        status,
+        origin ?? null,
+        now,
+      );
 
       return db.prepare("SELECT * FROM project_graph_edges WHERE id = ?").get(id) as GraphEdge;
     },
@@ -306,7 +317,17 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
       db.prepare(
         `INSERT INTO project_graph_edges (id, projectId, sourceNodeId, targetNodeId, label, type, status, origin, createdAt)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, projectId, src.id, tgt.id, e.label || null, type, e.status ?? "suggested", e.origin ?? null, now);
+      ).run(
+        id,
+        projectId,
+        src.id,
+        tgt.id,
+        e.label || null,
+        type,
+        e.status ?? "suggested",
+        e.origin ?? null,
+        now,
+      );
       edgesCreated++;
       resultEdges.push(
         db.prepare("SELECT * FROM project_graph_edges WHERE id = ?").get(id) as GraphEdge,
@@ -332,10 +353,9 @@ const graphRoutes: FastifyPluginAsync = async (fastify) => {
     const existing = db.prepare("SELECT id FROM project_graph_nodes WHERE id = ?").get(id);
     if (!existing) return reply.code(404).send({ error: "Node not found" });
 
-    db.prepare("UPDATE project_graph_nodes SET status = 'confirmed', updatedAt = ? WHERE id = ?").run(
-      new Date().toISOString(),
-      id,
-    );
+    db.prepare(
+      "UPDATE project_graph_nodes SET status = 'confirmed', updatedAt = ? WHERE id = ?",
+    ).run(new Date().toISOString(), id);
     return parseNodeRow(
       db.prepare("SELECT * FROM project_graph_nodes WHERE id = ?").get(id) as GraphNodeRow,
     );

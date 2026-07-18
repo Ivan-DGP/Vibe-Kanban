@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Sparkles, Check, X } from "lucide-react";
 import { useBulkImportAI, useBulkImportTasks } from "@/hooks";
-import PriorityBadge from "@/components/tasks/PriorityBadge";
+import PriorityBadge from "@/components/ui/PriorityBadge";
 import type { CreateTaskInput } from "@vibe-kanban/shared";
 
 interface AIBulkImportDialogProps {

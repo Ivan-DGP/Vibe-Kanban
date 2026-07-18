@@ -362,15 +362,26 @@ describe("terminalService - AI resolve success detection", () => {
 
 describe("terminalService - AI test session type validation", () => {
   // The terminal route validates session types against this allowlist
-  const VALID_TYPES = ["shell", "dev", "claude-ai", "ai-resolve", "ai-test"];
+  const VALID_TYPES = ["shell", "dev", "claude-ai", "ai-resolve", "ai-test", "claude-interactive"];
 
   test("ai-test is a valid session type", () => {
     expect(VALID_TYPES.includes("ai-test")).toBe(true);
   });
 
+  test("claude-interactive is a valid session type", () => {
+    expect(VALID_TYPES.includes("claude-interactive")).toBe(true);
+  });
+
   test("all TerminalSessionType values are in the allowlist", () => {
-    // These should match the shared type: "shell" | "dev" | "claude-ai" | "ai-resolve" | "ai-test"
-    const expectedTypes = ["shell", "dev", "claude-ai", "ai-resolve", "ai-test"];
+    // These should match the shared TerminalSessionType union.
+    const expectedTypes = [
+      "shell",
+      "dev",
+      "claude-ai",
+      "ai-resolve",
+      "ai-test",
+      "claude-interactive",
+    ];
     for (const type of expectedTypes) {
       expect(VALID_TYPES.includes(type)).toBe(true);
     }

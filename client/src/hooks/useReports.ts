@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 export function useReport(params: { period: string; from?: string; to?: string }) {
@@ -6,5 +6,11 @@ export function useReport(params: { period: string; from?: string; to?: string }
     queryKey: ["report", params],
     queryFn: () => api.reports.get(params),
     enabled: !!params.period,
+  });
+}
+
+export function useGenerateReportSummary() {
+  return useMutation({
+    mutationFn: (taskId: string) => api.reports.generateSummary(taskId),
   });
 }
