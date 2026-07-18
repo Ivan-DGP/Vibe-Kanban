@@ -55,6 +55,21 @@ mock.module("./aiResolvePrompt", () => ({
   buildAiTestPrompt: mock(async () => "test prompt"),
 }));
 
+// Force tmux "unavailable" so shell sessions take the raw-PTY path these tests
+// assert on (onExit marks the session dead) rather than detaching to a
+// persistent tmux session.
+mock.module("./tmuxBackend", () => ({
+  SESSION_PREFIX: "term-",
+  isTmuxAvailable: mock(() => false),
+  _resetAvailability: mock(() => {}),
+  clientEnv: mock((env: Record<string, string>) => env),
+  tmuxEnsureSession: mock(() => false),
+  tmuxAttachArgs: mock(() => []),
+  tmuxHasSession: mock(() => false),
+  tmuxKillSession: mock(() => {}),
+  tmuxListSessions: mock(() => []),
+}));
+
 import {
   getSafeEnv,
   SAFE_ENV_KEYS,
