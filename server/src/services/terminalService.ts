@@ -2,6 +2,7 @@ import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { buildAiResolvePromptWithGrounding, buildAiTestPrompt } from "./aiResolvePrompt";
 import { spawnPty as runtimeSpawnPty, spawnProcessSync } from "../lib/runtime";
+import * as tmux from "./tmuxBackend";
 import { parseRateLimit, isAutoResumeEnabled, getResumeFallbackMs } from "./headlessClaude";
 import { openTranscript } from "./transcriptService";
 import type {
@@ -26,6 +27,8 @@ import {
   getSafeEnv,
   killSession,
   MAX_LIVE_SESSIONS,
+  persistTerminalRow,
+  wireShellPty,
   type PtySession,
 } from "./terminalRegistry";
 
@@ -63,26 +66,26 @@ function spawnShellPty(
   safeEnv: Record<string, string>,
   opts: CreateSessionOptions,
 ): void {
-  const { id } = session;
+  const cols = opts.cols ?? 80;
+  const rows = opts.rows ?? 24;
+  // Back the shell with a detached tmux session when possible, so it survives a
+  // server restart. Only when tmux is available AND the session is actually
+  // created — otherwise fall back to a raw PTY so terminals never fail to open.
+  const useTmux =
+    tmux.isTmuxAvailable(safeEnv) &&
+    tmux.tmuxEnsureSession(session.id, shell, shellArgs, safeEnv, cols, rows);
 
-  const pty = runtimeSpawnPty(shell, shellArgs, {
-    cwd: session.cwd,
-    env: safeEnv,
-    cols: opts.cols ?? 80,
-    rows: opts.rows ?? 24,
-  });
+  const pty = useTmux
+    ? runtimeSpawnPty("tmux", tmux.tmuxAttachArgs(session.id), {
+        cwd: session.cwd,
+        env: tmux.clientEnv(safeEnv),
+        cols,
+        rows,
+      })
+    : runtimeSpawnPty(shell, shellArgs, { cwd: session.cwd, env: safeEnv, cols, rows });
 
-  pty.onData((data) => emitData(session, data));
-  pty.onExit((exitCode) => {
-    log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
-    session.alive = false;
-    session.proc = null;
-    emitExit(session, exitCode ?? 0);
-    // Remove exited session from the map so it doesn't leak.
-    sessions.delete(id);
-  });
-
-  session.proc = pty;
+  if (useTmux) persistTerminalRow(session);
+  wireShellPty(session, pty, useTmux, safeEnv);
 }
 
 // ── AI Resolve via PTY ──────────────────────────────────────────

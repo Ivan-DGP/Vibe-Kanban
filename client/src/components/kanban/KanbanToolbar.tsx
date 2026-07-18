@@ -110,11 +110,18 @@ Be direct and practical. Output plain text, no markdown headers.`;
       if (!reader) return;
       const decoder = new TextDecoder();
       let text = "";
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
+        // Buffer across reads: the CLI (`claude -p`) emits its whole answer as
+        // one large `data:` frame, which is routinely split across chunk
+        // boundaries. Parsing per-chunk would JSON.parse a partial line, throw,
+        // and silently drop the frame — leaving the dialog blank forever.
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const d = JSON.parse(line.slice(6));

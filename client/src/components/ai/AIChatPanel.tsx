@@ -39,12 +39,17 @@ export default function AIChatPanel({ projectId }: AIChatPanelProps) {
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       const decoder = new TextDecoder();
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        // Buffer across reads: a single SSE `data:` frame (the CLI emits its
+        // whole answer at once) is routinely split across chunk boundaries.
+        // Parsing per-chunk would drop the frame on a partial-line parse error.
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {

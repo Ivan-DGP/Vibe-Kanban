@@ -932,6 +932,24 @@ function runMigrations(db: DatabaseHandle): void {
         }
       },
     },
+    {
+      version: 38,
+      name: "add-terminal-sessions-table",
+      up: () => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS terminal_sessions (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            projectId TEXT,
+            taskId TEXT,
+            name TEXT,
+            cwd TEXT NOT NULL,
+            createdAt TEXT NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_terminal_sessions_projectId ON terminal_sessions (projectId);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

@@ -1,5 +1,7 @@
 import { getDb } from "../db";
 import { log } from "../lib/logger";
+import { spawnPty as runtimeSpawnPty } from "../lib/runtime";
+import * as tmux from "./tmuxBackend";
 import type { PtyHandle } from "../lib/runtime";
 import type { TerminalSessionType, GroundedArtifact } from "@vibe-kanban/shared";
 
@@ -208,8 +210,14 @@ export function killSession(id: string): boolean {
   const session = sessions.get(id);
   if (!session) return false;
   try {
-    session.proc?.kill();
+    session.proc?.kill(); // detaches the tmux client (or kills a raw PTY)
   } catch {}
+  // Explicit close means destroy the tmux session too, not just detach — so the
+  // shell and its processes actually end, and the metadata row is removed. No-op
+  // for raw PTYs / ai-run sessions that were never tmux-backed or persisted.
+  const safeEnv = getSafeEnv();
+  if (tmux.isTmuxAvailable(safeEnv)) tmux.tmuxKillSession(id, safeEnv);
+  deleteTerminalRow(id);
   // Close the WebSocket so the client knows immediately
   try {
     if (session.ws && session.ws.readyState === 1) {
@@ -229,6 +237,11 @@ export function attachWs(id: string, ws: any): boolean {
 
   // Replace old WS connection (allows reconnection)
   session.ws = ws;
+
+  // After a server restart the session exists in tmux but has no live proc —
+  // re-attach a tmux PTY now so input/output flow again. The tmux redraw of the
+  // current screen arrives via onData and is forwarded to this WS.
+  ensureAttached(session);
 
   // Send scrollback history so reconnecting clients see previous output
   if (session.scrollback.length > 0 && ws.readyState === 1) {
@@ -260,4 +273,154 @@ export function detachWs(id: string): void {
   const session = sessions.get(id);
   if (!session) return;
   session.ws = null;
+}
+
+// ── tmux-backed persistence (terminals survive server restarts) ───
+//
+// Shell/dev/claude-ai sessions run inside tmux (see tmuxBackend), so the shell
+// outlives a server restart. We persist just enough metadata to re-list and
+// re-attach them on boot; the row is deleted when the session is explicitly
+// killed or its shell exits. AI-resolve/ai-test sessions are ephemeral runs and
+// are NOT persisted.
+
+export function persistTerminalRow(s: PtySession): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT OR REPLACE INTO terminal_sessions (id, type, projectId, taskId, name, cwd, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        s.id,
+        s.type,
+        s.projectId ?? null,
+        s.taskId ?? null,
+        s.name ?? null,
+        s.cwd,
+        new Date().toISOString(),
+      );
+  } catch (e) {
+    log("warn", "terminal", `Failed to persist terminal session ${s.id}: ${String(e)}`);
+  }
+}
+
+function deleteTerminalRow(id: string): void {
+  try {
+    getDb().prepare("DELETE FROM terminal_sessions WHERE id = ?").run(id);
+  } catch {
+    /* table may not exist yet / already gone */
+  }
+}
+
+// Wire a shell PTY's data/exit handlers. With tmux, the attach-client PTY can
+// exit while the tmux SESSION lives on (a bare detach); only a vanished tmux
+// session counts as a real shell exit.
+export function wireShellPty(
+  session: PtySession,
+  pty: PtyHandle,
+  isTmux: boolean,
+  safeEnv: Record<string, string>,
+): void {
+  const { id } = session;
+  pty.onData((data) => emitData(session, data));
+  pty.onExit((exitCode) => {
+    if (isTmux && tmux.tmuxHasSession(id, safeEnv)) {
+      // Client detached but the tmux session is still alive — keep the session
+      // around so a later WS connect can re-attach to it.
+      session.proc = null;
+      return;
+    }
+    log("info", "terminal", `Shell [${id}]: exited with code ${exitCode}`);
+    session.alive = false;
+    session.proc = null;
+    emitExit(session, exitCode ?? 0);
+    if (isTmux) {
+      tmux.tmuxKillSession(id, safeEnv);
+      deleteTerminalRow(id);
+    }
+    // Remove exited session from the map so it doesn't leak.
+    sessions.delete(id);
+  });
+  session.proc = pty;
+}
+
+// Lazily (re-)attach a tmux PTY to a session with no live proc — used after a
+// server restart, when the session exists in tmux but not as a child process.
+function ensureAttached(session: PtySession): void {
+  if (session.proc || !session.alive) return;
+  const safeEnv = getSafeEnv();
+  if (!tmux.isTmuxAvailable(safeEnv) || !tmux.tmuxHasSession(session.id, safeEnv)) return;
+  const pty = runtimeSpawnPty("tmux", tmux.tmuxAttachArgs(session.id), {
+    cwd: session.cwd,
+    env: tmux.clientEnv(safeEnv),
+    cols: 80,
+    rows: 24, // the client sends a resize immediately on connect
+  });
+  wireShellPty(session, pty, true, safeEnv);
+}
+
+/**
+ * Rebuild the in-memory session map from persisted rows whose tmux session is
+ * still alive, so terminals survive a server restart. Stale rows (tmux gone)
+ * are pruned; orphan tmux sessions we own but have no row for are killed. Call
+ * once at startup, after the DB is migrated.
+ */
+export function restoreTerminalSessions(): void {
+  const safeEnv = getSafeEnv();
+  if (!tmux.isTmuxAvailable(safeEnv)) return;
+
+  const live = new Set(tmux.tmuxListSessions(safeEnv));
+  let rows: {
+    id: string;
+    type: TerminalSessionType;
+    projectId: string | null;
+    taskId: string | null;
+    name: string | null;
+    cwd: string;
+  }[];
+  try {
+    rows = getDb()
+      .prepare("SELECT id, type, projectId, taskId, name, cwd FROM terminal_sessions")
+      .all() as typeof rows;
+  } catch {
+    return; // table not present yet
+  }
+
+  const known = new Set<string>();
+  let restored = 0;
+  for (const r of rows) {
+    known.add(r.id);
+    if (live.has(r.id)) {
+      if (!sessions.has(r.id)) {
+        sessions.set(r.id, {
+          id: r.id,
+          proc: null,
+          cwd: r.cwd,
+          type: r.type,
+          projectId: r.projectId ?? undefined,
+          taskId: r.taskId ?? undefined,
+          name: r.name ?? undefined,
+          alive: true,
+          ws: null,
+          outputBuffer: [],
+          exitBuffer: null,
+          scrollback: "",
+        });
+        restored++;
+      }
+    } else {
+      deleteTerminalRow(r.id); // tmux session gone — prune stale row
+    }
+  }
+
+  // Kill orphan tmux sessions we own but can no longer reach (no row).
+  for (const name of live) {
+    if (name.startsWith(tmux.SESSION_PREFIX) && !known.has(name)) {
+      tmux.tmuxKillSession(name, safeEnv);
+    }
+  }
+
+  if (restored > 0) {
+    log("info", "terminal", `Restored ${restored} terminal session(s) after restart`);
+  }
 }

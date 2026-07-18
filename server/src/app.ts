@@ -10,6 +10,7 @@ import { registerSpawnConfigs } from "./services/registerSpawnConfigs";
 import { markOrphans as markOrphanBenchRuns } from "./services/benchRunsRepo";
 import { markInterruptedRuns, cancelAllHeadlessRuns } from "./services/headlessClaude";
 import { startResumeScheduler, stopResumeScheduler } from "./services/resumeScheduler";
+import { restoreTerminalSessions } from "./services/terminalRegistry";
 
 const SENSITIVE_KEY = /token|secret|password|apikey|api_key|authorization|cookie|bearer/i;
 
@@ -64,6 +65,10 @@ export async function buildApp(opts: { bodyLimit?: number } = {}) {
   // Same for task AI runs interrupted by a crash/restart. This also re-arms any
   // resume that was mid-flight at the crash back to 'waiting_limit'.
   markInterruptedRuns();
+
+  // Re-adopt interactive terminals whose tmux sessions outlived a restart, so
+  // open terminals survive server restarts instead of all closing.
+  restoreTerminalSessions();
 
   registerSpawnConfigs();
 
