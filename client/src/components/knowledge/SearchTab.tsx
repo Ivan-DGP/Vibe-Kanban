@@ -37,7 +37,12 @@ export default function SearchTab({ projectId }: SearchTabProps) {
   const results = search.data?.results ?? [];
   const s = stats.data;
   const totalPending = (s?.pending ?? 0) + (s?.pendingTasks ?? 0) + (s?.pendingGraphNodes ?? 0);
-  const indexing = totalPending > 0 || backfill.isPending;
+  // Only disable while a backfill request is actually in flight. Using
+  // `totalPending > 0` here deadlocks: any item that never auto-embeds keeps
+  // the button locked forever, so the one control that would drain it is
+  // unreachable exactly when it's needed.
+  const indexing = backfill.isPending;
+  const canIndex = totalPending > 0 && !indexing;
 
   const filterLabels: Record<FilterMode, string> = {
     all: "All",
@@ -102,7 +107,7 @@ export default function SearchTab({ projectId }: SearchTabProps) {
           variant="ghost"
           size="sm"
           onClick={() => backfill.mutate(false)}
-          disabled={indexing}
+          disabled={!canIndex}
         >
           <RefreshCw className={`h-3.5 w-3.5 mr-1 ${indexing ? "animate-spin" : ""}`} />
           {indexing ? "Indexing…" : "Index missing"}

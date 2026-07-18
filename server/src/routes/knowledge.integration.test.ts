@@ -76,14 +76,47 @@ afterEach(() => {
   queryAxis = 0;
   db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(PROJECT_ID);
   db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(PROJECT_ID);
+  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(PROJECT_ID);
+  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(PROJECT_ID);
 });
 
 afterAll(async () => {
   db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(PROJECT_ID);
   db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(PROJECT_ID);
+  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(PROJECT_ID);
+  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(PROJECT_ID);
   db.prepare("DELETE FROM projects WHERE id = ?").run(PROJECT_ID);
   await app.close();
 });
+
+// Seed a graph node plus one embedding chunk. `mirror: true` marks it as an
+// artifact-mirror node (metadata.kind === 'artifact'), which must be excluded
+// from indexing/stats/search.
+function seedGraphNode(opts: { label: string; axis: number; mirror: boolean }): string {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const metadata = opts.mirror
+    ? JSON.stringify({ kind: "artifact", artifactId: crypto.randomUUID(), slug: opts.label })
+    : JSON.stringify({});
+  db.prepare(
+    `INSERT INTO project_graph_nodes (id, projectId, label, type, description, x, y, metadata, status, origin, createdAt, updatedAt)
+     VALUES (?, ?, ?, 'concept', NULL, NULL, NULL, ?, 'confirmed', NULL, ?, ?)`,
+  ).run(id, PROJECT_ID, opts.label, metadata, now, now);
+  db.prepare(
+    `INSERT INTO graph_node_embeddings (id, nodeId, projectId, chunkIdx, content, vector, model, dim, sourceHash, createdAt)
+     VALUES (?, ?, ?, 0, ?, ?, ?, ?, 'testhash', ?)`,
+  ).run(
+    crypto.randomUUID(),
+    id,
+    PROJECT_ID,
+    opts.label,
+    vectorToBlob(axisVector(opts.axis)),
+    EMBEDDING_MODEL,
+    EMBEDDING_DIM,
+    now,
+  );
+  return id;
+}
 
 describe("POST /api/projects/:id/knowledge/search", () => {
   test("returns results sorted by score desc with the documented shape", async () => {
@@ -117,6 +150,27 @@ describe("POST /api/projects/:id/knowledge/search", () => {
     // Top hit is the axis-0 (Auth) artifact.
     expect(body.results[0].artifact.filename).toBe("Auth Service.md");
     expect(body.results[0].score).toBeCloseTo(1, 5);
+  });
+
+  test("excludes artifact-mirror nodes from graph-node search results", async () => {
+    // Real node and mirror node share the query axis → both would score 1 if
+    // included. Only the real node must come back.
+    seedGraphNode({ label: "Real Concept", axis: 0, mirror: false });
+    seedGraphNode({ label: "mirror-of-artifact.md", axis: 0, mirror: true });
+
+    queryAxis = 0;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${PROJECT_ID}/knowledge/search`,
+      headers: { "Content-Type": "application/json" },
+      payload: { query: "concept", types: ["graph_node"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.totalChunks).toBe(1);
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].graphNode.label).toBe("Real Concept");
   });
 
   test("returns 400 on empty query", async () => {
@@ -194,6 +248,23 @@ describe("GET /api/projects/:id/knowledge/stats", () => {
     expect(body).toHaveProperty("pendingGraphNodes", 0);
 
     expect(body.model).toBe(EMBEDDING_MODEL);
+  });
+
+  test("excludes artifact-mirror nodes from graph-node counts", async () => {
+    // One real graph node + one artifact-mirror node, both with an embedding.
+    // Only the real node should be counted.
+    seedGraphNode({ label: "Real Concept", axis: 0, mirror: false });
+    seedGraphNode({ label: "mirror-of-artifact.md", axis: 1, mirror: true });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${PROJECT_ID}/knowledge/stats`,
+    });
+    const body = res.json();
+    expect(body.graphNodeCount).toBe(1);
+    expect(body.embeddedGraphNodes).toBe(1);
+    expect(body.graphNodeChunkCount).toBe(1);
+    expect(body.pendingGraphNodes).toBe(0);
   });
 
   test("pending reflects unembedded artifacts", async () => {
