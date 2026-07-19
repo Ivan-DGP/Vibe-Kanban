@@ -30,10 +30,15 @@ function Steps({ steps }: { steps: ToolStep[] }) {
   return (
     <div className="mb-2 space-y-1">
       {steps.map((s, i) => (
-        <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Search className="h-3 w-3 shrink-0" />
-          <span className="font-mono">{s.name}</span>
-          {s.summary && <span className="truncate opacity-70">{s.summary}</span>}
+        <div key={i} className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Search className="mt-0.5 h-3 w-3 shrink-0" />
+          {/* Wrap (don't nowrap/truncate): inside Radix ScrollArea a nowrap child
+              blows out the width. The summary is already capped server-side. Strip the
+              `mcp__<server>__` prefix so the tool name stays short. */}
+          <span className="min-w-0 break-words leading-snug">
+            <span className="font-mono">{s.name.replace(/^mcp__[a-z0-9-]+__/i, "")}</span>
+            {s.summary && <span className="opacity-70"> — {s.summary}</span>}
+          </span>
         </div>
       ))}
     </div>
