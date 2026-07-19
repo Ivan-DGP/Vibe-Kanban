@@ -48,6 +48,9 @@ import type {
   ApiRequestExecuteResult,
   Artifact,
   KnowledgeSearchResponse,
+  ProjectMemoryEvent,
+  CreateMemoryInput,
+  MemoryType,
   KnowledgeStats,
   CreateArtifactInput,
   UpdateArtifactInput,
@@ -460,6 +463,22 @@ export const api = {
     backfill: (projectId: string, force?: boolean) =>
       post<{ started: boolean; total: number }>(`/projects/${projectId}/knowledge/backfill`, {
         force: !!force,
+      }),
+  },
+
+  memory: {
+    list: (
+      projectId: string,
+      params?: { type?: MemoryType; includeSuperseded?: boolean; limit?: number },
+    ) =>
+      get<{ events: ProjectMemoryEvent[] }>(
+        `/projects/${projectId}/memory${toQuery(params ?? {})}`,
+      ),
+    create: (projectId: string, input: Omit<CreateMemoryInput, "projectId">) =>
+      post<{ event: ProjectMemoryEvent }>(`/projects/${projectId}/memory`, input),
+    supersede: (projectId: string, id: string, newEventId: string) =>
+      post<{ event: ProjectMemoryEvent }>(`/projects/${projectId}/memory/${id}/supersede`, {
+        newEventId,
       }),
   },
 

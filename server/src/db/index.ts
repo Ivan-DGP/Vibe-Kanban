@@ -1077,6 +1077,19 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 42,
+      name: "add-task-ai-runs-grounded-memory",
+      up: () => {
+        // Audit column: the memory events injected into a run's prompt (JSON
+        // GroundedMemory[]), mirroring groundedArtifacts. Guarded so re-running
+        // on a DB that already has the column is a no-op.
+        const cols = db.prepare("PRAGMA table_info(task_ai_runs)").all() as { name: string }[];
+        if (!cols.some((c) => c.name === "groundedMemory")) {
+          db.exec("ALTER TABLE task_ai_runs ADD COLUMN groundedMemory TEXT DEFAULT NULL");
+        }
+      },
+    },
   ];
 
   for (const migration of migrations) {
