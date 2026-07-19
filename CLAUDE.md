@@ -42,6 +42,7 @@ Reach for a skill before doing the work by hand. A `UserPromptSubmit` hook also 
 
 - `/check` — typecheck + lint + tests (`bun run check`, `bun run lint`, `bun run --cwd server test`)
 - `/test` — server unit tests only
+- `/decision-audit` — review an AI change by its *decisions*, not its diff; the merge gate after `/check` is green (pairs with `/code-review`)
 
 **Workflow** (global skills):
 
