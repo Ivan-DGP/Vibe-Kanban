@@ -7,9 +7,18 @@ import { EMBEDDING_MODEL, isEmbeddingsDisabled } from "../services/embeddings";
 import { retrieveKnowledge, type KnowledgeHit } from "../services/knowledgeRetrieval";
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import { createArtifact, ArtifactError } from "../services/artifactService";
-import type { McpToolDefinition, ArtifactType } from "@vibe-kanban/shared";
+import { appendMemory, listMemory } from "../services/projectMemory";
+import type { McpToolDefinition, ArtifactType, MemoryType } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
+
+const MEMORY_TYPES: MemoryType[] = [
+  "decision",
+  "gotcha",
+  "attempt_failed",
+  "convention",
+  "fragile_file",
+];
 
 /** Per-call context, set when the call arrives on a per-run MCP endpoint.
  *  `cwd` points at that run's worktree; `runId` is the task_ai_runs id, which
@@ -347,6 +356,56 @@ export function recordRunDeviations(params: Record<string, unknown>, ctx?: ToolC
     runId,
   );
   return { runId, recorded: { notes, artifactId } };
+}
+
+/** List a project's memory timeline (past decisions, gotchas, failed attempts). */
+export function listMemoryTool(params: Record<string, unknown>): unknown {
+  const projectId = params.projectId as string;
+  if (!projectId) return { error: "projectId required" };
+  const rawType = params.type as string | undefined;
+  const type =
+    rawType && MEMORY_TYPES.includes(rawType as MemoryType) ? (rawType as MemoryType) : undefined;
+  const events = listMemory(projectId, {
+    type,
+    includeSuperseded: params.includeSuperseded === true,
+    limit: Number.isFinite(Number(params.limit)) ? Number(params.limit) : undefined,
+  });
+  return { events };
+}
+
+/** Append a memory event (agent-authored → origin ai_captured). When called from
+ *  a per-run MCP endpoint, provenance (runId + its taskId) is recorded. */
+export function appendMemoryTool(params: Record<string, unknown>, ctx?: ToolContext): unknown {
+  const projectId = params.projectId as string;
+  const type = params.type as MemoryType;
+  const title = (params.title as string)?.trim();
+  if (!projectId) return { error: "projectId required" };
+  if (!type || !MEMORY_TYPES.includes(type)) {
+    return { error: `type must be one of ${MEMORY_TYPES.join(", ")}` };
+  }
+  if (!title) return { error: "title required" };
+
+  // Provenance: derive taskId from the run when on a per-run endpoint.
+  let taskId: string | null = null;
+  const runId = ctx?.runId ?? null;
+  if (runId) {
+    const run = getDb().query("SELECT taskId FROM task_ai_runs WHERE id = ?").get(runId) as
+      | { taskId: string }
+      | undefined;
+    taskId = run?.taskId ?? null;
+  }
+
+  const event = appendMemory({
+    projectId,
+    type,
+    title,
+    body: params.body as string | undefined,
+    files: Array.isArray(params.files) ? (params.files as string[]) : undefined,
+    taskId,
+    runId,
+    origin: "ai_captured",
+  });
+  return { id: event.id, type: event.type, title: event.title };
 }
 
 export function listGraphNodes(params: Record<string, unknown>): unknown {
@@ -802,6 +861,58 @@ export const tools: ToolHandler[] = [
       },
     },
     handler: searchAllProjects,
+  },
+  {
+    definition: {
+      name: "list_memory",
+      description:
+        "List a project's memory timeline — past decisions, gotchas, approaches that already failed (attempt_failed), conventions, and fragile files. Auto-captured from prior runs and human-curated. Consult before proposing a fix to avoid repeating what already failed. Newest first; superseded entries hidden unless includeSuperseded is set.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "Project ID" },
+          type: {
+            type: "string",
+            enum: ["decision", "gotcha", "attempt_failed", "convention", "fragile_file"],
+            description: "Optional: restrict to a single memory type.",
+          },
+          includeSuperseded: {
+            type: "boolean",
+            description: "Include entries retired by a later one. Default false.",
+          },
+          limit: { type: "number", description: "Max events (default 100, max 500)." },
+        },
+        required: ["projectId"],
+      },
+    },
+    handler: listMemoryTool,
+  },
+  {
+    definition: {
+      name: "append_memory",
+      description:
+        "Record a durable lesson to the project's memory so future runs benefit — a `decision` (+ rationale), a `gotcha`, an `attempt_failed` (an approach that did NOT work, so nobody retries it), a `convention`, or a `fragile_file`. Keep the title short and searchable; put detail in body. Provenance is recorded automatically on a per-run endpoint.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string", description: "Project ID" },
+          type: {
+            type: "string",
+            enum: ["decision", "gotcha", "attempt_failed", "convention", "fragile_file"],
+            description: "The kind of lesson.",
+          },
+          title: { type: "string", description: "Short, human-scannable summary." },
+          body: { type: "string", description: "Detail / rationale." },
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional: affected repo-relative paths.",
+          },
+        },
+        required: ["projectId", "type", "title"],
+      },
+    },
+    handler: appendMemoryTool,
   },
 ];
 

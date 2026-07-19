@@ -33,6 +33,8 @@ import {
   listArtifacts,
   readArtifact,
   listGraphNodes,
+  listMemoryTool,
+  appendMemoryTool,
   searchKnowledge,
   searchAllProjects,
   createArtifactTool,
@@ -327,6 +329,8 @@ describe("MCP tools - getTools (tool definitions)", () => {
     expect(names).toContain("list_graph_nodes");
     expect(names).toContain("search_knowledge");
     expect(names).toContain("cross_project_search");
+    expect(names).toContain("list_memory");
+    expect(names).toContain("append_memory");
   });
 });
 
@@ -930,5 +934,90 @@ describe("MCP tools - searchAllProjects (cross-project)", () => {
     expect(result.results).toEqual([]);
     expect(result.totalChunks).toBe(0);
     expect(searchEmbedCalled).toBe(false);
+  });
+});
+
+describe("MCP tools - memory (list_memory / append_memory)", () => {
+  const MEM_PROJECT = crypto.randomUUID();
+  const MEM_TASK = crypto.randomUUID();
+  const MEM_RUN = crypto.randomUUID();
+
+  beforeAll(() => {
+    process.env.VK_DISABLE_EMBEDDINGS = "1"; // append triggers a background embed
+    const db = getDb();
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
+    ).run(MEM_PROJECT, "mem mcp", `/tmp/mem-mcp-${Date.now()}`, "[]", 0);
+    db.query("INSERT INTO tasks (id, projectId, title) VALUES (?, ?, ?)").run(
+      MEM_TASK,
+      MEM_PROJECT,
+      "mem task",
+    );
+    db.query(
+      "INSERT INTO task_ai_runs (id, taskId, projectId, profile, status, startedAt) VALUES (?, ?, ?, 'headless', 'running', ?)",
+    ).run(MEM_RUN, MEM_TASK, MEM_PROJECT, new Date().toISOString());
+  });
+
+  afterEach(() => {
+    getDb().query("DELETE FROM project_memory WHERE projectId = ?").run(MEM_PROJECT);
+  });
+
+  afterAll(() => {
+    delete process.env.VK_DISABLE_EMBEDDINGS;
+    const db = getDb();
+    db.query("DELETE FROM project_memory WHERE projectId = ?").run(MEM_PROJECT);
+    db.query("DELETE FROM task_ai_runs WHERE projectId = ?").run(MEM_PROJECT);
+    db.query("DELETE FROM tasks WHERE projectId = ?").run(MEM_PROJECT);
+    db.query("DELETE FROM projects WHERE id = ?").run(MEM_PROJECT);
+  });
+
+  test("append_memory creates an ai_captured event with run provenance", () => {
+    const res = appendMemoryTool(
+      { projectId: MEM_PROJECT, type: "attempt_failed", title: "tried X", body: "did not work" },
+      { runId: MEM_RUN },
+    ) as { id: string; type: string; title: string };
+    expect(res.type).toBe("attempt_failed");
+
+    const row = getDb()
+      .query("SELECT origin, taskId, runId FROM project_memory WHERE id = ?")
+      .get(res.id) as { origin: string; taskId: string; runId: string };
+    expect(row.origin).toBe("ai_captured");
+    expect(row.runId).toBe(MEM_RUN);
+    expect(row.taskId).toBe(MEM_TASK); // derived from the run
+  });
+
+  test("append_memory validates type and title", () => {
+    expect(
+      (appendMemoryTool({ projectId: MEM_PROJECT, title: "x" }) as { error?: string }).error,
+    ).toBeDefined();
+    expect(
+      (
+        appendMemoryTool({ projectId: MEM_PROJECT, type: "bogus", title: "x" }) as {
+          error?: string;
+        }
+      ).error,
+    ).toBeDefined();
+    expect(
+      (
+        appendMemoryTool({ projectId: MEM_PROJECT, type: "decision", title: "  " }) as {
+          error?: string;
+        }
+      ).error,
+    ).toBeDefined();
+  });
+
+  test("list_memory returns events, filters by type, requires projectId", () => {
+    appendMemoryTool({ projectId: MEM_PROJECT, type: "decision", title: "D1" });
+    appendMemoryTool({ projectId: MEM_PROJECT, type: "gotcha", title: "G1" });
+
+    const all = listMemoryTool({ projectId: MEM_PROJECT }) as { events: unknown[] };
+    expect(all.events.length).toBe(2);
+
+    const decisions = listMemoryTool({ projectId: MEM_PROJECT, type: "decision" }) as {
+      events: { title: string }[];
+    };
+    expect(decisions.events.map((e) => e.title)).toEqual(["D1"]);
+
+    expect((listMemoryTool({}) as { error?: string }).error).toBeDefined();
   });
 });

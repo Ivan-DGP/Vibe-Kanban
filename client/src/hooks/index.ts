@@ -17,4 +17,5 @@ export * from "./useArtifacts";
 export * from "./useRoadmap";
 export * from "./useGraph";
 export * from "./useKnowledge";
+export * from "./useMemory";
 export * from "./useBenchmarks";

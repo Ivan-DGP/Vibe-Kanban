@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { GroundedArtifact } from "./artifact";
+import type { GroundedMemory } from "./memory";
 import type { AiAgent } from "./misc";
 
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "done" | "approved" | "archived";
@@ -112,6 +113,9 @@ export interface TaskAiRun {
   // O6: knowledge artifacts injected into this run's prompt. Empty when no
   // knowledge was grounded (embeddings disabled, no artifacts, or timeout).
   groundedArtifacts?: GroundedArtifact[];
+  // Memory events injected into this run's prompt (past decisions/gotchas/failed
+  // attempts). Empty when no memory was grounded.
+  groundedMemory?: GroundedMemory[];
   // Per-run deviations log recorded by the resolve agent via the
   // record_run_deviations MCP tool: how it diverged from the plan, plus the
   // impl-notes artifact it authored. Null when the agent logged nothing.
