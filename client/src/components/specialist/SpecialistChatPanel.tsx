@@ -3,16 +3,41 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Send, Loader2, Sparkles, User, BookOpen } from "lucide-react";
+import { Send, Loader2, Sparkles, User, BookOpen, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { specialistChat } from "@/hooks/useSpecialist";
 import type { SpecialistSource } from "@vibe-kanban/shared";
 
+interface ToolStep {
+  name: string;
+  summary?: string;
+}
+
 interface Msg {
   role: "user" | "assistant";
   content: string;
   sources?: SpecialistSource[];
+  /** Agentic engine: the MCP tool calls the model made, in order. */
+  steps?: ToolStep[];
+  /** "agentic" | "grounded" — which engine answered. */
+  engine?: string;
+}
+
+/** The agent's MCP tool calls, shown as inline steps while it works. */
+function Steps({ steps }: { steps: ToolStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div className="mb-2 space-y-1">
+      {steps.map((s, i) => (
+        <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Search className="h-3 w-3 shrink-0" />
+          <span className="font-mono">{s.name}</span>
+          {s.summary && <span className="truncate opacity-70">{s.summary}</span>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Compact citation list rendered above an assistant answer. */
@@ -87,7 +112,22 @@ export default function SpecialistChatPanel() {
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.type === "sources") {
+            if (data.type === "engine") {
+              const engine = data.mode as string;
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = { ...next[next.length - 1], engine };
+                return next;
+              });
+            } else if (data.type === "tool") {
+              const step: ToolStep = { name: data.name, summary: data.summary };
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                next[next.length - 1] = { ...last, steps: [...(last.steps ?? []), step] };
+                return next;
+              });
+            } else if (data.type === "sources") {
               const sources = data.sources as SpecialistSource[];
               setMessages((prev) => {
                 const next = [...prev];
@@ -153,6 +193,7 @@ export default function SpecialistChatPanel() {
               >
                 {m.role === "assistant" ? (
                   <>
+                    {m.steps && <Steps steps={m.steps} />}
                     {m.sources && <Sources sources={m.sources} />}
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                   </>

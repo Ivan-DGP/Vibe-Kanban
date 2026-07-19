@@ -19,6 +19,11 @@ import {
 } from "../services/headlessClaude";
 import { scheduleResume } from "../services/resumeScheduler";
 import { groundQuery, buildSpecialistPrompt } from "../services/specialistChat";
+import {
+  useAgentic,
+  isSpecialistAgenticEnabled,
+  streamAgenticChat,
+} from "../services/specialistAgent";
 import type { Task } from "@vibe-kanban/shared";
 
 let cliAvailableCache: boolean | null = null;
@@ -327,19 +332,31 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
     reply.raw.end();
   });
 
-  // Cross-project Specialist chat: ground the question in knowledge + memory across
-  // ALL projects, emit the cited sources as a first SSE `sources` frame, then stream
-  // the answer via the shared CLI→API fallback. Grounding never blocks the answer.
+  // Cross-project Specialist chat. Two engines:
+  //  - Agentic (opt-in VK_SPECIALIST_AGENTIC + MCP reachable): the model drives its
+  //    own multi-hop MCP tool calls; tool steps stream as `tool` frames.
+  //  - Grounded one-shot (default / fallback): pre-ground with knowledge + memory,
+  //    emit the cited `sources` frame, then stream the answer via the CLI→API fallback.
   fastify.post("/specialist/chat", async (request, reply) => {
     const { message } = request.body as { message?: string };
     if (!message || !message.trim()) {
       reply.code(400);
       return { error: "message is required" };
     }
+    if (useAgentic()) {
+      await streamAgenticChat(message, reply);
+      return;
+    }
     const grounding = await groundQuery(message);
     const sources = [...grounding.knowledge, ...grounding.memory];
     const prompt = buildSpecialistPrompt(message, grounding);
-    await streamPromptToSSE(prompt, reply, [{ type: "sources", sources }]);
+    // Signal the engine (and, when agentic was opted-in but MCP is unavailable, why).
+    const engine = {
+      type: "engine",
+      mode: "grounded",
+      ...(isSpecialistAgenticEnabled() ? { reason: "mcp_unavailable" } : {}),
+    };
+    await streamPromptToSSE(prompt, reply, [engine, { type: "sources", sources }]);
   });
 
   // Shared SSE streaming helper. `preludeEvents` are written as `data:` frames

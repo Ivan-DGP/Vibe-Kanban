@@ -80,3 +80,46 @@ test("specialist panel renders grounded sources + streamed answer", async ({ pag
   // ...and the streamed answer.
   await expect(panel.getByText(/Yes — we solved JWT rotation in Auth Gateway\./)).toBeVisible();
 });
+
+// Agentic engine: the model's MCP tool calls stream as `tool` frames and render as
+// inline steps above the answer.
+const AGENTIC_BODY = [
+  `data: ${JSON.stringify({ type: "engine", mode: "agentic" })}`,
+  "",
+  `data: ${JSON.stringify({ type: "tool", name: "cross_project_search", summary: "JWT rotation" })}`,
+  "",
+  `data: ${JSON.stringify({ type: "tool", name: "cross_project_memory_search", summary: "JWT rotation" })}`,
+  "",
+  `data: ${JSON.stringify({ type: "delta", text: "Yes — Auth Gateway hit this; use a dual-key overlap." })}`,
+  "",
+  `data: ${JSON.stringify({ type: "done" })}`,
+  "",
+  "",
+].join("\n");
+
+test("specialist panel renders agentic tool-call steps + answer", async ({ page }) => {
+  await page.route("**/api/specialist/chat", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      body: AGENTIC_BODY,
+    }),
+  );
+
+  await page.goto("/", { waitUntil: "networkidle" });
+  await dismissOnboarding(page);
+
+  await page.getByRole("button", { name: /^Specialist$/ }).click();
+  const panel = page.getByRole("dialog", { name: /Specialist/ });
+  await expect(panel).toBeVisible();
+
+  const box = panel.getByPlaceholder(/ask the specialist/i);
+  await box.fill("How do we rotate JWT keys?");
+  await box.press("Enter");
+
+  // Both tool calls render as steps...
+  await expect(panel.getByText("cross_project_search")).toBeVisible({ timeout: 10000 });
+  await expect(panel.getByText("cross_project_memory_search")).toBeVisible();
+  // ...and the streamed answer follows.
+  await expect(panel.getByText(/dual-key overlap/)).toBeVisible();
+});
