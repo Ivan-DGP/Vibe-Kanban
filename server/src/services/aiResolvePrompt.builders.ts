@@ -43,6 +43,8 @@ import {
   buildProfileInstructions,
 } from "./aiResolvePrompt.classify";
 import { buildKnowledgeContext, type GroundedArtifact } from "./knowledgeInjection";
+import { buildMemoryContext } from "./memoryInjection";
+import type { GroundedMemory } from "@vibe-kanban/shared";
 
 // Architecture-context caps: keep the injected subsystem map bounded on large
 // projects so it never dominates the prompt.
@@ -251,6 +253,8 @@ Identify pitfalls, edge cases, breaking changes, or technical challenges the dev
 export interface AiResolvePromptResult {
   prompt: string;
   groundedArtifacts: GroundedArtifact[];
+  /** Memory events injected into <project_memory>; empty when none. */
+  groundedMemory: GroundedMemory[];
 }
 
 /**
@@ -277,6 +281,7 @@ export async function buildAiResolvePromptWithGrounding(
 ): Promise<AiResolvePromptResult> {
   const db = getDb();
   let groundedArtifacts: GroundedArtifact[] = [];
+  let groundedMemory: GroundedMemory[] = [];
 
   // Get project
   const projectRow = db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as any;
@@ -464,6 +469,20 @@ Profile: ${effectiveProfile}${task.promptProfile === "auto" ? " (auto-detected)"
     // Prompt is built without the knowledge block (criterion 3).
   }
 
+  // Inject top-K relevant project memory (past decisions / gotchas / failed
+  // attempts) under a SEPARATE byte budget from knowledge. Never throws; defend
+  // anyway so memory retrieval can never break prompt building.
+  try {
+    const memory = await buildMemoryContext({
+      projectId: project.id,
+      query: task.description ? `${task.title}\n${task.description}` : task.title,
+    });
+    if (memory.block) contextParts.push(memory.block);
+    groundedMemory = memory.events;
+  } catch {
+    // Prompt is built without the memory block.
+  }
+
   if (contextParts.length > 0) {
     parts.push(`<project_context>\n${contextParts.join("\n\n")}\n</project_context>`);
   }
@@ -501,7 +520,7 @@ curl -s -X PATCH http://localhost:${port}/api/tasks/${task.id} -H "Content-Type:
 
 This is not optional. The task MUST be marked as done when you finish.`);
 
-  return { prompt: parts.join("\n\n"), groundedArtifacts };
+  return { prompt: parts.join("\n\n"), groundedArtifacts, groundedMemory };
 }
 
 export async function buildGatherContextPrompt(
