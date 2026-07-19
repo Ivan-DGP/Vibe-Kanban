@@ -39,7 +39,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 39 on a blank database", () => {
+  test("runs all migrations from version 1 to 41 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -55,7 +55,7 @@ describe("fresh database: real runMigrations", () => {
       version: number;
       name: string;
     }[];
-    expect(rows.length).toBe(39);
+    expect(rows.length).toBe(41);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
@@ -104,12 +104,15 @@ describe("fresh database: real runMigrations", () => {
     old.exec(
       "INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt) VALUES ('e1','a1','p1',0,'ENOSPC on host web-07',x'00','m',384,'t')",
     );
-    // Roll v39 back (drop its objects + ledger row), leaving the seeded row in place.
+    // Roll back to a pre-v39 ledger state (drop v39 objects + every ledger row
+    // from 39 onward) so re-running replays v39's fts create + backfill. Deleting
+    // only v39 would leave currentVersion at the latest migration, so v39 would
+    // not replay. v40/v41 use CREATE TABLE IF NOT EXISTS, so replaying is a no-op.
     old.exec("DROP TABLE knowledge_fts");
     old.exec(
       "DROP TRIGGER trg_artifact_emb_fts_ai; DROP TRIGGER trg_artifact_emb_fts_ad; DROP TRIGGER trg_task_emb_fts_ai; DROP TRIGGER trg_task_emb_fts_ad; DROP TRIGGER trg_graph_node_emb_fts_ai; DROP TRIGGER trg_graph_node_emb_fts_ad",
     );
-    old.exec("DELETE FROM _migrations WHERE version = 39");
+    old.exec("DELETE FROM _migrations WHERE version >= 39");
 
     _runMigrations(old);
 
@@ -146,10 +149,79 @@ describe("fresh database: real runMigrations", () => {
       "task_ai_findings",
       "artifact_pending_links",
       "claude_sessions",
+      "project_memory",
+      "memory_embeddings",
     ];
     for (const t of expected) {
       expect(names).toContain(t);
     }
+  });
+
+  test("v40/v41 create project_memory + memory_embeddings with expected columns", () => {
+    db = freshDb("memory-schema");
+    db.exec("PRAGMA foreign_keys = ON");
+    _runMigrations(db);
+
+    const memCols = (
+      db.prepare("PRAGMA table_info(project_memory)").all() as { name: string }[]
+    ).map((c) => c.name);
+    expect(memCols).toEqual(
+      expect.arrayContaining([
+        "id",
+        "projectId",
+        "type",
+        "title",
+        "body",
+        "files",
+        "taskId",
+        "runId",
+        "origin",
+        "supersededBy",
+        "createdAt",
+      ]),
+    );
+    const embCols = (
+      db.prepare("PRAGMA table_info(memory_embeddings)").all() as { name: string }[]
+    ).map((c) => c.name);
+    expect(embCols).toEqual(
+      expect.arrayContaining([
+        "id",
+        "memoryId",
+        "projectId",
+        "chunkIdx",
+        "content",
+        "vector",
+        "model",
+        "dim",
+        "sourceHash",
+        "createdAt",
+      ]),
+    );
+
+    // type + origin CHECK constraints reject bad values.
+    db.exec(
+      "INSERT INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth) VALUES ('p1','P','/tmp/p1',0,'[]','[]','stage',3)",
+    );
+    expect(() =>
+      db.exec(
+        "INSERT INTO project_memory (id, projectId, type, title, origin) VALUES ('m1','p1','not_a_type','t','ai_captured')",
+      ),
+    ).toThrow();
+    expect(() =>
+      db.exec(
+        "INSERT INTO project_memory (id, projectId, type, title, origin) VALUES ('m2','p1','decision','t','robot')",
+      ),
+    ).toThrow();
+    // A valid row inserts.
+    db.exec(
+      "INSERT INTO project_memory (id, projectId, type, title, origin) VALUES ('m3','p1','decision','use bun','human')",
+    );
+    const row = db.prepare("SELECT files, body FROM project_memory WHERE id='m3'").get() as {
+      files: string;
+      body: string;
+    };
+    expect(row.files).toBe("[]"); // default
+    expect(row.body).toBe(""); // default
   });
 
   test("graph tables have status + origin columns (migration 33)", () => {
@@ -221,7 +293,7 @@ describe("fresh database: real runMigrations", () => {
     expect(edge.status).toBe("confirmed");
 
     const maxV = old.prepare("SELECT MAX(version) v FROM _migrations").get() as { v: number };
-    expect(maxV.v).toBe(39);
+    expect(maxV.v).toBe(41);
   });
 
   test("tasks table has all columns from all migrations", () => {
@@ -362,8 +434,8 @@ describe("runMigrations idempotency", () => {
       db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
     ).c;
 
-    expect(countAfterFirst).toBe(39);
-    expect(countAfterSecond).toBe(39);
+    expect(countAfterFirst).toBe(41);
+    expect(countAfterSecond).toBe(41);
   });
 });
 
@@ -389,7 +461,7 @@ describe("migration from completely empty database", () => {
     const finalVersion = (
       db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }
     ).v;
-    expect(finalVersion).toBe(39);
+    expect(finalVersion).toBe(41);
   });
 });
 
@@ -449,7 +521,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(39);
+    expect(max).toBe(41);
   });
 });
 
@@ -474,7 +546,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(39);
+    expect(max).toBe(41);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -882,7 +954,7 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(39);
+    expect(max).toBe(41);
   });
 });
 
