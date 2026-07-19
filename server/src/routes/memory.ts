@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { appendMemory, listMemory, getMemory, supersede } from "../services/projectMemory";
+import { searchMemory } from "../services/memorySearch";
 import type { MemoryType, CreateMemoryInput } from "@vibe-kanban/shared";
 
 interface ProjectParams {
@@ -27,7 +28,41 @@ interface ListQuery {
 // Body of POST /memory — projectId comes from the path, not the body.
 type CreateBody = Omit<CreateMemoryInput, "projectId">;
 
+interface CrossSearchBody {
+  query?: string;
+  k?: number;
+  minScore?: number;
+  type?: MemoryType;
+  includeSuperseded?: boolean;
+}
+
 const memoryRoutes: FastifyPluginAsync = async (fastify) => {
+  // Cross-project semantic memory search: rank past lessons across ALL projects.
+  // Each hit carries its source `project`. No projectId in the path.
+  fastify.post<{ Body: CrossSearchBody }>(
+    "/cross-project/memory/search",
+    async (request, reply) => {
+      const { query, k, minScore, type, includeSuperseded } = request.body ?? {};
+      if (!query || typeof query !== "string" || query.trim().length === 0) {
+        return reply.code(400).send({ error: "query required" });
+      }
+      const typeFilter = type && MEMORY_TYPES.includes(type) ? type : undefined;
+      const result = await searchMemory({
+        query,
+        k,
+        minScore,
+        type: typeFilter,
+        includeSuperseded: includeSuperseded === true,
+      });
+      return {
+        query,
+        model: result.model,
+        results: result.hits,
+        totalCandidates: result.totalCandidates,
+      };
+    },
+  );
+
   fastify.get<{ Params: ProjectParams; Querystring: ListQuery }>(
     "/projects/:projectId/memory",
     async (request) => {

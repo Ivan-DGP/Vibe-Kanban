@@ -35,6 +35,7 @@ import {
   listGraphNodes,
   listMemoryTool,
   appendMemoryTool,
+  crossProjectMemorySearch,
   searchKnowledge,
   searchAllProjects,
   createArtifactTool,
@@ -331,6 +332,7 @@ describe("MCP tools - getTools (tool definitions)", () => {
     expect(names).toContain("cross_project_search");
     expect(names).toContain("list_memory");
     expect(names).toContain("append_memory");
+    expect(names).toContain("cross_project_memory_search");
   });
 });
 
@@ -1019,5 +1021,82 @@ describe("MCP tools - memory (list_memory / append_memory)", () => {
     expect(decisions.events.map((e) => e.title)).toEqual(["D1"]);
 
     expect((listMemoryTool({}) as { error?: string }).error).toBeDefined();
+  });
+});
+
+describe("MCP tools - cross_project_memory_search", () => {
+  const CPM_A = crypto.randomUUID();
+  const CPM_B = crypto.randomUUID();
+
+  function seedMem(projectId: string, title: string, body: string, axis: number): void {
+    const db = getDb();
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.query(
+      "INSERT INTO project_memory (id, projectId, type, title, body, files, origin, createdAt) VALUES (?, ?, 'gotcha', ?, ?, '[]', 'ai_captured', ?)",
+    ).run(id, projectId, title, body, now);
+    const v = new Float32Array(EMBEDDING_DIM);
+    v[axis] = 1;
+    db.query(
+      "INSERT INTO memory_embeddings (id, memoryId, projectId, chunkIdx, content, vector, model, dim, sourceHash, createdAt) VALUES (?, ?, ?, 0, ?, ?, ?, ?, 'h', ?)",
+    ).run(
+      crypto.randomUUID(),
+      id,
+      projectId,
+      body,
+      vectorToBlob(v),
+      EMBEDDING_MODEL,
+      EMBEDDING_DIM,
+      now,
+    );
+  }
+
+  beforeAll(() => {
+    const db = getDb();
+    for (const [pid, name] of [
+      [CPM_A, "CPM A"],
+      [CPM_B, "CPM B"],
+    ]) {
+      db.query(
+        "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
+      ).run(pid, name, `/tmp/${pid}`, "[]", 0);
+    }
+  });
+
+  afterEach(() => {
+    const db = getDb();
+    searchQueryAxis = 0;
+    for (const pid of [CPM_A, CPM_B]) {
+      db.query("DELETE FROM memory_embeddings WHERE projectId = ?").run(pid);
+      db.query("DELETE FROM project_memory WHERE projectId = ?").run(pid);
+    }
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    db.query("DELETE FROM projects WHERE id IN (?, ?)").run(CPM_A, CPM_B);
+  });
+
+  test("returns memory from all projects, each with projectId/projectName", async () => {
+    seedMem(CPM_A, "A lesson", "shared widget note", 0);
+    seedMem(CPM_B, "B lesson", "shared widget note", 0);
+    searchQueryAxis = 0;
+
+    const res = (await crossProjectMemorySearch({ query: "widget" })) as {
+      results: { projectId: string; projectName: string; title: string }[];
+      totalChunks: number;
+    };
+    expect(res.totalChunks).toBe(2);
+    expect(res.results.map((r) => r.projectName).sort()).toEqual(["CPM A", "CPM B"]);
+    expect(res.results.every((r) => r.projectId && r.projectName)).toBe(true);
+  });
+
+  test("requires a query", async () => {
+    expect(((await crossProjectMemorySearch({})) as { error?: string }).error).toBeDefined();
+  });
+
+  test("note when no memory exists anywhere", async () => {
+    const res = (await crossProjectMemorySearch({ query: "nothing" })) as { note?: string };
+    expect(res.note).toBeDefined();
   });
 });

@@ -8,6 +8,7 @@ import { retrieveKnowledge, type KnowledgeHit } from "../services/knowledgeRetri
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import { createArtifact, ArtifactError } from "../services/artifactService";
 import { appendMemory, listMemory } from "../services/projectMemory";
+import { searchMemory } from "../services/memorySearch";
 import type { McpToolDefinition, ArtifactType, MemoryType } from "@vibe-kanban/shared";
 import fs from "node:fs";
 import path from "node:path";
@@ -552,6 +553,56 @@ export async function searchAllProjects(params: Record<string, unknown>): Promis
   };
 }
 
+/** Semantic search over project MEMORY across ALL projects — find past lessons
+ *  (decisions, gotchas, failed attempts) relevant to the query, wherever they
+ *  were recorded. Each result carries projectId/projectName attribution. */
+export async function crossProjectMemorySearch(params: Record<string, unknown>): Promise<unknown> {
+  const query = (params.query as string)?.trim();
+  // Agent-facing clamp: default 8, max 25.
+  const k = Math.min(Math.max(Number(params.k) || 8, 1), 25);
+  const rawType = params.type as string | undefined;
+  const type =
+    rawType && MEMORY_TYPES.includes(rawType as MemoryType) ? (rawType as MemoryType) : undefined;
+  const includeSuperseded = params.includeSuperseded === true;
+
+  if (!query) return { error: "query required" };
+  if (isEmbeddingsDisabled()) {
+    return { query, model: EMBEDDING_MODEL, results: [], totalChunks: 0 };
+  }
+
+  // projectId omitted → cross-project.
+  const result = await searchMemory({ query, k, type, includeSuperseded });
+
+  if (result.totalCandidates === 0) {
+    return {
+      query,
+      model: EMBEDDING_MODEL,
+      results: [],
+      note: "No memory recorded in any project yet.",
+    };
+  }
+
+  return {
+    query,
+    model: EMBEDDING_MODEL,
+    results: result.hits.map((h) => ({
+      id: h.id,
+      type: h.type,
+      title: h.title,
+      body: h.body,
+      files: h.files,
+      taskId: h.taskId,
+      runId: h.runId,
+      origin: h.origin,
+      createdAt: h.createdAt,
+      score: h.score,
+      projectId: h.project?.id,
+      projectName: h.project?.name,
+    })),
+    totalChunks: result.totalCandidates,
+  };
+}
+
 export const tools: ToolHandler[] = [
   {
     definition: {
@@ -913,6 +964,31 @@ export const tools: ToolHandler[] = [
       },
     },
     handler: appendMemoryTool,
+  },
+  {
+    definition: {
+      name: "cross_project_memory_search",
+      description:
+        "Semantic search over project MEMORY across ALL projects at once — find past decisions, gotchas, and approaches that already failed (attempt_failed) relevant to what you're working on, wherever they were recorded. Use it before a fix to check whether this class of problem was already solved (or already failed) in another project. Each result carries projectId/projectName attribution. Superseded entries are hidden unless includeSuperseded is set.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural-language search query" },
+          k: { type: "number", description: "Number of results (default 8, max 25)." },
+          type: {
+            type: "string",
+            enum: ["decision", "gotcha", "attempt_failed", "convention", "fragile_file"],
+            description: "Optional: restrict to a single memory type.",
+          },
+          includeSuperseded: {
+            type: "boolean",
+            description: "Include entries retired by a later one. Default false.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+    handler: crossProjectMemorySearch,
   },
 ];
 
