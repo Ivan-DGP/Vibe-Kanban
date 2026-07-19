@@ -79,6 +79,9 @@ import type {
   BenchDiffInfo,
   BenchResult,
   BenchReport,
+  SupervisorProposal,
+  SupervisorScanResult,
+  SupervisorDispatchResult,
 } from "@vibe-kanban/shared";
 
 // Re-export the Bench* wire types so existing consumers importing from
@@ -510,6 +513,17 @@ export const api = {
       ),
     impact: (projectId: string, files: string[]) =>
       post<ImpactResult>(`/projects/${projectId}/impact`, { files }),
+  },
+
+  supervisor: {
+    // Run a cross-project scan → emit idempotent backlog proposals (propose-only).
+    scan: (limit?: number) => post<SupervisorScanResult>("/supervisor/scan", { limit }),
+    // List the supervisor-origin tasks (any status, newest first).
+    proposals: () => get<{ proposals: SupervisorProposal[] }>("/supervisor/proposals"),
+    // Dispatch ONE proposal into the isolated headless runner (human-gated;
+    // 403 when VK_SUPERVISOR_DISPATCH_ENABLED is off).
+    dispatch: (taskId: string) =>
+      post<SupervisorDispatchResult>(`/supervisor/proposals/${taskId}/dispatch`, {}),
   },
 
   benchmarks: {

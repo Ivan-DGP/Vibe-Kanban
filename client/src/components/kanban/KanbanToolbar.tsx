@@ -15,9 +15,11 @@ import {
   BarChart3,
   Zap,
   MessageSquare,
+  ShieldCheck,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import AIChatPanel from "@/components/ai/AIChatPanel";
+import SupervisorPanel from "@/components/supervisor/SupervisorPanel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +62,7 @@ export default function KanbanToolbar({
 }: KanbanToolbarProps) {
   const [milestoneManagerOpen, setMilestoneManagerOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [supervisorOpen, setSupervisorOpen] = useState(false);
   const [sizeDialogOpen, setSizeDialogOpen] = useState(false);
   const [sizeLoading, setSizeLoading] = useState(false);
   const [sizeResult, setSizeResult] = useState("");
@@ -269,6 +272,16 @@ Be direct and practical. Output plain text, no markdown headers.`;
             Chat
           </Button>
 
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => setSupervisorOpen(true)}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Supervisor
+          </Button>
+
           <Button size="sm" className="h-8 gap-1.5" onClick={onNewTask}>
             <Plus className="h-3.5 w-3.5" />
             New Task
@@ -283,6 +296,17 @@ Be direct and practical. Output plain text, no markdown headers.`;
           </SheetHeader>
           <div className="flex-1 min-h-0">
             <AIChatPanel projectId={projectId} />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={supervisorOpen} onOpenChange={setSupervisorOpen}>
+        <SheetContent side="right" className="w-[480px] sm:max-w-[480px] p-0 flex flex-col">
+          <SheetHeader className="px-3 py-2 border-b">
+            <SheetTitle className="text-sm">Supervisor</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 min-h-0">
+            <SupervisorPanel />
           </div>
         </SheetContent>
       </Sheet>

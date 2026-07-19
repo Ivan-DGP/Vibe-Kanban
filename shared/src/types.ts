@@ -23,3 +23,4 @@ export * from "./types/api-client";
 export * from "./types/bench";
 export * from "./types/misc";
 export * from "./types/depgraph";
+export * from "./types/supervisor";
