@@ -6,6 +6,7 @@
 import { getDb } from "../db";
 import { collectSignals } from "./supervisorSignals";
 import { buildProposals } from "./supervisorProposals";
+import { refineProposals } from "./supervisorSynthesis";
 import type { SupervisorProposal } from "./supervisorProposals";
 import type { EmbedFn } from "./memorySearch";
 
@@ -44,7 +45,10 @@ export async function runScan(opts: ScanOptions = {}): Promise<ScanResult> {
   // the same top-N. (Without this, once the top `limit` persist, every later scan
   // re-ranks them and creates nothing until they're cleared.)
   const fresh = collectSignals().filter((s) => !findExisting.get(s.signalKey));
-  const proposals = await buildProposals(fresh, { limit: opts.limit, embedFn: opts.embedFn });
+  const ranked = await buildProposals(fresh, { limit: opts.limit, embedFn: opts.embedFn });
+  // Optional LLM pass to sharpen each rationale — opt-in (default OFF) and a
+  // pure refinement: falls back to the deterministic rationale on any failure.
+  const proposals = refineProposals(ranked);
 
   let created = 0;
   let skipped = 0;
