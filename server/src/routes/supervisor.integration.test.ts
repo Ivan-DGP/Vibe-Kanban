@@ -29,8 +29,12 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-  // Remove any supervisor tasks created in the test projects between cases.
+  // Remove ALL signal sources + emitted tasks between cases — otherwise a prior
+  // test's still-planned/unlinked roadmap items leak in as signals and consume
+  // the next scan's `limit`.
   db.prepare("DELETE FROM tasks WHERE projectId IN (?, ?)").run(P1, P2);
+  db.prepare("DELETE FROM roadmap_items WHERE projectId IN (?, ?)").run(P1, P2);
+  db.prepare("DELETE FROM project_memory WHERE projectId IN (?, ?)").run(P1, P2);
 });
 
 afterAll(async () => {
