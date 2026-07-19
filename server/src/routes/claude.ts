@@ -18,6 +18,7 @@ import {
   cancelHeadlessRun,
 } from "../services/headlessClaude";
 import { scheduleResume } from "../services/resumeScheduler";
+import { groundQuery, buildSpecialistPrompt } from "../services/specialistChat";
 import type { Task } from "@vibe-kanban/shared";
 
 let cliAvailableCache: boolean | null = null;
@@ -326,14 +327,38 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
     reply.raw.end();
   });
 
-  // Shared SSE streaming helper
-  async function streamPromptToSSE(prompt: string, reply: any): Promise<void> {
+  // Cross-project Specialist chat: ground the question in knowledge + memory across
+  // ALL projects, emit the cited sources as a first SSE `sources` frame, then stream
+  // the answer via the shared CLI→API fallback. Grounding never blocks the answer.
+  fastify.post("/specialist/chat", async (request, reply) => {
+    const { message } = request.body as { message?: string };
+    if (!message || !message.trim()) {
+      reply.code(400);
+      return { error: "message is required" };
+    }
+    const grounding = await groundQuery(message);
+    const sources = [...grounding.knowledge, ...grounding.memory];
+    const prompt = buildSpecialistPrompt(message, grounding);
+    await streamPromptToSSE(prompt, reply, [{ type: "sources", sources }]);
+  });
+
+  // Shared SSE streaming helper. `preludeEvents` are written as `data:` frames
+  // immediately after the headers, before any answer deltas — used to send the
+  // Specialist's grounded sources up front. Existing callers pass none.
+  async function streamPromptToSSE(
+    prompt: string,
+    reply: any,
+    preludeEvents: Array<Record<string, unknown>> = [],
+  ): Promise<void> {
     reply.hijack();
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     });
+    for (const ev of preludeEvents) {
+      reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
+    }
 
     try {
       if (await isCliAvailable()) {

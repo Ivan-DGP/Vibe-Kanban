@@ -24,3 +24,4 @@ export * from "./types/bench";
 export * from "./types/misc";
 export * from "./types/depgraph";
 export * from "./types/supervisor";
+export * from "./types/specialist";
