@@ -3,26 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db";
 import { getProjectArtifactsDir } from "../lib/data-dir";
-import {
-  embed,
-  cosineSimilarity,
-  vectorFromBlob,
-  EMBEDDING_MODEL,
-  isEmbeddingsDisabled,
-} from "../services/embeddings";
+import { EMBEDDING_MODEL } from "../services/embeddings";
+import { retrieveKnowledge, type KnowledgeHit } from "../services/knowledgeRetrieval";
 import { embedArtifact } from "../services/artifactEmbedder";
 import { embedTask } from "../services/taskEmbedder";
 import { embedGraphNode } from "../services/graphNodeEmbedder";
 import { isEmbeddableMimeType } from "../lib/chunking";
 import { log } from "../lib/logger";
-import type {
-  KnowledgeSearchHit,
-  KnowledgeSearchResponse,
-  ArtifactType,
-  TaskStatus,
-  TaskPriority,
-  GraphNodeType,
-} from "@vibe-kanban/shared";
+import type { KnowledgeSearchHit, KnowledgeSearchResponse } from "@vibe-kanban/shared";
 
 interface ProjectParams {
   projectId: string;
@@ -41,53 +29,30 @@ interface SearchBody {
   k?: number;
   minScore?: number;
   types?: ("artifact" | "task" | "graph_node")[];
-}
-
-// Raw rows from the embedding-join queries. DB stores enum-ish columns as plain
-// strings; we narrow them to the shared union types on the way into the hit.
-interface ArtifactEmbeddingJoinRow {
-  id: string;
-  artifactId: string;
-  chunkIdx: number;
-  content: string;
-  vector: Buffer;
-  dim: number;
-  filename: string;
-  type: ArtifactType;
-  description: string | null;
-  tags: string | null;
-  mimeType: string;
-  updatedAt: string;
-}
-
-interface TaskEmbeddingJoinRow {
-  id: string;
-  taskId: string;
-  chunkIdx: number;
-  content: string;
-  vector: Buffer;
-  title: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  taskNumber: number;
-  milestoneId: string | null;
-  updatedAt: string;
-}
-
-interface GraphNodeEmbeddingJoinRow {
-  id: string;
-  nodeId: string;
-  chunkIdx: number;
-  content: string;
-  vector: Buffer;
-  label: string;
-  type: GraphNodeType;
-  description: string | null;
-  updatedAt: string;
+  // Opt-in hybrid refinements (default off). See services/knowledgeRetrieval.
+  recencyHalfLifeDays?: number;
+  expandNeighbors?: boolean;
+  perEntityCap?: number;
 }
 
 interface CountRow {
   n: number;
+}
+
+/** Project a core retrieval hit onto the public KnowledgeSearchHit wire shape.
+ * The core's per-kind payloads already match the wire sub-objects 1:1. */
+function toSearchHit(hit: KnowledgeHit): KnowledgeSearchHit {
+  const base = {
+    id: hit.embId,
+    entityId: hit.entityId,
+    chunkIdx: hit.chunkIdx,
+    content: hit.content,
+    score: hit.score,
+    ...(hit.neighborContext !== undefined ? { neighborContext: hit.neighborContext } : {}),
+  };
+  if (hit.kind === "artifact") return { kind: "artifact", ...base, artifact: hit.artifact! };
+  if (hit.kind === "task") return { kind: "task", ...base, task: hit.task! };
+  return { kind: "graph_node", ...base, graphNode: hit.graphNode! };
 }
 
 const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
@@ -97,137 +62,40 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
     "/projects/:projectId/knowledge/search",
     async (request, reply) => {
       const { projectId } = request.params;
-      const { query, k = 10, minScore = 0, types } = request.body ?? {};
+      const {
+        query,
+        k = 10,
+        minScore = 0,
+        types,
+        recencyHalfLifeDays,
+        expandNeighbors,
+        perEntityCap,
+      } = request.body ?? {};
 
       if (!query || typeof query !== "string" || query.trim().length === 0) {
         return reply.code(400).send({ error: "query required" });
       }
 
-      const limit = Math.min(Math.max(parseInt(String(k)) || 10, 1), 50);
-      const includeArtifacts = !types || types.includes("artifact");
-      const includeTasks = !types || types.includes("task");
-      const includeGraphNodes = !types || types.includes("graph_node");
-
-      // Kill-switch: with embeddings disabled, return empty WITHOUT loading the
-      // model — never call embed(), never read embedding rows.
-      if (isEmbeddingsDisabled()) {
-        const empty: KnowledgeSearchResponse = {
-          query,
-          model: EMBEDDING_MODEL,
-          results: [],
-          totalChunks: 0,
-        };
-        return empty;
-      }
-
-      const queryVec = await embed(query.trim());
-      const scored: KnowledgeSearchHit[] = [];
-
-      if (includeArtifacts) {
-        const artifactRows = db
-          .prepare(
-            `SELECT e.id, e.artifactId, e.chunkIdx, e.content, e.vector, e.dim,
-                a.filename, a.type, a.description, a.tags, a.mimeType, a.updatedAt
-         FROM artifact_embeddings e
-         JOIN project_artifacts a ON a.id = e.artifactId
-         WHERE e.projectId = ?`,
-          )
-          .all(projectId) as ArtifactEmbeddingJoinRow[];
-
-        for (const row of artifactRows) {
-          const score = cosineSimilarity(queryVec, vectorFromBlob(row.vector));
-          scored.push({
-            kind: "artifact",
-            id: row.id,
-            entityId: row.artifactId,
-            chunkIdx: row.chunkIdx,
-            content: row.content,
-            score,
-            artifact: {
-              id: row.artifactId,
-              filename: row.filename,
-              type: row.type,
-              description: row.description,
-              tags: JSON.parse(row.tags || "[]") as string[],
-              mimeType: row.mimeType,
-              updatedAt: row.updatedAt,
-            },
-          });
-        }
-      }
-
-      if (includeTasks) {
-        const taskRows = db
-          .prepare(
-            `SELECT e.id, e.taskId, e.chunkIdx, e.content, e.vector,
-                t.title, t.status, t.priority, t.taskNumber, t.milestoneId, t.updatedAt
-         FROM task_embeddings e
-         JOIN tasks t ON t.id = e.taskId
-         WHERE e.projectId = ?`,
-          )
-          .all(projectId) as TaskEmbeddingJoinRow[];
-
-        for (const row of taskRows) {
-          const score = cosineSimilarity(queryVec, vectorFromBlob(row.vector));
-          scored.push({
-            kind: "task",
-            id: row.id,
-            entityId: row.taskId,
-            chunkIdx: row.chunkIdx,
-            content: row.content,
-            score,
-            task: {
-              id: row.taskId,
-              title: row.title,
-              status: row.status,
-              priority: row.priority,
-              taskNumber: row.taskNumber,
-              milestoneId: row.milestoneId,
-              updatedAt: row.updatedAt,
-            },
-          });
-        }
-      }
-
-      if (includeGraphNodes) {
-        const nodeRows = db
-          .prepare(
-            `SELECT e.id, e.nodeId, e.chunkIdx, e.content, e.vector,
-                n.label, n.type, n.description, n.updatedAt
-         FROM graph_node_embeddings e
-         JOIN project_graph_nodes n ON n.id = e.nodeId
-         WHERE e.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
-          )
-          .all(projectId) as GraphNodeEmbeddingJoinRow[];
-
-        for (const row of nodeRows) {
-          const score = cosineSimilarity(queryVec, vectorFromBlob(row.vector));
-          scored.push({
-            kind: "graph_node",
-            id: row.id,
-            entityId: row.nodeId,
-            chunkIdx: row.chunkIdx,
-            content: row.content,
-            score,
-            graphNode: {
-              id: row.nodeId,
-              label: row.label,
-              type: row.type,
-              description: row.description,
-              updatedAt: row.updatedAt,
-            },
-          });
-        }
-      }
-
-      scored.sort((a, b) => b.score - a.score);
-      const filtered = scored.filter((s) => s.score >= minScore).slice(0, limit);
+      // Hybrid retrieval: vector cosine + FTS5 lexical, fused via RRF. The core
+      // honors the VK_DISABLE_EMBEDDINGS kill-switch (empty, no model load).
+      // NOTE: minScore now floors the fused RRF score (default 0 keeps all), not
+      // raw cosine — a deliberate scale change vs the prior vector-only endpoint.
+      const result = await retrieveKnowledge({
+        projectId,
+        query,
+        k,
+        minScore,
+        types,
+        recencyHalfLifeDays,
+        expandNeighbors,
+        perEntityCap,
+      });
 
       const response: KnowledgeSearchResponse = {
         query,
         model: EMBEDDING_MODEL,
-        results: filtered,
-        totalChunks: scored.length,
+        results: result.hits.map(toSearchHit),
+        totalChunks: result.totalCandidates,
       };
       return response;
     },
