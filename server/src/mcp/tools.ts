@@ -376,6 +376,8 @@ function toMcpResult(hit: KnowledgeHit): Record<string, unknown> {
     content: hit.content,
     score: hit.score,
     ...(hit.neighborContext !== undefined ? { neighborContext: hit.neighborContext } : {}),
+    // Source-project attribution, present only for cross-project results.
+    ...(hit.project ? { projectId: hit.project.id, projectName: hit.project.name } : {}),
   };
   if (hit.kind === "artifact") {
     return {
@@ -443,6 +445,43 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
       model: EMBEDDING_MODEL,
       results: [],
       note: "No embeddings yet — POST to /api/projects/:id/knowledge/backfill",
+    };
+  }
+
+  return {
+    query,
+    model: EMBEDDING_MODEL,
+    results: result.hits.map(toMcpResult),
+    totalChunks: result.totalCandidates,
+  };
+}
+
+export async function searchAllProjects(params: Record<string, unknown>): Promise<unknown> {
+  const query = (params.query as string)?.trim();
+  const k = Math.min(Math.max(Number(params.k) || 8, 1), 25);
+  const minScore = Number.isFinite(Number(params.minScore)) ? Number(params.minScore) : 0;
+  const types = Array.isArray(params.types)
+    ? (params.types as ("artifact" | "task" | "graph_node")[])
+    : undefined;
+  const expandNeighbors = params.expandNeighbors === true;
+
+  if (!query) return { error: "query required" };
+
+  // Kill-switch parity with search_knowledge.
+  if (isEmbeddingsDisabled()) {
+    return { query, model: EMBEDDING_MODEL, results: [], totalChunks: 0 };
+  }
+
+  // Cross-project hybrid retrieval: projectId omitted → ranks across ALL
+  // projects; each result carries projectId/projectName attribution.
+  const result = await retrieveKnowledge({ query, k, minScore, types, expandNeighbors });
+
+  if (result.totalCandidates === 0) {
+    return {
+      query,
+      model: EMBEDDING_MODEL,
+      results: [],
+      note: "No embeddings in any project yet — POST to /api/projects/:id/knowledge/backfill",
     };
   }
 
@@ -732,6 +771,37 @@ export const tools: ToolHandler[] = [
       },
     },
     handler: searchKnowledge,
+  },
+  {
+    definition: {
+      name: "cross_project_search",
+      description:
+        "Hybrid (semantic + keyword) search across ALL projects at once — artifacts, tasks, and knowledge graph nodes. Same fused vector+lexical ranking as search_knowledge, but not scoped to one project: use it to find related work, past decisions, or similar bugs anywhere. Each result additionally carries `projectId` and `projectName` identifying its source project.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural-language or keyword search query" },
+          k: { type: "number", description: "Number of results to return (default 8, max 25)" },
+          minScore: {
+            type: "number",
+            description:
+              "Optional floor on the fused relevance score (small positive values, not 0–1 cosine). Hits below it are dropped. Default 0 (keep all).",
+          },
+          types: {
+            type: "array",
+            items: { type: "string", enum: ["artifact", "task", "graph_node"] },
+            description: "Optional: restrict search to specific kinds. Default: all three.",
+          },
+          expandNeighbors: {
+            type: "boolean",
+            description:
+              "Optional: attach adjacent chunk text (neighborContext) to each hit for fuller context. Default false.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+    handler: searchAllProjects,
   },
 ];
 

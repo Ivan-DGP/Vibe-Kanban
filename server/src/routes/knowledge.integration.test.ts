@@ -36,21 +36,29 @@ const { buildApp } = await import("../app");
 let app: Awaited<ReturnType<typeof buildApp>>;
 let db: ReturnType<typeof getDb>;
 const PROJECT_ID = `__test_knowledge_integration_${crypto.randomUUID()}__`;
+// Second project, used only by the cross-project search describe block.
+const PROJECT_ID_B = `__test_knowledge_integration_b_${crypto.randomUUID()}__`;
 
-function seedArtifact(opts: { title: string; content: string; axis: number }): string {
+function seedArtifact(opts: {
+  title: string;
+  content: string;
+  axis: number;
+  projectId?: string;
+}): string {
   const id = crypto.randomUUID();
+  const pid = opts.projectId ?? PROJECT_ID;
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
      VALUES (?, ?, ?, 'document', ?, '[]', ?, 'text/markdown', ?, ?)`,
-  ).run(id, PROJECT_ID, `${opts.title}.md`, opts.title, opts.content.length, now, now);
+  ).run(id, pid, `${opts.title}.md`, opts.title, opts.content.length, now, now);
   db.prepare(
     `INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt)
      VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`,
   ).run(
     crypto.randomUUID(),
     id,
-    PROJECT_ID,
+    pid,
     opts.content,
     vectorToBlob(axisVector(opts.axis)),
     EMBEDDING_MODEL,
@@ -68,24 +76,31 @@ beforeAll(async () => {
     `INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
      VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 3)`,
   ).run(PROJECT_ID, "Knowledge Integration Test", `/tmp/knowledge-integration-${PROJECT_ID}`);
+  db.prepare(
+    `INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
+     VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 3)`,
+  ).run(PROJECT_ID_B, "Knowledge Integration Test B", `/tmp/knowledge-integration-${PROJECT_ID_B}`);
 });
+
+const wipeProject = (pid: string) => {
+  db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(pid);
+};
 
 afterEach(() => {
   delete process.env.VK_DISABLE_EMBEDDINGS;
   embedCalled = false;
   queryAxis = 0;
-  db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(PROJECT_ID);
+  wipeProject(PROJECT_ID);
+  wipeProject(PROJECT_ID_B);
 });
 
 afterAll(async () => {
-  db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM projects WHERE id = ?").run(PROJECT_ID);
+  wipeProject(PROJECT_ID);
+  wipeProject(PROJECT_ID_B);
+  db.prepare("DELETE FROM projects WHERE id IN (?, ?)").run(PROJECT_ID, PROJECT_ID_B);
   await app.close();
 });
 
@@ -214,6 +229,69 @@ describe("POST /api/projects/:id/knowledge/search", () => {
     expect(body.model).toBe(EMBEDDING_MODEL);
     // The model/embed path was never reached.
     expect(embedCalled).toBe(false);
+  });
+});
+
+describe("POST /api/cross-project/knowledge/search", () => {
+  test("ranks across all projects and attributes each hit to its project", async () => {
+    seedArtifact({
+      title: "A doc",
+      content: "shared widget token",
+      axis: 0,
+      projectId: PROJECT_ID,
+    });
+    seedArtifact({
+      title: "B doc",
+      content: "shared widget token",
+      axis: 0,
+      projectId: PROJECT_ID_B,
+    });
+
+    queryAxis = 0; // aligns both seeded artifacts with the query vector
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/cross-project/knowledge/search`,
+      headers: { "Content-Type": "application/json" },
+      payload: { query: "widget token", types: ["artifact"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.totalChunks).toBe(2);
+    const names = body.results.map((r: { project?: { name: string } }) => r.project?.name).sort();
+    expect(names).toEqual(["Knowledge Integration Test", "Knowledge Integration Test B"]);
+    // Every cross-project hit carries id + name attribution.
+    expect(
+      body.results.every(
+        (r: { project?: { id: string; name: string } }) => r.project?.id && r.project?.name,
+      ),
+    ).toBe(true);
+  });
+
+  test("missing query returns 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/cross-project/knowledge/search`,
+      headers: { "Content-Type": "application/json" },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  test("per-project endpoint stays scoped and adds no project field", async () => {
+    seedArtifact({ title: "only A", content: "scoped content", axis: 0, projectId: PROJECT_ID });
+    seedArtifact({ title: "only B", content: "scoped content", axis: 0, projectId: PROJECT_ID_B });
+
+    queryAxis = 0;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${PROJECT_ID}/knowledge/search`,
+      headers: { "Content-Type": "application/json" },
+      payload: { query: "scoped content", types: ["artifact"] },
+    });
+    const body = res.json();
+    expect(body.totalChunks).toBe(1); // only project A
+    expect(body.results.every((r: { project?: unknown }) => r.project === undefined)).toBe(true);
   });
 });
 

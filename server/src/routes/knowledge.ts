@@ -49,6 +49,7 @@ function toSearchHit(hit: KnowledgeHit): KnowledgeSearchHit {
     content: hit.content,
     score: hit.score,
     ...(hit.neighborContext !== undefined ? { neighborContext: hit.neighborContext } : {}),
+    ...(hit.project ? { project: hit.project } : {}),
   };
   if (hit.kind === "artifact") return { kind: "artifact", ...base, artifact: hit.artifact! };
   if (hit.kind === "task") return { kind: "task", ...base, task: hit.task! };
@@ -100,6 +101,43 @@ const knowledgeRoutes: FastifyPluginAsync = async (fastify) => {
       return response;
     },
   );
+
+  // Cross-project search: same hybrid pipeline with projectId omitted, so it
+  // ranks across ALL projects. Each hit carries its source `project`. Powers the
+  // cross-project specialist agent.
+  fastify.post<{ Body: SearchBody }>("/cross-project/knowledge/search", async (request, reply) => {
+    const {
+      query,
+      k = 10,
+      minScore = 0,
+      types,
+      recencyHalfLifeDays,
+      expandNeighbors,
+      perEntityCap,
+    } = request.body ?? {};
+
+    if (!query || typeof query !== "string" || query.trim().length === 0) {
+      return reply.code(400).send({ error: "query required" });
+    }
+
+    const result = await retrieveKnowledge({
+      query,
+      k,
+      minScore,
+      types,
+      recencyHalfLifeDays,
+      expandNeighbors,
+      perEntityCap,
+    });
+
+    const response: KnowledgeSearchResponse = {
+      query,
+      model: EMBEDDING_MODEL,
+      results: result.hits.map(toSearchHit),
+      totalChunks: result.totalCandidates,
+    };
+    return response;
+  });
 
   fastify.get<{ Params: ProjectParams }>(
     "/projects/:projectId/knowledge/stats",
