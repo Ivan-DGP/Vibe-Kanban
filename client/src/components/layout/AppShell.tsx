@@ -1,11 +1,13 @@
 import { Outlet, NavLink } from "react-router-dom";
 import { useAppStore } from "@/stores/appStore";
 import { useProjects } from "@/hooks";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import TerminalPanel from "@/components/layout/TerminalPanel";
 import CommandPalette from "@/components/overlays/CommandPalette";
 import GlobalSearch from "@/components/overlays/GlobalSearch";
 import FileContentSearch from "@/components/overlays/FileContentSearch";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import SpecialistChatPanel from "@/components/specialist/SpecialistChatPanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   LayoutDashboard,
@@ -21,6 +23,7 @@ import {
   CheckSquare,
   Send,
   Beaker,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
@@ -44,6 +47,7 @@ export default function AppShell() {
     setFileSearchOpen,
   } = useAppStore();
   const { data: projects } = useProjects();
+  const [specialistOpen, setSpecialistOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -154,6 +158,18 @@ export default function AppShell() {
 
         {/* Main nav */}
         <nav className="flex-1 py-3 space-y-0.5 px-2">
+          {/* Global cross-project Specialist — available from every page. */}
+          <button
+            onClick={() => setSpecialistOpen(true)}
+            aria-label="Specialist"
+            title="Ask the cross-project Specialist"
+            className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-sidebar-foreground/60 transition-all duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground ${
+              sidebarCollapsed ? "justify-center px-0" : ""
+            }`}
+          >
+            <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+            {!sidebarCollapsed && <span>Specialist</span>}
+          </button>
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -195,6 +211,17 @@ export default function AppShell() {
       <CommandPalette />
       <GlobalSearch />
       <FileContentSearch />
+
+      <Sheet open={specialistOpen} onOpenChange={setSpecialistOpen}>
+        <SheetContent side="right" className="w-[480px] sm:max-w-[480px] p-0 flex flex-col">
+          <SheetHeader className="px-3 py-2 border-b">
+            <SheetTitle className="text-sm">Specialist</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 min-h-0">
+            <SpecialistChatPanel />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -61,7 +61,8 @@ test("specialist panel renders grounded sources + streamed answer", async ({ pag
     }),
   );
 
-  await page.goto(`/project/${projectId}`, { waitUntil: "networkidle" });
+  // The Specialist is global — reachable from the dashboard (not just a board).
+  await page.goto("/", { waitUntil: "networkidle" });
   await dismissOnboarding(page);
 
   await page.getByRole("button", { name: /^Specialist$/ }).click();
