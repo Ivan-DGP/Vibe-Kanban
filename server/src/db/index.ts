@@ -1018,6 +1018,65 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 40,
+      name: "add-project-memory",
+      up: () => {
+        // Append-only typed memory log per project: decisions, gotchas, failed
+        // attempts, conventions, fragile files. Auto-captured from AI runs and
+        // injected into future prompts so agents don't repeat failed fixes.
+        // Append-only: entries are superseded (supersededBy points at a later
+        // row), never hard-updated/deleted except via project CASCADE.
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS project_memory (
+            id            TEXT PRIMARY KEY,
+            projectId     TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            type          TEXT NOT NULL
+              CHECK (type IN ('decision', 'gotcha', 'attempt_failed', 'convention', 'fragile_file')),
+            title         TEXT NOT NULL,
+            body          TEXT NOT NULL DEFAULT '',
+            files         TEXT NOT NULL DEFAULT '[]',
+            taskId        TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+            runId         TEXT REFERENCES task_ai_runs(id) ON DELETE SET NULL,
+            origin        TEXT NOT NULL DEFAULT 'ai_captured'
+              CHECK (origin IN ('human', 'ai_captured')),
+            supersededBy  TEXT REFERENCES project_memory(id) ON DELETE SET NULL,
+            createdAt     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_project_memory_project_created ON project_memory (projectId, createdAt);
+          CREATE INDEX IF NOT EXISTS idx_project_memory_project_type ON project_memory (projectId, type);
+        `);
+      },
+    },
+    {
+      version: 41,
+      name: "add-memory-embeddings",
+      up: () => {
+        // Mirrors task_embeddings (migration 22): one row per chunk, local
+        // MiniLM-384 vector as BLOB, sourceHash gates re-embedding on unchanged
+        // content. projectId carried on the row so a later cross-project memory
+        // search is a WHERE-clause relaxation (see knowledgeRetrieval).
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS memory_embeddings (
+            id          TEXT PRIMARY KEY,
+            memoryId    TEXT NOT NULL
+              REFERENCES project_memory(id) ON DELETE CASCADE,
+            projectId   TEXT NOT NULL
+              REFERENCES projects(id) ON DELETE CASCADE,
+            chunkIdx    INTEGER NOT NULL,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            sourceHash  TEXT NOT NULL,
+            createdAt   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          );
+          CREATE INDEX IF NOT EXISTS idx_memory_embeddings_memoryId ON memory_embeddings (memoryId);
+          CREATE INDEX IF NOT EXISTS idx_memory_embeddings_projectId ON memory_embeddings (projectId);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_embeddings_memory_chunk ON memory_embeddings (memoryId, chunkIdx);
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

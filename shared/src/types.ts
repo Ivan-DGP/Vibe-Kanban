@@ -17,6 +17,7 @@ export * from "./types/notion";
 export * from "./types/terminal";
 export * from "./types/artifact";
 export * from "./types/graph";
+export * from "./types/memory";
 export * from "./types/roadmap";
 export * from "./types/api-client";
 export * from "./types/bench";
