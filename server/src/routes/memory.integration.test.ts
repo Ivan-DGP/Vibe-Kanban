@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll, afterEach, mock } from "bu
 import crypto from "node:crypto";
 // Import from the real module first so it is fully loaded/cached before the mock
 // replaces it — otherwise `...real` in the factory misses named exports.
-import { EMBEDDING_DIM } from "../services/embeddings";
+import { EMBEDDING_DIM, EMBEDDING_MODEL, vectorToBlob } from "../services/embeddings";
 
 // Stub embed() so appendMemory's background embed never loads the model.
 mock.module("../services/embeddings", () => {
@@ -24,6 +24,34 @@ import { appendMemory, supersede } from "../services/projectMemory";
 let app: Awaited<ReturnType<typeof buildApp>>;
 let db: ReturnType<typeof getDb>;
 const PROJECT_ID = `__mem_route_${crypto.randomUUID()}__`;
+// Second project, used only by the cross-project memory search describe block.
+const PROJECT_ID_B = `__mem_route_b_${crypto.randomUUID()}__`;
+
+// Directly seed a memory event + one embedding chunk (axis-0 vector matches the
+// stubbed query embedding), bypassing the async background embed.
+function seedMemoryRow(projectId: string, title: string, body: string): void {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const v = new Float32Array(EMBEDDING_DIM);
+  v[0] = 1;
+  db.prepare(
+    `INSERT INTO project_memory (id, projectId, type, title, body, files, origin, createdAt)
+     VALUES (?, ?, 'gotcha', ?, ?, '[]', 'ai_captured', ?)`,
+  ).run(id, projectId, title, body, now);
+  db.prepare(
+    `INSERT INTO memory_embeddings (id, memoryId, projectId, chunkIdx, content, vector, model, dim, sourceHash, createdAt)
+     VALUES (?, ?, ?, 0, ?, ?, ?, ?, 'h', ?)`,
+  ).run(
+    crypto.randomUUID(),
+    id,
+    projectId,
+    body,
+    vectorToBlob(v),
+    EMBEDDING_MODEL,
+    EMBEDDING_DIM,
+    now,
+  );
+}
 
 const post = (url: string, payload: Record<string, unknown>) =>
   app.inject({
@@ -41,17 +69,26 @@ beforeAll(async () => {
     `INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
      VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 3)`,
   ).run(PROJECT_ID, "Mem Route Test", `/tmp/mem-route-${PROJECT_ID}`);
+  db.prepare(
+    `INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
+     VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 3)`,
+  ).run(PROJECT_ID_B, "Mem Route Test B", `/tmp/mem-route-${PROJECT_ID_B}`);
 });
 
+const wipeMem = (pid: string) => {
+  db.prepare("DELETE FROM memory_embeddings WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM project_memory WHERE projectId = ?").run(pid);
+};
+
 afterEach(() => {
-  db.prepare("DELETE FROM memory_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_memory WHERE projectId = ?").run(PROJECT_ID);
+  wipeMem(PROJECT_ID);
+  wipeMem(PROJECT_ID_B);
 });
 
 afterAll(async () => {
-  db.prepare("DELETE FROM memory_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_memory WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM projects WHERE id = ?").run(PROJECT_ID);
+  wipeMem(PROJECT_ID);
+  wipeMem(PROJECT_ID_B);
+  db.prepare("DELETE FROM projects WHERE id IN (?, ?)").run(PROJECT_ID, PROJECT_ID_B);
   await app.close();
 });
 
@@ -174,5 +211,25 @@ describe("GET /api/projects/:id/memory — input hardening", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().events.length).toBe(1);
+  });
+});
+
+describe("POST /api/cross-project/memory/search", () => {
+  test("ranks memory across all projects and attributes each hit to its project", async () => {
+    seedMemoryRow(PROJECT_ID, "A lesson", "shared widget note");
+    seedMemoryRow(PROJECT_ID_B, "B lesson", "shared widget note");
+
+    const res = await post(`/api/cross-project/memory/search`, { query: "widget" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.totalCandidates).toBe(2);
+    const names = body.results.map((r: { project?: { name: string } }) => r.project?.name).sort();
+    expect(names).toEqual(["Mem Route Test", "Mem Route Test B"]);
+    expect(body.results.every((r: { project?: { id: string } }) => r.project?.id)).toBe(true);
+  });
+
+  test("missing query returns 400", async () => {
+    const res = await post(`/api/cross-project/memory/search`, {});
+    expect(res.statusCode).toBe(400);
   });
 });
