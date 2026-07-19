@@ -515,6 +515,18 @@ export const api = {
       post<ImpactResult>(`/projects/${projectId}/impact`, { files }),
   },
 
+  specialist: {
+    // Cross-project grounded chat (SSE). Returns the raw Response; the caller reads
+    // the stream (frames: sources | delta | error | done).
+    chat: (message: string, signal?: AbortSignal) =>
+      fetch("/api/specialist/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+        signal,
+      }),
+  },
+
   supervisor: {
     // Run a cross-project scan → emit idempotent backlog proposals (propose-only).
     scan: (limit?: number) => post<SupervisorScanResult>("/supervisor/scan", { limit }),
