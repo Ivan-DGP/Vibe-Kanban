@@ -2,6 +2,7 @@ import { spawnProcess } from "../lib/runtime";
 import { getDb } from "../db";
 import { log } from "../lib/logger";
 import { captureTaskAiRun } from "./taskAiCapture";
+import { captureMemoryFromRun } from "./memoryCapture";
 import {
   loadPolicy,
   recordFindings,
@@ -644,6 +645,10 @@ export async function spawnHeadlessClaude(
     } catch (e) {
       log("error", "claude", `failed to finalize task_ai_run`, { runId, error: String(e) });
     }
+
+    // Auto-capture material memory (deviations → gotcha, failed summary →
+    // attempt_failed) now that the run row is finalized. Never throws.
+    captureMemoryFromRun({ runId, taskId: opts.taskId, projectId: opts.projectId });
 
     // Capture + adversarial verification run against the run's cwd (the worktree
     // when isolated). For isolated runs we must keep the worktree alive until they
