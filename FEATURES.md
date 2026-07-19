@@ -1,6 +1,6 @@
 # Vibe Kanban - Feature Reference
 
-Local development dashboard for managing projects, tasks, git, terminals, AI, and per-project knowledge. Runs on localhost as a web app that complements VS Code.
+Local development dashboard for managing projects, tasks, git, terminals, AI, per-project knowledge, and cross-project intelligence. Runs on localhost as a web app that complements VS Code.
 
 ---
 
@@ -185,13 +185,62 @@ Every project gets a dedicated knowledge layer, stored in Vibe-Kanban's data dir
 - Click to edit, drag to reposition, right-click for context menu
 - **Draft from dependencies:** analyzes the project's import structure, groups files into subsystem communities, and creates suggested `system` nodes + `depends_on` edges that you confirm through the existing suggestions flow. Idempotent — re-running replaces prior dep-graph suggestions. Subsystem labels come from the configured AI agent pinned to the Opus model, falling back to directory-based heuristic labels when the agent is unavailable.
 
-### Semantic Search
+### Hybrid Search
 
-- Vector embeddings via `@xenova/transformers` (local model, no API calls)
-- Searches across **artifacts**, **tasks**, and **graph nodes** in one query
-- Filter by entity type or search all
+- **Hybrid retrieval** — FTS5 lexical (BM25) + vector cosine, fused via **Reciprocal Rank Fusion (RRF)** in a single consolidated retrieval core shared by the HTTP route and the MCP tool
+- Vector embeddings via `@xenova/transformers` (local MiniLM model, no API calls); kill-switch `VK_DISABLE_EMBEDDINGS`
+- Searches across **artifacts**, **tasks**, and **graph nodes** in one query; filter by entity type or search all
+- Opt-in **recency decay**, **neighbor-chunk expansion** (adjacent chunks for surrounding context), and **per-entity result cap**
 - Indexing stats panel; **backfill** button for re-embedding
-- Returns ranked chunks with content snippets and similarity scores
+- Returns ranked chunks with content snippets and fused scores
+
+### Project Memory
+
+An append-only memory of hard-won lessons per project, so past mistakes inform future AI runs.
+
+- **Event types**: `decision`, `gotcha`, `attempt_failed`, `convention`, `fragile_file`
+- **Origin**: `human` (manually recorded) or `ai_captured` (auto-mined from AI runs)
+- **Append-only with supersession** — corrections chain via `supersededBy` rather than overwriting history
+- **Auto-capture** — material lessons are mined from AI-run deviations/failures (via the `record_run_deviations` MCP tool), with usage-limit boilerplate filtered out
+- **Injection** — relevant memory is injected as `<project_memory>` context into AI-resolve prompts
+- **Vector-searchable** (`memory_embeddings`), single-project or cross-project
+- **Memory tab** in the Knowledge workspace to browse, filter by type, and record entries
+
+---
+
+## Cross-Project Intelligence
+
+Features that reason across **all** projects at once — turning the accumulated knowledge, memory, roadmaps, and tasks of every project into a single specialist.
+
+### Cross-Project Search
+
+- **Cross-project hybrid search** — the same FTS5 + vector RRF retrieval, projectId-optional: omit the project to rank across every project, with each hit attributed to its **source project**
+- **Cross-project memory search** — semantic search over past lessons across all projects ("we hit this same bug in project B; here's what failed")
+- REST: `POST /api/cross-project/knowledge/search`, `POST /api/cross-project/memory/search`
+- MCP tools: `cross_project_search`, `cross_project_memory_search` (both global, no projectId)
+
+### Supervisor (propose → approve → dispatch)
+
+A cross-project supervisor that finds the highest-value work and opens it for review — the human stays in the loop.
+
+- **Deterministic scan** (no LLM required) collects signals across all projects:
+  - `roadmap` — planned, unstarted roadmap items
+  - `finding` — unaddressed AI security/quality findings
+  - `stalled` — tasks stuck in progress past a threshold
+  - `unresolved` — failed attempts (`attempt_failed` memory) worth revisiting
+- **Ranked + grounded proposals** — each is scored by a value heuristic and grounded with relevant cross-project knowledge + memory, then emitted as **idempotent backlog tasks** (`metadata.origin='supervisor'`, deduped on a stable signal key) — never a run, never a code change
+- **Optional LLM-synthesis refinement** of the rationale (opt-in `VK_SUPERVISOR_SYNTHESIS_ENABLED`, default OFF; graceful fallback to the deterministic rationale)
+- **Human-gated dispatch** — a reviewed proposal can be dispatched into the existing headless runner (isolated git worktree + adversarial verifiers, **never auto-merges**). Gated behind master switch `VK_SUPERVISOR_DISPATCH_ENABLED` (default OFF) **plus** an explicit per-proposal action; an atomic compare-and-set claim prevents double-runs
+- **Supervisor panel** — scan, review proposals, and dispatch from the board toolbar
+- REST: `POST /api/supervisor/scan`, `GET /api/supervisor/proposals`, `POST /api/supervisor/proposals/:taskId/dispatch`
+
+### Specialist Chat
+
+A conversational agent that answers grounded in every project, reachable **globally** from the sidebar.
+
+- **Grounded engine** (default) — each turn first runs cross-project knowledge + memory search on your question, injects the hits as grounding, then streams the answer with **cited sources** (label + source project)
+- **Agentic engine** (opt-in `VK_SPECIALIST_AGENTIC` + MCP enabled) — the model drives its **own multi-hop MCP tool calls** (`cross_project_search`, `cross_project_memory_search`, `list_projects`, `get_all_tasks`), rendered as inline tool-call steps. **Sandboxed** to those four read-only tools (no `--dangerously-skip-permissions`, no host shell/filesystem); uses the streamable-HTTP MCP transport; falls back to the grounded engine when MCP is unavailable
+- Graceful degradation when embeddings are disabled (answers from general knowledge)
 
 ---
 
@@ -339,27 +388,34 @@ TDD-graded harness for the AI task-solving pipeline. Each fixture is a tiny self
 
 Exposes project, task, artifact, and knowledge data to AI tools via JSON-RPC 2.0:
 
-| Tool               | Description                                                 |
-| ------------------ | ----------------------------------------------------------- |
-| `list_projects`    | List all projects with names, paths, tech stacks            |
-| `get_project`      | Get specific project details                                |
-| `list_tasks`       | List tasks for a project, optionally filtered by status     |
-| `get_task`         | Get single task details                                     |
-| `create_task`      | Create a new task (also drives auto-spawn orchestration)    |
-| `update_task`      | Update task fields                                          |
-| `delete_task`      | Delete a task                                               |
-| `get_all_tasks`    | All tasks across all projects (up to 100)                   |
-| `git_status`       | Git status for a project                                    |
-| `git_diff`         | Git diff for a project                                      |
-| `list_artifacts`   | List knowledge-base artifacts for a project                 |
-| `read_artifact`    | Read an artifact's content                                  |
-| `list_graph_nodes` | List knowledge-graph nodes for a project                    |
-| `search_knowledge` | Semantic vector search across artifacts, tasks, graph nodes |
+| Tool                          | Description                                                          |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `list_projects`               | List all projects with names, paths, tech stacks                     |
+| `get_project`                 | Get specific project details                                         |
+| `list_tasks`                  | List tasks for a project, optionally filtered by status              |
+| `get_task`                    | Get single task details                                              |
+| `create_task`                 | Create a new task (also drives auto-spawn orchestration)             |
+| `update_task`                 | Update task fields                                                   |
+| `delete_task`                 | Delete a task                                                        |
+| `get_all_tasks`               | All tasks across all projects (up to 100)                            |
+| `git_status`                  | Git status for a project                                             |
+| `git_diff`                    | Git diff for a project                                               |
+| `list_artifacts`              | List knowledge-base artifacts for a project                          |
+| `read_artifact`               | Read an artifact's content                                           |
+| `list_graph_nodes`            | List knowledge-graph nodes for a project                             |
+| `search_knowledge`            | Semantic vector search across artifacts, tasks, graph nodes          |
+| `create_artifact`             | Create a knowledge-base artifact for a project                       |
+| `attach_artifact_to_task`     | Link an artifact to a task                                           |
+| `list_memory`                 | List a project's memory events                                       |
+| `append_memory`               | Append a memory event to a project                                   |
+| `record_run_deviations`       | Capture an AI run's deviations/failures into memory                  |
+| `cross_project_search`        | **Hybrid search across ALL projects** (attributed to source project) |
+| `cross_project_memory_search` | **Semantic search over memory across ALL projects**                  |
 
-- SSE endpoint (`GET /mcp`) for streaming
-- JSON-RPC endpoint (`POST /mcp`)
+- SSE endpoint (`GET /mcp`) for streaming; JSON-RPC endpoint (`POST /mcp`); streamable-HTTP transport
+- The four `list_projects` / `get_all_tasks` / `cross_project_*` tools are **global** (no `projectId`)
 - Optional OAuth authentication with client registration
-- Toggleable in settings
+- Toggleable in settings (`mcpEnabled`, `mcpAuthRequired`)
 - `search_knowledge` returns `minScore` and `totalChunks` for ranking transparency
 
 ---
@@ -482,9 +538,11 @@ Exposes project, task, artifact, and knowledge data to AI tools via JSON-RPC 2.0
 ## Data Architecture
 
 - **SQLite** as single source of truth (`data/vibe-kanban.db`) with WAL mode
-- **20+ versioned migrations** auto-applied on startup
+- **40+ versioned migrations** auto-applied on startup
 - **JSON snapshots** written after each task mutation for Claude CLI file context (`data/tasks/{projectId}.json`)
 - **Per-project artifact files** stored under `data/artifacts/{projectId}/`
 - **In-memory terminal sessions** (not persisted across restarts)
 - **Bun workspace monorepo**: `client/`, `server/`, `shared/`
-- **Vector embeddings** stored alongside source records in SQLite
+- **Hybrid search index** — FTS5 virtual table (lexical) alongside vector embeddings, fused at query time via RRF
+- **Vector embeddings** stored alongside source records in SQLite (knowledge + `memory_embeddings`)
+- **Append-only project memory** (`project_memory`) with `supersededBy` chaining — history is never overwritten
