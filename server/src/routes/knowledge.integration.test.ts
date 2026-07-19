@@ -149,7 +149,9 @@ describe("POST /api/projects/:id/knowledge/search", () => {
     }
     // Top hit is the axis-0 (Auth) artifact.
     expect(body.results[0].artifact.filename).toBe("Auth Service.md");
-    expect(body.results[0].score).toBeCloseTo(1, 5);
+    // Score is now the fused RRF score (hybrid vector+lexical), not raw cosine,
+    // so it is a small positive value rather than ~1.0. Ranking is what matters.
+    expect(body.results[0].score).toBeGreaterThan(0);
   });
 
   test("excludes artifact-mirror nodes from graph-node search results", async () => {

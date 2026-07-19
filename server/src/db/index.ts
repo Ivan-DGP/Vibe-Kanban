@@ -950,6 +950,74 @@ function runMigrations(db: DatabaseHandle): void {
         `);
       },
     },
+    {
+      version: 39,
+      name: "add-knowledge-fts",
+      up: () => {
+        // Standalone FTS5 index over embedding-chunk content, unifying all three
+        // knowledge sources for lexical (exact-token) retrieval. It is kept in
+        // sync with the embeddings tables by the AFTER INSERT/DELETE triggers
+        // below — embedders DELETE-then-INSERT within a txn, so no UPDATE trigger
+        // is needed. `embId` is the source embeddings-row id; `entityId` is the
+        // artifact/task/node id. All non-content columns are UNINDEXED (payload
+        // only, not searchable). NOTE: FTS is synced OFF the embeddings tables,
+        // so when VK_DISABLE_EMBEDDINGS is set from boot the embeddings tables
+        // (and thus this index) stay empty. A future decoupled FTS + a separate
+        // VK_DISABLE_KNOWLEDGE_SEARCH flag would enable lexical-when-model-off.
+        db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+            content,
+            embId UNINDEXED,
+            entityId UNINDEXED,
+            projectId UNINDEXED,
+            kind UNINDEXED,
+            chunkIdx UNINDEXED
+          );
+
+          CREATE TRIGGER IF NOT EXISTS trg_artifact_emb_fts_ai
+          AFTER INSERT ON artifact_embeddings BEGIN
+            INSERT INTO knowledge_fts (content, embId, entityId, projectId, kind, chunkIdx)
+            VALUES (new.content, new.id, new.artifactId, new.projectId, 'artifact', new.chunkIdx);
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_artifact_emb_fts_ad
+          AFTER DELETE ON artifact_embeddings BEGIN
+            DELETE FROM knowledge_fts WHERE embId = old.id;
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS trg_task_emb_fts_ai
+          AFTER INSERT ON task_embeddings BEGIN
+            INSERT INTO knowledge_fts (content, embId, entityId, projectId, kind, chunkIdx)
+            VALUES (new.content, new.id, new.taskId, new.projectId, 'task', new.chunkIdx);
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_task_emb_fts_ad
+          AFTER DELETE ON task_embeddings BEGIN
+            DELETE FROM knowledge_fts WHERE embId = old.id;
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS trg_graph_node_emb_fts_ai
+          AFTER INSERT ON graph_node_embeddings BEGIN
+            INSERT INTO knowledge_fts (content, embId, entityId, projectId, kind, chunkIdx)
+            VALUES (new.content, new.id, new.nodeId, new.projectId, 'graph_node', new.chunkIdx);
+          END;
+          CREATE TRIGGER IF NOT EXISTS trg_graph_node_emb_fts_ad
+          AFTER DELETE ON graph_node_embeddings BEGIN
+            DELETE FROM knowledge_fts WHERE embId = old.id;
+          END;
+        `);
+
+        // Backfill existing embedding rows into the fresh index. Mirror-node
+        // rows are backfilled too; the retrieval layer excludes them at query
+        // time (parity with the vector branch), so no filtering is needed here.
+        db.exec(`
+          INSERT INTO knowledge_fts (content, embId, entityId, projectId, kind, chunkIdx)
+            SELECT content, id, artifactId, projectId, 'artifact', chunkIdx FROM artifact_embeddings;
+          INSERT INTO knowledge_fts (content, embId, entityId, projectId, kind, chunkIdx)
+            SELECT content, id, taskId, projectId, 'task', chunkIdx FROM task_embeddings;
+          INSERT INTO knowledge_fts (content, embId, entityId, projectId, kind, chunkIdx)
+            SELECT content, id, nodeId, projectId, 'graph_node', chunkIdx FROM graph_node_embeddings;
+        `);
+      },
+    },
   ];
 
   for (const migration of migrations) {

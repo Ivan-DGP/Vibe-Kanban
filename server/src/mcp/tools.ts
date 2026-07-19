@@ -3,13 +3,8 @@ import { spawn } from "../lib/spawn";
 import { getProjectArtifactsDir } from "../lib/data-dir";
 import { maybeSpawnForTask } from "../services/taskSpawner";
 import { rowToTask } from "../services/taskModel";
-import {
-  embed,
-  cosineSimilarity,
-  vectorFromBlob,
-  EMBEDDING_MODEL,
-  isEmbeddingsDisabled,
-} from "../services/embeddings";
+import { EMBEDDING_MODEL, isEmbeddingsDisabled } from "../services/embeddings";
+import { retrieveKnowledge, type KnowledgeHit } from "../services/knowledgeRetrieval";
 import { embedTaskInBackground } from "../services/taskEmbedder";
 import { createArtifact, ArtifactError } from "../services/artifactService";
 import type { McpToolDefinition, ArtifactType } from "@vibe-kanban/shared";
@@ -372,113 +367,77 @@ export function listGraphNodes(params: Record<string, unknown>): unknown {
   return { nodes, edges };
 }
 
+/** Flatten a core retrieval hit into the MCP result shape (entity fields hoisted
+ * to the top level, as MCP clients have consumed since launch). */
+function toMcpResult(hit: KnowledgeHit): Record<string, unknown> {
+  const common = {
+    kind: hit.kind,
+    chunkIdx: hit.chunkIdx,
+    content: hit.content,
+    score: hit.score,
+    ...(hit.neighborContext !== undefined ? { neighborContext: hit.neighborContext } : {}),
+  };
+  if (hit.kind === "artifact") {
+    return {
+      ...common,
+      artifactId: hit.entityId,
+      filename: hit.artifact!.filename,
+      type: hit.artifact!.type,
+      description: hit.artifact!.description,
+    };
+  }
+  if (hit.kind === "task") {
+    return {
+      ...common,
+      taskId: hit.entityId,
+      title: hit.task!.title,
+      status: hit.task!.status,
+      priority: hit.task!.priority,
+      taskNumber: hit.task!.taskNumber,
+    };
+  }
+  return {
+    ...common,
+    nodeId: hit.entityId,
+    label: hit.graphNode!.label,
+    nodeType: hit.graphNode!.type,
+    description: hit.graphNode!.description,
+  };
+}
+
 export async function searchKnowledge(params: Record<string, unknown>): Promise<unknown> {
   const projectId = params.projectId as string;
   const query = (params.query as string)?.trim();
+  // Preserve the historical MCP clamp (default 5, max 20) — tighter than the
+  // core's 1..50 — so agent-facing result sizes are unchanged.
   const k = Math.min(Math.max(Number(params.k) || 5, 1), 20);
   const minScore = Number.isFinite(Number(params.minScore)) ? Number(params.minScore) : 0;
-  const types = Array.isArray(params.types) ? (params.types as string[]) : null;
-  const includeArtifacts = !types || types.includes("artifact");
-  const includeTasks = !types || types.includes("task");
+  const types = Array.isArray(params.types)
+    ? (params.types as ("artifact" | "task" | "graph_node")[])
+    : undefined;
+  const expandNeighbors = params.expandNeighbors === true;
 
   if (!projectId || !query) return { error: "projectId and query required" };
 
   // Kill-switch: with embeddings disabled, return empty WITHOUT loading the
-  // model or reading embedding rows.
+  // model or reading embedding rows (core also short-circuits; this keeps the
+  // exact no-note shape MCP clients expect).
   if (isEmbeddingsDisabled()) {
     return { query, model: EMBEDDING_MODEL, results: [], totalChunks: 0 };
   }
 
-  const db = getDb();
-  const scored: any[] = [];
+  // Hybrid retrieval: vector cosine + FTS5 lexical, fused via RRF. minScore now
+  // floors the fused RRF score (default 0 keeps all), not raw cosine.
+  const result = await retrieveKnowledge({
+    projectId,
+    query,
+    k,
+    minScore,
+    types,
+    expandNeighbors,
+  });
 
-  // Embed the query once and reuse the vector across all branches.
-  const queryVec = await embed(query);
-
-  if (includeArtifacts) {
-    const artifactRows = db
-      .query(
-        `SELECT e.artifactId, e.chunkIdx, e.content, e.vector,
-              a.filename, a.type, a.description
-       FROM artifact_embeddings e
-       JOIN project_artifacts a ON a.id = e.artifactId
-       WHERE e.projectId = ?`,
-      )
-      .all(projectId) as any[];
-
-    if (artifactRows.length > 0) {
-      for (const row of artifactRows) {
-        scored.push({
-          kind: "artifact",
-          artifactId: row.artifactId,
-          filename: row.filename,
-          type: row.type,
-          description: row.description,
-          chunkIdx: row.chunkIdx,
-          content: row.content,
-          score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
-        });
-      }
-    }
-  }
-
-  if (includeTasks) {
-    const taskRows = db
-      .query(
-        `SELECT e.taskId, e.chunkIdx, e.content, e.vector,
-              t.title, t.status, t.priority, t.taskNumber
-       FROM task_embeddings e
-       JOIN tasks t ON t.id = e.taskId
-       WHERE e.projectId = ?`,
-      )
-      .all(projectId) as any[];
-
-    if (taskRows.length > 0) {
-      for (const row of taskRows) {
-        scored.push({
-          kind: "task",
-          taskId: row.taskId,
-          title: row.title,
-          status: row.status,
-          priority: row.priority,
-          taskNumber: row.taskNumber,
-          chunkIdx: row.chunkIdx,
-          content: row.content,
-          score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
-        });
-      }
-    }
-  }
-
-  const includeGraphNodes = !types || types.includes("graph_node");
-  if (includeGraphNodes) {
-    const nodeRows = db
-      .query(
-        `SELECT e.nodeId, e.chunkIdx, e.content, e.vector,
-              n.label, n.type, n.description
-       FROM graph_node_embeddings e
-       JOIN project_graph_nodes n ON n.id = e.nodeId
-       WHERE e.projectId = ?`,
-      )
-      .all(projectId) as any[];
-
-    if (nodeRows.length > 0) {
-      for (const row of nodeRows) {
-        scored.push({
-          kind: "graph_node",
-          nodeId: row.nodeId,
-          label: row.label,
-          nodeType: row.type,
-          description: row.description,
-          chunkIdx: row.chunkIdx,
-          content: row.content,
-          score: cosineSimilarity(queryVec, vectorFromBlob(row.vector)),
-        });
-      }
-    }
-  }
-
-  if (scored.length === 0) {
+  if (result.totalCandidates === 0) {
     return {
       query,
       model: EMBEDDING_MODEL,
@@ -487,9 +446,12 @@ export async function searchKnowledge(params: Record<string, unknown>): Promise<
     };
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const filtered = scored.filter((s) => s.score >= minScore).slice(0, k);
-  return { query, model: EMBEDDING_MODEL, results: filtered, totalChunks: scored.length };
+  return {
+    query,
+    model: EMBEDDING_MODEL,
+    results: result.hits.map(toMcpResult),
+    totalChunks: result.totalCandidates,
+  };
 }
 
 export const tools: ToolHandler[] = [
@@ -743,22 +705,27 @@ export const tools: ToolHandler[] = [
     definition: {
       name: "search_knowledge",
       description:
-        "Semantic search across a project's artifacts (docs/specs/diagrams), tasks (title + description + prompt), and knowledge graph nodes (label + type + description). Returns ranked chunks. Each result has a 'kind' field ('artifact', 'task', or 'graph_node') and the corresponding entity metadata.",
+        "Hybrid (semantic + keyword) search across a project's artifacts (docs/specs/diagrams), tasks (title + description + prompt), and knowledge graph nodes (label + type + description). Vector-similarity and full-text (exact-token) ranking are fused, so exact matches on error strings, flag names, or host names surface alongside paraphrase matches. Returns ranked chunks. Each result has a 'kind' field ('artifact', 'task', or 'graph_node') and the corresponding entity metadata.",
       inputSchema: {
         type: "object",
         properties: {
           projectId: { type: "string", description: "Project ID" },
-          query: { type: "string", description: "Natural-language search query" },
+          query: { type: "string", description: "Natural-language or keyword search query" },
           k: { type: "number", description: "Number of results to return (default 5, max 20)" },
           minScore: {
             type: "number",
             description:
-              "Optional cosine-similarity floor (0–1). Hits below this score are dropped. Default 0.",
+              "Optional floor on the fused relevance score (small positive values, not 0–1 cosine). Hits below it are dropped. Default 0 (keep all).",
           },
           types: {
             type: "array",
             items: { type: "string", enum: ["artifact", "task", "graph_node"] },
             description: "Optional: restrict search to specific kinds. Default: all three.",
+          },
+          expandNeighbors: {
+            type: "boolean",
+            description:
+              "Optional: attach adjacent chunk text (neighborContext) to each hit for fuller context. Default false.",
           },
         },
         required: ["projectId", "query"],

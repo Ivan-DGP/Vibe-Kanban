@@ -39,7 +39,7 @@ afterAll(() => {
 describe("fresh database: real runMigrations", () => {
   let db: DatabaseHandle;
 
-  test("runs all migrations from version 1 to 38 on a blank database", () => {
+  test("runs all migrations from version 1 to 39 on a blank database", () => {
     db = freshDb("real-run");
 
     // Set pragmas like getDb() does
@@ -55,10 +55,68 @@ describe("fresh database: real runMigrations", () => {
       version: number;
       name: string;
     }[];
-    expect(rows.length).toBe(38);
+    expect(rows.length).toBe(39);
     for (let i = 0; i < rows.length; i++) {
       expect(rows[i].version).toBe(i + 1);
     }
+  });
+
+  test("v39 knowledge_fts triggers sync inserts and deletes across all three sources", () => {
+    db = freshDb("fts-triggers");
+    db.exec("PRAGMA foreign_keys = ON");
+    _runMigrations(db);
+
+    db.exec(
+      "INSERT INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth) VALUES ('p1','P','/tmp/p1',0,'[]','[]','stage',3)",
+    );
+    db.exec(
+      "INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES ('a1','p1','f.md','document',null,'[]',0,'text/markdown','t','t')",
+    );
+    db.exec(
+      "INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt) VALUES ('e1','a1','p1',0,'checkpoint stalls on the NFS mount',x'00','m',384,'t')",
+    );
+
+    // AFTER INSERT trigger populated the index with correct payload columns.
+    const hit = db
+      .prepare(
+        "SELECT embId, entityId, kind, chunkIdx FROM knowledge_fts WHERE projectId = 'p1' AND knowledge_fts MATCH 'nfs'",
+      )
+      .get() as { embId: string; entityId: string; kind: string; chunkIdx: number };
+    expect(hit).toEqual({ embId: "e1", entityId: "a1", kind: "artifact", chunkIdx: 0 });
+
+    // AFTER DELETE trigger removes exactly the matching row.
+    db.exec("DELETE FROM artifact_embeddings WHERE id = 'e1'");
+    const after = db.prepare("SELECT COUNT(*) n FROM knowledge_fts").get() as { n: number };
+    expect(after.n).toBe(0);
+  });
+
+  test("v39 backfills pre-existing embedding rows into knowledge_fts", () => {
+    // Simulate a real v38 DB (embeddings tables populated) that has not yet run v39.
+    const old = freshDb("fts-backfill");
+    old.exec("PRAGMA foreign_keys = ON");
+    _runMigrations(old);
+    old.exec(
+      "INSERT INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth) VALUES ('p1','P','/tmp/p1',0,'[]','[]','stage',3)",
+    );
+    old.exec(
+      "INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt) VALUES ('a1','p1','f.md','document',null,'[]',0,'text/markdown','t','t')",
+    );
+    old.exec(
+      "INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt) VALUES ('e1','a1','p1',0,'ENOSPC on host web-07',x'00','m',384,'t')",
+    );
+    // Roll v39 back (drop its objects + ledger row), leaving the seeded row in place.
+    old.exec("DROP TABLE knowledge_fts");
+    old.exec(
+      "DROP TRIGGER trg_artifact_emb_fts_ai; DROP TRIGGER trg_artifact_emb_fts_ad; DROP TRIGGER trg_task_emb_fts_ai; DROP TRIGGER trg_task_emb_fts_ad; DROP TRIGGER trg_graph_node_emb_fts_ai; DROP TRIGGER trg_graph_node_emb_fts_ad",
+    );
+    old.exec("DELETE FROM _migrations WHERE version = 39");
+
+    _runMigrations(old);
+
+    const hit = old
+      .prepare("SELECT COUNT(*) n FROM knowledge_fts WHERE knowledge_fts MATCH 'enospc'")
+      .get() as { n: number };
+    expect(hit.n).toBe(1);
   });
 
   test("all expected tables exist after migrations", () => {
@@ -128,6 +186,11 @@ describe("fresh database: real runMigrations", () => {
       );
       -- Minimal tasks table so later migrations that ALTER it (e.g. v37 add-task-agent) run.
       CREATE TABLE tasks (id TEXT PRIMARY KEY);
+      -- Embedding tables exist by v32 (created in migrations 21-23); include them so
+      -- the v39 knowledge-fts backfill (which reads them) runs as it would on a real DB.
+      CREATE TABLE artifact_embeddings (id TEXT PRIMARY KEY, artifactId TEXT, projectId TEXT, chunkIdx INTEGER, content TEXT, vector BLOB, model TEXT, dim INTEGER, createdAt TEXT);
+      CREATE TABLE task_embeddings (id TEXT PRIMARY KEY, taskId TEXT, projectId TEXT, chunkIdx INTEGER, content TEXT, vector BLOB, model TEXT, dim INTEGER, sourceHash TEXT, createdAt TEXT);
+      CREATE TABLE graph_node_embeddings (id TEXT PRIMARY KEY, nodeId TEXT, projectId TEXT, chunkIdx INTEGER, content TEXT, vector BLOB, model TEXT, dim INTEGER, sourceHash TEXT, createdAt TEXT);
     `);
     for (let v = 1; v <= 32; v++) {
       old.prepare("INSERT INTO _migrations (version, name) VALUES (?, ?)").run(v, `seed-${v}`);
@@ -158,7 +221,7 @@ describe("fresh database: real runMigrations", () => {
     expect(edge.status).toBe("confirmed");
 
     const maxV = old.prepare("SELECT MAX(version) v FROM _migrations").get() as { v: number };
-    expect(maxV.v).toBe(38);
+    expect(maxV.v).toBe(39);
   });
 
   test("tasks table has all columns from all migrations", () => {
@@ -299,8 +362,8 @@ describe("runMigrations idempotency", () => {
       db.prepare("SELECT COUNT(*) as c FROM _migrations").get() as { c: number }
     ).c;
 
-    expect(countAfterFirst).toBe(38);
-    expect(countAfterSecond).toBe(38);
+    expect(countAfterFirst).toBe(39);
+    expect(countAfterSecond).toBe(39);
   });
 });
 
@@ -326,7 +389,7 @@ describe("migration from completely empty database", () => {
     const finalVersion = (
       db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }
     ).v;
-    expect(finalVersion).toBe(38);
+    expect(finalVersion).toBe(39);
   });
 });
 
@@ -386,7 +449,7 @@ describe("migration 2: taskNumber backfill with real runMigrations", () => {
 
     // Verify all migrations completed
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(38);
+    expect(max).toBe(39);
   });
 });
 
@@ -411,7 +474,7 @@ describe("partial migration from version 6", () => {
     _runMigrations(db);
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(38);
+    expect(max).toBe(39);
 
     // Verify the table still has all expected columns
     const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
@@ -819,7 +882,7 @@ describe("migrations 10-12 on a DB stopped at v9", () => {
     expect(aiRunsTableAfter).toBeTruthy();
 
     const max = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as { v: number }).v;
-    expect(max).toBe(38);
+    expect(max).toBe(39);
   });
 });
 

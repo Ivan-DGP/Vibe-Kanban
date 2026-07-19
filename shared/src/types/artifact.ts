@@ -59,6 +59,8 @@ export interface KnowledgeArtifactHit {
   chunkIdx: number;
   content: string;
   score: number;
+  /** Adjacent-chunk text, present only when neighbor expansion was requested. */
+  neighborContext?: string;
   artifact: {
     id: string;
     filename: string;
@@ -77,6 +79,8 @@ export interface KnowledgeTaskHit {
   chunkIdx: number;
   content: string;
   score: number;
+  /** Adjacent-chunk text, present only when neighbor expansion was requested. */
+  neighborContext?: string;
   task: {
     id: string;
     title: string;
@@ -95,6 +99,8 @@ export interface KnowledgeGraphNodeHit {
   chunkIdx: number;
   content: string;
   score: number;
+  /** Adjacent-chunk text, present only when neighbor expansion was requested. */
+  neighborContext?: string;
   graphNode: {
     id: string;
     label: string;
