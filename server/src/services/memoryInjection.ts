@@ -1,5 +1,5 @@
-import { getDb } from "../db";
-import { embed, cosineSimilarity, vectorFromBlob, isEmbeddingsDisabled } from "./embeddings";
+import { embed, isEmbeddingsDisabled } from "./embeddings";
+import { searchMemory } from "./memorySearch";
 import { log } from "../lib/logger";
 import type { GroundedMemory, MemoryType } from "@vibe-kanban/shared";
 
@@ -43,15 +43,6 @@ export interface BuildMemoryBlockOpts {
 export interface MemoryContext {
   block: string;
   events: GroundedMemory[];
-}
-
-interface MemoryEmbeddingRow {
-  memoryId: string;
-  content: string;
-  vector: Buffer;
-  title: string;
-  type: MemoryType;
-  body: string;
 }
 
 interface RankedMemory {
@@ -121,10 +112,21 @@ export async function buildMemoryContext(opts: BuildMemoryBlockOpts): Promise<Me
 
   let ranked: RankedMemory[];
   try {
-    ranked = await withTimeout(
-      rankMemory(projectId, trimmedQuery, embedFn, k),
+    // Reuse the shared memory search (single-project mode), then adapt to the
+    // block-rendering shape. Excerpt = event body, falling back to the best chunk.
+    const result = await withTimeout(
+      // minScore -Infinity: no score floor, matching the prior injection ranking
+      // (fill up to K with the least-bad matches, even slightly-negative cosine).
+      searchMemory({ projectId, query: trimmedQuery, k, minScore: -Infinity, embedFn }),
       MEMORY_SEARCH_TIMEOUT_MS,
     );
+    ranked = result.hits.map((h) => ({
+      id: h.id,
+      title: h.title,
+      type: h.type,
+      excerpt: h.body?.trim() || h.content,
+      score: h.score,
+    }));
   } catch (err) {
     log(
       "warn",
@@ -136,49 +138,6 @@ export async function buildMemoryContext(opts: BuildMemoryBlockOpts): Promise<Me
 
   if (ranked.length === 0) return empty;
   return renderBlock(ranked);
-}
-
-/**
- * Rank a project's memory embeddings by cosine similarity to the query, dedup to
- * the best-scoring chunk per event, exclude superseded events, and return top-K.
- */
-async function rankMemory(
-  projectId: string,
-  query: string,
-  embedFn: EmbedFn,
-  k: number,
-): Promise<RankedMemory[]> {
-  const queryVecRaw = await embedFn(query);
-  const queryVec =
-    queryVecRaw instanceof Float32Array ? queryVecRaw : Float32Array.from(queryVecRaw);
-
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT e.memoryId, e.content, e.vector, m.title, m.type, m.body
-         FROM memory_embeddings e
-         JOIN project_memory m ON m.id = e.memoryId
-        WHERE e.projectId = ? AND m.supersededBy IS NULL`,
-    )
-    .all(projectId) as MemoryEmbeddingRow[];
-
-  const best = new Map<string, RankedMemory>();
-  for (const row of rows) {
-    const score = cosineSimilarity(queryVec, vectorFromBlob(row.vector));
-    const excerpt = row.body?.trim() || row.content;
-    const prev = best.get(row.memoryId);
-    if (!prev || score > prev.score) {
-      best.set(row.memoryId, {
-        id: row.memoryId,
-        title: row.title,
-        type: row.type,
-        excerpt,
-        score,
-      });
-    }
-  }
-
-  return [...best.values()].sort((a, b) => b.score - a.score).slice(0, k);
 }
 
 /**
