@@ -1518,6 +1518,28 @@ describe("AI runs endpoints", () => {
     expect(run.summary).toBe("Successfully implemented feature");
   });
 
+  test("POST /api/tasks/:taskId/ai-runs - persists + round-trips groundedMemory", async () => {
+    const task = await createTask({ title: "Grounded Memory Task" });
+    const groundedMemory = [
+      { id: "mem-1", title: "use RRF fusion", type: "decision" },
+      { id: "mem-2", title: "sqlite-vec fails under Bun", type: "attempt_failed" },
+    ];
+
+    const post = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/ai-runs`,
+      headers: { "Content-Type": "application/json" },
+      payload: { success: true, groundedMemory },
+    });
+    expect(post.statusCode).toBe(200);
+    // Returned run parses the audit list back into a structured array.
+    expect(post.json().groundedMemory).toEqual(groundedMemory);
+
+    // And it survives a GET (parsed from the JSON column, not the raw string).
+    const list = await app.inject({ method: "GET", url: `/api/tasks/${task.id}/ai-runs` });
+    expect(list.json()[0].groundedMemory).toEqual(groundedMemory);
+  });
+
   test("POST /api/tasks/:taskId/ai-runs - returns 404 for non-existent task", async () => {
     const res = await app.inject({
       method: "POST",

@@ -18,6 +18,7 @@ import type {
   Task,
   TaskStatus,
   GroundedArtifact,
+  GroundedMemory,
   TaskAiRun,
   RunDeviations,
   CreateTaskInput,
@@ -45,6 +46,17 @@ export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
     }
   }
 
+  let groundedMemory: GroundedMemory[] = [];
+  const rawMem = row.groundedMemory;
+  if (typeof rawMem === "string" && rawMem.length > 0) {
+    try {
+      const parsed = JSON.parse(rawMem);
+      if (Array.isArray(parsed)) groundedMemory = parsed as GroundedMemory[];
+    } catch {
+      // Leave empty on malformed JSON.
+    }
+  }
+
   let deviations: RunDeviations | null = null;
   const rawDev = row.deviations;
   if (typeof rawDev === "string" && rawDev.length > 0) {
@@ -56,7 +68,7 @@ export function mapAiRunRow(row: Record<string, unknown>): TaskAiRun {
     }
   }
 
-  return { ...(row as unknown as TaskAiRun), groundedArtifacts, deviations };
+  return { ...(row as unknown as TaskAiRun), groundedArtifacts, groundedMemory, deviations };
 }
 
 function now(): string {
@@ -856,12 +868,14 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     // Use the grounding builder so knowledge artifacts are injected AND the
     // audit list is returned; the client passes groundedArtifacts back to
     // POST /tasks/:taskId/ai-runs so task_ai_runs.groundedArtifacts is recorded.
-    const { prompt, groundedArtifacts } = await buildAiResolvePromptWithGrounding(
+    const { prompt, groundedArtifacts, groundedMemory } = await buildAiResolvePromptWithGrounding(
       task,
       projectId,
       port,
     );
-    return { prompt, groundedArtifacts };
+    // The client passes groundedArtifacts + groundedMemory back to POST
+    // /tasks/:taskId/ai-runs so both audit lists are recorded on the run.
+    return { prompt, groundedArtifacts, groundedMemory };
   });
 
   // Record an AI run result
@@ -877,6 +891,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       durationMs,
       summary,
       groundedArtifacts,
+      groundedMemory,
     } = request.body as Partial<
       Pick<
         TaskAiRun,
@@ -889,6 +904,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
         | "durationMs"
         | "summary"
         | "groundedArtifacts"
+        | "groundedMemory"
       >
     >;
 
@@ -896,11 +912,13 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
     if (!task) return reply.code(404).send({ error: "Task not found" });
 
     const id = uuid();
-    // O6: persist the grounded-artifact audit list (JSON), defaulting to [].
+    // O6: persist the grounded-artifact + grounded-memory audit lists (JSON),
+    // each defaulting to [].
     const grounded = JSON.stringify(Array.isArray(groundedArtifacts) ? groundedArtifacts : []);
+    const groundedMem = JSON.stringify(Array.isArray(groundedMemory) ? groundedMemory : []);
     db.prepare(
-      `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary, groundedArtifacts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO task_ai_runs (id, taskId, projectId, sessionId, profile, complexity, exitCode, success, filesChanged, durationMs, summary, groundedArtifacts, groundedMemory)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       taskId,
@@ -914,6 +932,7 @@ const taskRoutes: FastifyPluginAsync = async (fastify) => {
       durationMs ?? null,
       summary || null,
       grounded,
+      groundedMem,
     );
 
     return mapAiRunRow(
