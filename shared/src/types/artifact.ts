@@ -61,6 +61,8 @@ export interface KnowledgeArtifactHit {
   score: number;
   /** Adjacent-chunk text, present only when neighbor expansion was requested. */
   neighborContext?: string;
+  /** Source project, present only in cross-project search results. */
+  project?: { id: string; name: string };
   artifact: {
     id: string;
     filename: string;
@@ -81,6 +83,8 @@ export interface KnowledgeTaskHit {
   score: number;
   /** Adjacent-chunk text, present only when neighbor expansion was requested. */
   neighborContext?: string;
+  /** Source project, present only in cross-project search results. */
+  project?: { id: string; name: string };
   task: {
     id: string;
     title: string;
@@ -101,6 +105,8 @@ export interface KnowledgeGraphNodeHit {
   score: number;
   /** Adjacent-chunk text, present only when neighbor expansion was requested. */
   neighborContext?: string;
+  /** Source project, present only in cross-project search results. */
+  project?: { id: string; name: string };
   graphNode: {
     id: string;
     label: string;

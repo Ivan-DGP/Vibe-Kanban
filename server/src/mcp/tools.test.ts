@@ -34,6 +34,7 @@ import {
   readArtifact,
   listGraphNodes,
   searchKnowledge,
+  searchAllProjects,
   createArtifactTool,
   attachArtifactToTask,
   recordRunDeviations,
@@ -325,6 +326,7 @@ describe("MCP tools - getTools (tool definitions)", () => {
     expect(names).toContain("read_artifact");
     expect(names).toContain("list_graph_nodes");
     expect(names).toContain("search_knowledge");
+    expect(names).toContain("cross_project_search");
   });
 });
 
@@ -847,5 +849,86 @@ describe("MCP tools - recordRunDeviations", () => {
       notes: "swapped lib X for Y",
       artifactId: "art-1",
     });
+  });
+});
+
+describe("MCP tools - searchAllProjects (cross-project)", () => {
+  const CP_A = crypto.randomUUID();
+  const CP_B = crypto.randomUUID();
+
+  function seedIn(projectId: string, name: string, content: string, axis: number): string {
+    const db = getDb();
+    const artId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.query(
+      `INSERT INTO project_artifacts (id, projectId, filename, type, tags, sizeBytes, mimeType, createdAt, updatedAt)
+       VALUES (?, ?, ?, 'document', '[]', ?, 'text/markdown', ?, ?)`,
+    ).run(artId, projectId, name, content.length, now, now);
+    const v = new Float32Array(EMBEDDING_DIM);
+    v[axis] = 1;
+    db.query(
+      `INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt)
+       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+    ).run(artId, artId, projectId, content, vectorToBlob(v), EMBEDDING_MODEL, EMBEDDING_DIM, now);
+    return artId;
+  }
+
+  beforeAll(() => {
+    const db = getDb();
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
+    ).run(CP_A, "CP Project A", `/tmp/cp-a-${Date.now()}`, "[]", 0);
+    db.query(
+      "INSERT INTO projects (id, name, path, techStack, favorite) VALUES (?, ?, ?, ?, ?)",
+    ).run(CP_B, "CP Project B", `/tmp/cp-b-${Date.now()}`, "[]", 0);
+  });
+
+  afterEach(() => {
+    const db = getDb();
+    delete process.env.VK_DISABLE_EMBEDDINGS;
+    searchEmbedCalled = false;
+    searchQueryAxis = 0;
+    for (const pid of [CP_A, CP_B]) {
+      db.query("DELETE FROM artifact_embeddings WHERE projectId = ?").run(pid);
+      db.query("DELETE FROM project_artifacts WHERE projectId = ?").run(pid);
+    }
+  });
+
+  afterAll(() => {
+    const db = getDb();
+    db.query("DELETE FROM projects WHERE id IN (?, ?)").run(CP_A, CP_B);
+  });
+
+  test("returns hits from all projects, each with projectId/projectName", async () => {
+    seedIn(CP_A, "a.md", "shared widget token", 0);
+    seedIn(CP_B, "b.md", "shared widget token", 0);
+
+    searchQueryAxis = 0;
+    const result = (await searchAllProjects({ query: "widget token", types: ["artifact"] })) as {
+      results: { projectId: string; projectName: string }[];
+      totalChunks: number;
+    };
+
+    expect(result.totalChunks).toBe(2);
+    const names = result.results.map((r) => r.projectName).sort();
+    expect(names).toEqual(["CP Project A", "CP Project B"]);
+    expect(result.results.every((r) => r.projectId && r.projectName)).toBe(true);
+  });
+
+  test("returns error when query missing", async () => {
+    const result = (await searchAllProjects({})) as { error?: string };
+    expect(result.error).toBeDefined();
+  });
+
+  test("kill-switch returns empty without loading the model", async () => {
+    seedIn(CP_A, "a.md", "shared widget token", 0);
+    process.env.VK_DISABLE_EMBEDDINGS = "1";
+    const result = (await searchAllProjects({ query: "widget token" })) as {
+      results: unknown[];
+      totalChunks: number;
+    };
+    expect(result.results).toEqual([]);
+    expect(result.totalChunks).toBe(0);
+    expect(searchEmbedCalled).toBe(false);
   });
 });

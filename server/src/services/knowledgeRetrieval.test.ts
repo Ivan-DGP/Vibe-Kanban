@@ -18,6 +18,8 @@ const fakeEmbed = (axis: number) => async (_t: string) => axisVector(axis);
 
 let db: ReturnType<typeof getDb>;
 const PROJECT_ID = `__test_retrieval_${crypto.randomUUID()}__`;
+// A second project, used only by the cross-project describe block.
+const SECOND_PROJECT_ID = `__test_retrieval_b_${crypto.randomUUID()}__`;
 
 function seedArtifact(opts: {
   title: string;
@@ -26,8 +28,10 @@ function seedArtifact(opts: {
   updatedAt?: string;
   chunkIdx?: number;
   artifactId?: string;
+  projectId?: string;
 }): string {
   const artifactId = opts.artifactId ?? crypto.randomUUID();
+  const pid = opts.projectId ?? PROJECT_ID;
   const now = opts.updatedAt ?? new Date().toISOString();
   // Insert the artifact row once per artifactId.
   const exists = db.prepare("SELECT 1 FROM project_artifacts WHERE id = ?").get(artifactId);
@@ -35,7 +39,7 @@ function seedArtifact(opts: {
     db.prepare(
       `INSERT INTO project_artifacts (id, projectId, filename, type, description, tags, sizeBytes, mimeType, createdAt, updatedAt)
        VALUES (?, ?, ?, 'document', ?, '[]', ?, 'text/markdown', ?, ?)`,
-    ).run(artifactId, PROJECT_ID, `${opts.title}.md`, opts.title, opts.content.length, now, now);
+    ).run(artifactId, pid, `${opts.title}.md`, opts.title, opts.content.length, now, now);
   }
   db.prepare(
     `INSERT INTO artifact_embeddings (id, artifactId, projectId, chunkIdx, content, vector, model, dim, createdAt)
@@ -43,7 +47,7 @@ function seedArtifact(opts: {
   ).run(
     crypto.randomUUID(),
     artifactId,
-    PROJECT_ID,
+    pid,
     opts.chunkIdx ?? 0,
     opts.content,
     vectorToBlob(axisVector(opts.axis)),
@@ -62,21 +66,23 @@ function seedGraphNode(opts: {
   content: string;
   axis: number;
   mirror?: boolean;
+  projectId?: string;
 }): string {
   const nodeId = crypto.randomUUID();
+  const pid = opts.projectId ?? PROJECT_ID;
   const now = new Date().toISOString();
   const metadata = opts.mirror ? '{"kind":"artifact"}' : "{}";
   db.prepare(
     `INSERT INTO project_graph_nodes (id, projectId, label, type, description, metadata, createdAt, updatedAt)
      VALUES (?, ?, ?, 'concept', null, ?, ?, ?)`,
-  ).run(nodeId, PROJECT_ID, opts.label, metadata, now, now);
+  ).run(nodeId, pid, opts.label, metadata, now, now);
   db.prepare(
     `INSERT INTO graph_node_embeddings (id, nodeId, projectId, chunkIdx, content, vector, model, dim, sourceHash, createdAt)
      VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
   ).run(
     crypto.randomUUID(),
     nodeId,
-    PROJECT_ID,
+    pid,
     opts.content,
     vectorToBlob(axisVector(opts.axis)),
     EMBEDDING_MODEL,
@@ -94,22 +100,29 @@ beforeAll(() => {
     `INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
      VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 3)`,
   ).run(PROJECT_ID, "Retrieval Test", `/tmp/retrieval-${PROJECT_ID}`);
+  db.prepare(
+    `INSERT OR REPLACE INTO projects (id, name, path, favorite, techStack, externalLinks, aiCommitMode, treeDepth)
+     VALUES (?, ?, ?, 0, '[]', '[]', 'stage', 3)`,
+  ).run(SECOND_PROJECT_ID, "Retrieval Test B", `/tmp/retrieval-${SECOND_PROJECT_ID}`);
 });
+
+const cleanupProjectData = (pid: string) => {
+  db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(pid);
+  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(pid);
+};
 
 afterEach(() => {
   delete process.env.VK_DISABLE_EMBEDDINGS;
-  db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(PROJECT_ID);
+  cleanupProjectData(PROJECT_ID);
+  cleanupProjectData(SECOND_PROJECT_ID);
 });
 
 afterAll(() => {
-  db.prepare("DELETE FROM artifact_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_artifacts WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM graph_node_embeddings WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM project_graph_nodes WHERE projectId = ?").run(PROJECT_ID);
-  db.prepare("DELETE FROM projects WHERE id = ?").run(PROJECT_ID);
+  cleanupProjectData(PROJECT_ID);
+  cleanupProjectData(SECOND_PROJECT_ID);
+  db.prepare("DELETE FROM projects WHERE id IN (?, ?)").run(PROJECT_ID, SECOND_PROJECT_ID);
 });
 
 describe("retrieveKnowledge — hybrid fusion", () => {
@@ -352,5 +365,98 @@ describe("retrieveKnowledge — options", () => {
       embedFn: fakeEmbed(1),
     });
     expect(res).toEqual({ model: EMBEDDING_MODEL, hits: [], totalCandidates: 0 });
+  });
+});
+
+describe("retrieveKnowledge — cross-project (projectId omitted)", () => {
+  test("ranks across all projects and attributes each hit to its source project", async () => {
+    const inA = seedArtifact({
+      title: "auth-a",
+      content: "shared widget token in project A",
+      axis: 1,
+      projectId: PROJECT_ID,
+    });
+    const inB = seedArtifact({
+      title: "auth-b",
+      content: "shared widget token in project B",
+      axis: 1,
+      projectId: SECOND_PROJECT_ID,
+    });
+
+    const res = await retrieveKnowledge({
+      query: "widget token", // projectId omitted → cross-project
+      embedFn: fakeEmbed(1),
+      types: ["artifact"],
+    });
+
+    const byEntity = new Map(res.hits.map((h) => [h.entityId, h]));
+    // Hits from BOTH projects surface in one query.
+    expect(byEntity.has(inA)).toBe(true);
+    expect(byEntity.has(inB)).toBe(true);
+    // Each hit is attributed to the right project (id + name).
+    expect(byEntity.get(inA)!.project).toEqual({ id: PROJECT_ID, name: "Retrieval Test" });
+    expect(byEntity.get(inB)!.project).toEqual({ id: SECOND_PROJECT_ID, name: "Retrieval Test B" });
+    expect(res.totalCandidates).toBe(2);
+  });
+
+  test("per-project mode is unchanged — no project attribution leaks in", async () => {
+    seedArtifact({ title: "solo", content: "single project doc", axis: 1, projectId: PROJECT_ID });
+    seedArtifact({
+      title: "other",
+      content: "single project doc",
+      axis: 1,
+      projectId: SECOND_PROJECT_ID,
+    });
+
+    const res = await retrieveKnowledge({
+      projectId: PROJECT_ID, // scoped
+      query: "single project",
+      embedFn: fakeEmbed(1),
+      types: ["artifact"],
+    });
+    // Only project A's row; no `project` field on per-project hits.
+    expect(res.totalCandidates).toBe(1);
+    expect(res.hits.every((h) => h.project === undefined)).toBe(true);
+  });
+
+  test("mirror nodes are excluded across ALL projects in cross-project mode", async () => {
+    const realA = seedGraphNode({
+      label: "Concept A",
+      content: "cross gizmo node",
+      axis: 1,
+      projectId: PROJECT_ID,
+    });
+    seedGraphNode({
+      label: "gizmo.md",
+      content: "cross gizmo node",
+      axis: 1,
+      mirror: true,
+      projectId: SECOND_PROJECT_ID,
+    });
+
+    const res = await retrieveKnowledge({
+      query: "gizmo",
+      embedFn: fakeEmbed(1),
+      types: ["graph_node"],
+    });
+    const ids = res.hits.map((h) => h.entityId);
+    expect(ids).toContain(realA);
+    expect(res.hits.length).toBe(1); // mirror in project B excluded
+    expect(res.hits[0].project).toEqual({ id: PROJECT_ID, name: "Retrieval Test" });
+  });
+
+  test("kill-switch returns empty in cross-project mode without embedding", async () => {
+    seedArtifact({ title: "x", content: "content", axis: 1, projectId: PROJECT_ID });
+    process.env.VK_DISABLE_EMBEDDINGS = "1";
+    let embedCalled = false;
+    const res = await retrieveKnowledge({
+      query: "content",
+      embedFn: async (_t) => {
+        embedCalled = true;
+        return axisVector(1);
+      },
+    });
+    expect(res.hits).toEqual([]);
+    expect(embedCalled).toBe(false);
   });
 });
