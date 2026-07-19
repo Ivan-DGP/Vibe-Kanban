@@ -48,3 +48,11 @@ export interface MemoryQuery {
   includeSuperseded?: boolean;
   limit?: number;
 }
+
+/** A memory event that grounded a spawn prompt (injected into <project_memory>),
+ * recorded for audit. Mirrors GroundedArtifact. */
+export interface GroundedMemory {
+  id: string;
+  title: string;
+  type: MemoryType;
+}

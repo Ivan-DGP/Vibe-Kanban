@@ -4,6 +4,7 @@ import { getDb } from "../db";
 import {
   buildAnalyzePrompt,
   buildAiResolvePrompt,
+  buildAiResolvePromptWithGrounding,
   buildGatherContextPrompt,
   buildDecomposePrompt,
   buildAiTestPrompt,
@@ -161,6 +162,24 @@ describe("buildAiResolvePrompt", () => {
       delete process.env.VK_DISABLE_EMBEDDINGS;
       db.prepare("DELETE FROM artifact_embeddings WHERE artifactId = ?").run(artifactId);
       db.prepare("DELETE FROM project_artifacts WHERE id = ?").run(artifactId);
+    }
+  });
+
+  // Memory injection wiring: the grounding result now carries a groundedMemory
+  // list, and with embeddings disabled no <project_memory> block is injected and
+  // the prompt still builds. The block CONTENT is proven deterministically in
+  // memoryInjection.test.ts.
+  test("grounding result carries groundedMemory; kill-switch omits the block", async () => {
+    process.env.VK_DISABLE_EMBEDDINGS = "1";
+    try {
+      const task = getTestTask();
+      contextCache.clear();
+      const result = await buildAiResolvePromptWithGrounding(task, TEST_PROJECT_ID, TEST_PORT);
+      expect(Array.isArray(result.groundedMemory)).toBe(true);
+      expect(result.groundedMemory).toEqual([]);
+      expect(result.prompt).not.toContain("<project_memory");
+    } finally {
+      delete process.env.VK_DISABLE_EMBEDDINGS;
     }
   });
 });
