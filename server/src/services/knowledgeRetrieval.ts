@@ -76,13 +76,17 @@ export interface KnowledgeHit {
   updatedAt: string;
   /** Adjacent-chunk text (chunkIdx±1) when expandNeighbors is set. */
   neighborContext?: string;
+  /** Source project, populated only in cross-project mode (projectId omitted). */
+  project?: { id: string; name: string };
   artifact?: ArtifactPayload;
   task?: TaskPayload;
   graphNode?: GraphNodePayload;
 }
 
 export interface RetrieveOptions {
-  projectId: string;
+  /** Omit to search across ALL projects (cross-project mode); hits then carry
+   * their source `project`. Provide it for the (default) single-project search. */
+  projectId?: string;
   query: string;
   k?: number;
   /** Floor applied to the FUSED score (default 0 = keep all). */
@@ -124,7 +128,9 @@ const KIND_ENTITY_COL: Record<KnowledgeKind, string> = {
 };
 
 /**
- * Hybrid knowledge retrieval. Returns fused, ranked hits for a project.
+ * Hybrid knowledge retrieval. Returns fused, ranked hits for a single project
+ * (pass `projectId`) or across ALL projects (omit it — hits then carry their
+ * source `project`).
  *
  * Honors the VK_DISABLE_EMBEDDINGS kill-switch (returns empty, no model load).
  * Never throws on empty corpora — returns `{ hits: [], totalCandidates: 0 }`.
@@ -153,6 +159,17 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
 
   const db = getDb();
 
+  // Cross-project mode (projectId omitted): drop the projectId filter and join
+  // `projects` so each hit can be attributed to its source project. Single-project
+  // mode keeps the exact WHERE e.projectId = ? filter and adds nothing.
+  const crossProject = projectId === undefined;
+  const projJoin = crossProject ? "JOIN projects p ON p.id = e.projectId" : "";
+  const projSelect = crossProject ? ", p.id AS projPid, p.name AS projName" : "";
+  const projWhere = crossProject ? "1=1" : "e.projectId = ?";
+  const projBinds: string[] = crossProject ? [] : [projectId];
+  const mkProject = (r: { projPid?: string; projName?: string }) =>
+    crossProject ? { project: { id: r.projPid!, name: r.projName! } } : {};
+
   // 1. Load all candidate rows for included kinds, keyed by embId. This is the
   //    universe both branches rank over; the payload map also enforces graph
   //    mirror-node exclusion (excluded rows never enter the map).
@@ -162,12 +179,13 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
     const rows = db
       .prepare(
         `SELECT e.id, e.artifactId, e.chunkIdx, e.content, e.vector,
-                a.filename, a.type, a.description, a.tags, a.mimeType, a.updatedAt
+                a.filename, a.type, a.description, a.tags, a.mimeType, a.updatedAt${projSelect}
            FROM artifact_embeddings e
            JOIN project_artifacts a ON a.id = e.artifactId
-          WHERE e.projectId = ?`,
+           ${projJoin}
+          WHERE ${projWhere}`,
       )
-      .all(projectId) as {
+      .all(...projBinds) as {
       id: string;
       artifactId: string;
       chunkIdx: number;
@@ -179,6 +197,8 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
       tags: string | null;
       mimeType: string;
       updatedAt: string;
+      projPid?: string;
+      projName?: string;
     }[];
     for (const r of rows) {
       rowsById.set(r.id, {
@@ -191,6 +211,7 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
           content: r.content,
           score: 0,
           updatedAt: r.updatedAt,
+          ...mkProject(r),
           artifact: {
             id: r.artifactId,
             filename: r.filename,
@@ -209,12 +230,13 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
     const rows = db
       .prepare(
         `SELECT e.id, e.taskId, e.chunkIdx, e.content, e.vector,
-                t.title, t.status, t.priority, t.taskNumber, t.milestoneId, t.updatedAt
+                t.title, t.status, t.priority, t.taskNumber, t.milestoneId, t.updatedAt${projSelect}
            FROM task_embeddings e
            JOIN tasks t ON t.id = e.taskId
-          WHERE e.projectId = ?`,
+           ${projJoin}
+          WHERE ${projWhere}`,
       )
-      .all(projectId) as {
+      .all(...projBinds) as {
       id: string;
       taskId: string;
       chunkIdx: number;
@@ -226,6 +248,8 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
       taskNumber: number;
       milestoneId: string | null;
       updatedAt: string;
+      projPid?: string;
+      projName?: string;
     }[];
     for (const r of rows) {
       rowsById.set(r.id, {
@@ -238,6 +262,7 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
           content: r.content,
           score: 0,
           updatedAt: r.updatedAt,
+          ...mkProject(r),
           task: {
             id: r.taskId,
             title: r.title,
@@ -256,12 +281,13 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
     const rows = db
       .prepare(
         `SELECT e.id, e.nodeId, e.chunkIdx, e.content, e.vector,
-                n.label, n.type, n.description, n.updatedAt
+                n.label, n.type, n.description, n.updatedAt${projSelect}
            FROM graph_node_embeddings e
            JOIN project_graph_nodes n ON n.id = e.nodeId
-          WHERE e.projectId = ? AND ${MIRROR_NODE_EXCLUSION}`,
+           ${projJoin}
+          WHERE ${projWhere} AND ${MIRROR_NODE_EXCLUSION}`,
       )
-      .all(projectId) as {
+      .all(...projBinds) as {
       id: string;
       nodeId: string;
       chunkIdx: number;
@@ -271,6 +297,8 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
       type: GraphNodeType;
       description: string | null;
       updatedAt: string;
+      projPid?: string;
+      projName?: string;
     }[];
     for (const r of rows) {
       rowsById.set(r.id, {
@@ -283,6 +311,7 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
           content: r.content,
           score: 0,
           updatedAt: r.updatedAt,
+          ...mkProject(r),
           graphNode: {
             id: r.nodeId,
             label: r.label,
@@ -323,10 +352,10 @@ export async function retrieveKnowledge(opts: RetrieveOptions): Promise<Retrieve
     const ftsRows = db
       .prepare(
         `SELECT embId FROM knowledge_fts
-          WHERE projectId = ? AND kind IN (${placeholders}) AND knowledge_fts MATCH ?
+          WHERE ${crossProject ? "" : "projectId = ? AND "}kind IN (${placeholders}) AND knowledge_fts MATCH ?
           ORDER BY bm25(knowledge_fts)`,
       )
-      .all(projectId, ...kinds, match) as { embId: string }[];
+      .all(...projBinds, ...kinds, match) as { embId: string }[];
     lexIds = ftsRows.map((r) => r.embId).filter((id) => rowsById.has(id));
   }
 
