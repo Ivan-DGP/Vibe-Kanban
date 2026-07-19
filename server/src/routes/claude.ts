@@ -26,6 +26,15 @@ import {
 } from "../services/specialistAgent";
 import type { Task } from "@vibe-kanban/shared";
 
+// Replaces the CLI's default system prompt for the grounded Specialist turn so it
+// doesn't load the repo's CLAUDE.md / skills / memory harness. Keeps it a plain,
+// fast, tool-free assistant that answers from the grounded context inline.
+const SPECIALIST_SYSTEM_PROMPT =
+  "You are the cross-project Specialist for this developer's workspace. Answer the " +
+  "question directly and concisely, using the grounded context provided in the " +
+  "message and citing sources inline as `label (project)` when relevant. Do not use " +
+  "tools; respond in a single turn.";
+
 let cliAvailableCache: boolean | null = null;
 let cliCheckTime = 0;
 
@@ -338,7 +347,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
   //  - Grounded one-shot (default / fallback): pre-ground with knowledge + memory,
   //    emit the cited `sources` frame, then stream the answer via the CLI→API fallback.
   fastify.post("/specialist/chat", async (request, reply) => {
-    const { message } = request.body as { message?: string };
+    const { message, projectId } = request.body as { message?: string; projectId?: string };
     if (!message || !message.trim()) {
       reply.code(400);
       return { error: "message is required" };
@@ -347,7 +356,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
       await streamAgenticChat(message, reply);
       return;
     }
-    const grounding = await groundQuery(message);
+    const grounding = await groundQuery(message, { projectId });
     const sources = [...grounding.knowledge, ...grounding.memory];
     const prompt = buildSpecialistPrompt(message, grounding);
     // Signal the engine (and, when agentic was opted-in but MCP is unavailable, why).
@@ -356,7 +365,16 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
       mode: "grounded",
       ...(isSpecialistAgenticEnabled() ? { reason: "mcp_unavailable" } : {}),
     };
-    await streamPromptToSSE(prompt, reply, [engine, { type: "sources", sources }]);
+    // Isolate the CLI turn from the developer's interactive Claude Code context:
+    // a bare `claude -p` in the repo loads CLAUDE.md + every skill + memory +
+    // extended thinking, turning this one-shot Q&A into a heavy agentic turn that
+    // blows the timeout and surfaces "Execution error". A replaced system prompt
+    // + user-only settings keeps it a fast, tool-free answer. (Only the Specialist
+    // opts in; the other streamPromptToSSE callers keep default behavior.)
+    await streamPromptToSSE(prompt, reply, [engine, { type: "sources", sources }], {
+      cliArgs: ["--system-prompt", SPECIALIST_SYSTEM_PROMPT, "--setting-sources", "user"],
+      timeoutMs: 120_000,
+    });
   });
 
   // Shared SSE streaming helper. `preludeEvents` are written as `data:` frames
@@ -366,6 +384,7 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
     prompt: string,
     reply: any,
     preludeEvents: Array<Record<string, unknown>> = [],
+    opts: { cliArgs?: string[]; timeoutMs?: number } = {},
   ): Promise<void> {
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -379,8 +398,10 @@ const claudeRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       if (await isCliAvailable()) {
-        const proc = spawnStreaming(["claude", "-p"], { stdinData: prompt });
-        const timeout = setTimeout(() => proc.kill(), 60_000);
+        const proc = spawnStreaming(["claude", "-p", ...(opts.cliArgs ?? [])], {
+          stdinData: prompt,
+        });
+        const timeout = setTimeout(() => proc.kill(), opts.timeoutMs ?? 60_000);
         const onClose = () => {
           clearTimeout(timeout);
           try {

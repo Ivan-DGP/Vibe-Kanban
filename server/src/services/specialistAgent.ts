@@ -231,6 +231,12 @@ export async function streamAgenticChat(message: string, reply: FastifyReply): P
         "--output-format",
         "stream-json",
         "--verbose",
+        // Isolate from the developer's interactive Claude Code context (repo
+        // CLAUDE.md / skills / memory / extended thinking) — same reason as the
+        // grounded engine: it otherwise turns this into a heavy turn that times
+        // out. Keep these BEFORE the variadic --allowedTools.
+        "--setting-sources",
+        "user",
         "--mcp-config",
         cfgPath,
         // SANDBOX: pre-approve ONLY the read-only cross-project MCP tools. Without
