@@ -4,26 +4,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Send, Loader2, Sparkles, User, BookOpen, Search } from "lucide-react";
+import {
+  Send,
+  Loader2,
+  Sparkles,
+  User,
+  BookOpen,
+  Search,
+  Square,
+  Trash2,
+  Copy,
+  Check,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { specialistChat } from "@/hooks/useSpecialist";
+import { useSpecialistStore, type ToolStep } from "@/stores/specialistStore";
 import type { SpecialistSource } from "@vibe-kanban/shared";
-
-interface ToolStep {
-  name: string;
-  summary?: string;
-}
-
-interface Msg {
-  role: "user" | "assistant";
-  content: string;
-  sources?: SpecialistSource[];
-  /** Agentic engine: the MCP tool calls the model made, in order. */
-  steps?: ToolStep[];
-  /** "agentic" | "grounded" — which engine answered. */
-  engine?: string;
-}
 
 /** The agent's MCP tool calls, shown as inline steps while it works. */
 function Steps({ steps }: { steps: ToolStep[] }) {
@@ -60,12 +57,12 @@ function Sources({ sources }: { sources: SpecialistSource[] }) {
           <Badge
             key={`${s.kind}-${s.id}`}
             variant="secondary"
-            className="max-w-full text-[10px]"
-            title={s.snippet ?? undefined}
+            className="flex max-w-full items-center gap-1 text-[10px]"
+            title={s.snippet ? `${s.label}\n\n${s.snippet}` : s.label}
           >
-            <span className="text-muted-foreground">{s.kind}</span>
-            <span className="mx-1 truncate">{s.label}</span>
-            {s.project && <span className="text-muted-foreground">· {s.project}</span>}
+            <span className="shrink-0 text-muted-foreground">{s.kind}</span>
+            <span className="min-w-0 truncate">{s.label}</span>
+            {s.project && <span className="shrink-0 text-muted-foreground">· {s.project}</span>}
           </Badge>
         ))}
       </div>
@@ -73,23 +70,58 @@ function Sources({ sources }: { sources: SpecialistSource[] }) {
   );
 }
 
+/** Copy-to-clipboard button for an assistant answer. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!text.trim()) return null;
+  return (
+    <button
+      type="button"
+      aria-label="Copy answer"
+      title="Copy"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          /* clipboard unavailable */
+        }
+      }}
+      className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
 /**
  * Cross-project Specialist chat: each turn is grounded server-side in knowledge +
- * memory across ALL projects, then streamed. The first SSE frame carries the cited
- * sources, which render above the answer.
+ * memory (active project first when on a project page), then streamed. The first SSE
+ * frame carries the cited sources, which render above the answer. Conversation state
+ * lives in a store so it survives the panel being closed/reopened.
  */
 export default function SpecialistChatPanel() {
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const { messages, setMessages, clear } = useSpecialistStore();
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   // Active project (when viewing a project page) — floats its sources first.
   const projectMatch = useMatch("/project/:projectId");
   const activeProjectId = projectMatch?.params.projectId;
 
+  // Auto-scroll to the newest content. Use instant scroll while streaming (a
+  // smooth animation per token fights itself); smooth only when a turn settles.
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    scrollRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth" });
+  }, [messages, streaming]);
+
+  // Abort any in-flight stream if the panel unmounts (Sheet close).
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const stop = () => abortRef.current?.abort();
 
   const handleSend = async () => {
     const msg = input.trim();
@@ -98,9 +130,11 @@ export default function SpecialistChatPanel() {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: msg }]);
     setStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
-      const response = await specialistChat(msg, activeProjectId);
+      const response = await specialistChat(msg, activeProjectId, controller.signal);
       const reader = response.body?.getReader();
       if (!reader) return;
 
@@ -163,25 +197,43 @@ export default function SpecialistChatPanel() {
           }
         }
       }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Error: Failed to reach the Specialist." },
-      ]);
+    } catch (err) {
+      // A user-initiated abort (Stop / panel close) is not an error.
+      if ((err as Error)?.name !== "AbortError") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Error: Failed to reach the Specialist." },
+        ]);
+      }
     } finally {
       setStreaming(false);
+      abortRef.current = null;
     }
   };
 
   return (
-    <div className="flex h-full flex-col border-l">
+    <div className="flex h-full flex-col">
       <div className="flex items-center gap-1.5 border-b px-3 py-2 text-xs font-medium">
-        <Sparkles className="h-3.5 w-3.5" />
-        Specialist — knows every project
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="min-w-0 truncate">Specialist — knows every project</span>
+        <button
+          type="button"
+          aria-label="Clear conversation"
+          title="Clear conversation"
+          onClick={clear}
+          disabled={messages.length === 0 || streaming}
+          className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <ScrollArea className="flex-1 p-3">
-        <div className="space-y-3">
+      {/* Force the Radix viewport's inner wrapper from `display:table` (min-width:100%)
+          to block: otherwise wide children (code blocks, long URLs, tables) grow the
+          table and make `max-w-[85%]` resolve against content width, overflowing the
+          panel horizontally instead of wrapping/scrolling within it. */}
+      <ScrollArea className="min-h-0 flex-1 p-3 [&_[data-radix-scroll-area-viewport]>div]:!block">
+        <div className="space-y-3" aria-live="polite">
           {messages.length === 0 && (
             <div className="py-8 text-center text-sm text-muted-foreground">
               Ask anything across all your projects — e.g. “Have we solved JWT rotation before, and
@@ -194,25 +246,32 @@ export default function SpecialistChatPanel() {
                 <Sparkles className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  m.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "prose prose-sm max-w-none bg-muted dark:prose-invert"
+                className={`min-w-0 max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                  m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
                 }`}
               >
                 {m.role === "assistant" ? (
                   <>
                     {m.steps && <Steps steps={m.steps} />}
                     {m.sources && <Sources sources={m.sources} />}
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    {/* prose renders markdown; max-w-none fills the bubble, min-w-0 +
+                        break-words + scrollable <pre> keep long content from
+                        overflowing the panel horizontally. */}
+                    <div className="prose prose-sm min-w-0 max-w-none break-words dark:prose-invert [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    </div>
+                    {m.engine && (
+                      <span className="mt-1 inline-block text-[10px] uppercase tracking-wide text-muted-foreground/60">
+                        {m.engine}
+                      </span>
+                    )}
+                    {!streaming && <CopyButton text={m.content} />}
                   </>
                 ) : (
-                  m.content
+                  <span className="whitespace-pre-wrap break-words">{m.content}</span>
                 )}
               </div>
-              {m.role === "user" && (
-                <User className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-              )}
+              {m.role === "user" && <User className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />}
             </div>
           ))}
           {streaming && messages[messages.length - 1]?.content === "" && (
@@ -228,6 +287,7 @@ export default function SpecialistChatPanel() {
       <div className="border-t p-2">
         <div className="flex gap-2">
           <Input
+            autoFocus
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
@@ -235,14 +295,15 @@ export default function SpecialistChatPanel() {
             className="text-sm"
             disabled={streaming}
           />
-          <Button
-            size="icon"
-            aria-label="Send"
-            onClick={handleSend}
-            disabled={!input.trim() || streaming}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {streaming ? (
+            <Button size="icon" variant="secondary" aria-label="Stop" onClick={stop}>
+              <Square className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button size="icon" aria-label="Send" onClick={handleSend} disabled={!input.trim()}>
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
