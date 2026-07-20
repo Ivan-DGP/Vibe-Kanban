@@ -19,12 +19,32 @@ export interface SpecialistGrounding {
 export interface GroundQueryOptions {
   /** Hits per source (default 5). */
   k?: number;
+  /** Active project. When set, its hits are floated to the top of each source
+   * (project-first), with cross-project hits following. Omit for pure
+   * cross-project ranking. */
+  projectId?: string;
   /** Injectable embedder (tests). Defaults to the real model via the reused cores. */
   embedFn?: EmbedFn;
 }
 
 const DEFAULT_K = 5;
 const MEMORY_SNIPPET_CHARS = 240;
+// When scoped to a project, retrieve a wider cross-project candidate pool so the
+// active project's hits are present to float to the front even if they'd fall
+// outside the global top-k.
+const SCOPE_CANDIDATE_K = 20;
+
+/** Stable project-first partition: active-project hits (in score order) first,
+ * then the rest, capped at k. */
+function projectFirst<T extends { project?: { id: string } }>(
+  hits: T[],
+  projectId: string,
+  k: number,
+): T[] {
+  const mine = hits.filter((h) => h.project?.id === projectId);
+  const others = hits.filter((h) => h.project?.id !== projectId);
+  return [...mine, ...others].slice(0, k);
+}
 
 /** Label a knowledge hit by its kind-specific display field. */
 function knowledgeLabel(hit: {
@@ -47,12 +67,22 @@ export async function groundQuery(
   opts: GroundQueryOptions = {},
 ): Promise<SpecialistGrounding> {
   const k = opts.k ?? DEFAULT_K;
+  const scoped = opts.projectId;
+  // Always retrieve cross-project (so every hit carries its source `project`);
+  // when scoped, widen the pool and float the active project's hits to the top.
+  const candidateK = scoped ? Math.max(k * 4, SCOPE_CANDIDATE_K) : k;
   const empty: SpecialistGrounding = { knowledge: [], memory: [] };
   try {
-    const [knowledge, memory] = await Promise.all([
-      retrieveKnowledge({ query: message, k, embedFn: opts.embedFn }),
-      searchMemory({ query: message, k, embedFn: opts.embedFn }),
+    const [knowledgeRes, memoryRes] = await Promise.all([
+      retrieveKnowledge({ query: message, k: candidateK, embedFn: opts.embedFn }),
+      searchMemory({ query: message, k: candidateK, embedFn: opts.embedFn }),
     ]);
+    const knowledge = {
+      hits: scoped ? projectFirst(knowledgeRes.hits, scoped, k) : knowledgeRes.hits.slice(0, k),
+    };
+    const memory = {
+      hits: scoped ? projectFirst(memoryRes.hits, scoped, k) : memoryRes.hits.slice(0, k),
+    };
     return {
       knowledge: knowledge.hits.map((h) => ({
         id: h.entityId,

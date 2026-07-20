@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useMatch } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -82,6 +83,9 @@ export default function SpecialistChatPanel() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Active project (when viewing a project page) — floats its sources first.
+  const projectMatch = useMatch("/project/:projectId");
+  const activeProjectId = projectMatch?.params.projectId;
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -96,7 +100,7 @@ export default function SpecialistChatPanel() {
     setStreaming(true);
 
     try {
-      const response = await specialistChat(msg);
+      const response = await specialistChat(msg, activeProjectId);
       const reader = response.body?.getReader();
       if (!reader) return;
 

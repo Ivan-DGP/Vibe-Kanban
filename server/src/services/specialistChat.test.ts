@@ -109,6 +109,31 @@ describe("groundQuery — cross-project", () => {
   });
 });
 
+describe("groundQuery — project-first scoping", () => {
+  test("floats the active project's hits ahead of other projects (still cross-project)", async () => {
+    // Both memories match the query equally (same axis) — only scoping decides order.
+    seedMemory({ projectId: PROJECT_A, title: "A retry note", body: "retry in payments", axis: 0 });
+    seedMemory({ projectId: PROJECT_B, title: "B retry note", body: "retry in auth", axis: 0 });
+
+    const g = await groundQuery("retry", { projectId: PROJECT_B, embedFn: fakeEmbed(0) });
+
+    // Active project (Auth Gateway) leads; the other project still appears after.
+    expect(g.memory.length).toBe(2);
+    expect(g.memory[0].project).toBe("Auth Gateway");
+    expect(g.memory.map((m) => m.project)).toContain("Payments Service");
+  });
+
+  test("no projectId → pure cross-project (both projects present, no forced order)", async () => {
+    seedMemory({ projectId: PROJECT_A, title: "A note", body: "retry in payments", axis: 0 });
+    seedMemory({ projectId: PROJECT_B, title: "B note", body: "retry in auth", axis: 0 });
+
+    const g = await groundQuery("retry", { embedFn: fakeEmbed(0) });
+    const projects = g.memory.map((m) => m.project);
+    expect(projects).toContain("Payments Service");
+    expect(projects).toContain("Auth Gateway");
+  });
+});
+
 describe("buildSpecialistPrompt", () => {
   const grounding: SpecialistGrounding = {
     knowledge: [{ id: "a1", kind: "artifact", label: "retry.md", project: "Payments" }],

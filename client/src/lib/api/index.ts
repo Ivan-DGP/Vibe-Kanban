@@ -517,12 +517,13 @@ export const api = {
 
   specialist: {
     // Cross-project grounded chat (SSE). Returns the raw Response; the caller reads
-    // the stream (frames: sources | delta | error | done).
-    chat: (message: string, signal?: AbortSignal) =>
+    // the stream (frames: sources | delta | error | done). `projectId` (the active
+    // project, when on a project page) floats that project's sources first.
+    chat: (message: string, projectId?: string, signal?: AbortSignal) =>
       fetch("/api/specialist/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, ...(projectId ? { projectId } : {}) }),
         signal,
       }),
   },
