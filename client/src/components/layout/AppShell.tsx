@@ -213,11 +213,16 @@ export default function AppShell() {
       <FileContentSearch />
 
       <Sheet open={specialistOpen} onOpenChange={setSpecialistOpen}>
-        <SheetContent side="right" className="w-[480px] sm:max-w-[480px] p-0 flex flex-col">
-          <SheetHeader className="px-3 py-2 border-b">
-            <SheetTitle className="text-sm">Specialist</SheetTitle>
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 p-0 sm:w-[480px] sm:max-w-[480px]"
+        >
+          {/* Visually hidden — the panel renders its own visible header; this only
+              satisfies Radix's requirement that a Dialog/Sheet have a title. */}
+          <SheetHeader className="sr-only">
+            <SheetTitle>Specialist</SheetTitle>
           </SheetHeader>
-          <div className="flex-1 min-h-0">
+          <div className="min-h-0 flex-1">
             <SpecialistChatPanel />
           </div>
         </SheetContent>
